@@ -1,0 +1,22 @@
+{
+  "name": "shrek-school-software",
+  "version": "1.0.0",
+  "description": "Collects school assignments from Google Classroom, Canvas and Edpuzzle into one page",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node 05-playwright-черновик.js",
+    "login": "node 05-playwright-черновик.js --login",
+    "full": "node 05-playwright-черновик.js --всё",
+    "page": "node 05-playwright-черновик.js --перерисовать",
+    "api": "node 17-api.js",
+    "config": "node 19-настройки.js",
+    "build": "./собрать.sh"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
