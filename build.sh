@@ -56,22 +56,23 @@ else
   echo "→ Notifier skipped (no .app or source found)"
 fi
 
-# ── Summary ───────────────────────────────────────────────────
+# ── SHREK School Software (the summary window) ──────────────────
 #
 # A real Swift program, WKWebView draws the window. The path gets baked
 # into Info.plist under the key "ProjectPath", and that's where
 # 16-summary.swift reads it from.
+APP_NAME="SHREK School Software"
 if command -v swiftc >/dev/null; then
-  echo "→ Summary"
-  mkdir -p "Summary.app/Contents/MacOS"
-  cat > "Summary.app/Contents/Info.plist" <<PLIST
+  echo "→ $APP_NAME"
+  mkdir -p "$APP_NAME.app/Contents/MacOS"
+  cat > "$APP_NAME.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key><string>Summary</string>
+    <key>CFBundleExecutable</key><string>$APP_NAME</string>
     <key>CFBundleIdentifier</key><string>com.artem.svodka</string>
-    <key>CFBundleName</key><string>Summary</string>
+    <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -79,19 +80,28 @@ if command -v swiftc >/dev/null; then
 </dict>
 </plist>
 PLIST
-  swiftc -O -o "Summary.app/Contents/MacOS/Summary" 16-summary.swift
-  codesign --force -s - "Summary.app" 2>/dev/null
+  # -target pins the deployment target explicitly: some Swift toolchains
+  # default the binary's minimum-OS requirement to whatever future macOS
+  # the SDK itself targets (seen defaulting to "28.0" on a toolchain
+  # running under macOS 27), which makes Launch Services flat-out refuse
+  # to open the app on anything older than that — a launch failure with
+  # no useful error, only visible via `otool -l` on the built binary.
+  # MACOSX_DEPLOYMENT_TARGET alone did not override this; -target does.
+  # 11.0 covers everything this app actually uses (NSWindow, WKWebView).
+  # $(uname -m) keeps this working on both Apple Silicon and Intel.
+  swiftc -O -target "$(uname -m)-apple-macos11" -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" 16-summary.swift
+  codesign --force -s - "$APP_NAME.app" 2>/dev/null
   echo "  built, path baked into Info.plist"
 
   # A copy in /Applications: Quick Actions only list programs from there,
-  # so that's the only way to bind a keyboard shortcut to the window.
-  if [ -d "/Applications/Summary.app" ]; then
-    rm -rf "/Applications/Summary.app"
-    cp -R "Summary.app" /Applications/
-    echo "  copy in /Applications updated"
-  fi
+  # so that's the only way to bind a keyboard shortcut to the window —
+  # and it's where a real installed app is expected to live anyway.
+  # Always installed/updated here, not just when a copy already exists.
+  rm -rf "/Applications/$APP_NAME.app"
+  cp -R "$APP_NAME.app" /Applications/
+  echo "  installed to /Applications/$APP_NAME.app"
 else
-  echo "→ swiftc not found, skipping Summary (needs developer tools)"
+  echo "→ swiftc not found, skipping $APP_NAME (needs developer tools)"
 fi
 
 # ── Check now ─────────────────────────────────────────────────

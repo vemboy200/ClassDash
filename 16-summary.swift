@@ -66,7 +66,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = "Школьная сводка"
+        window.title = "SHREK School Software"
         window.center()
         // Remembers the window's size and position between launches.
         window.setFrameAutosaveName("SummaryWindow")
