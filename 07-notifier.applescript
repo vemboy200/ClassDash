@@ -25,14 +25,52 @@
 on run
 	try
 		my showNotification()
+	on error errMsg number errNum
+		my logLine("run failed: " & errNum & " — " & errMsg)
 	end try
 end run
 
 on open location theURL
+	my logLine("open location: " & theURL)
 	try
 		my dispatch(theURL)
+		my logLine("  dispatch ok")
+	on error errMsg number errNum
+		my logLine("  dispatch FAILED: " & errNum & " — " & errMsg)
 	end try
 end open location
+
+-- WHY THIS EXISTS: THE BARE `try` ABOVE USED TO HAVE NO `on error`.
+--
+-- An AppleScript `try` with no error branch discards the error entirely.
+-- Both handlers here had one, so every possible failure in this app —
+-- including the one that actually happened — produced exactly nothing:
+-- no popup, no message, no trace. macOS reported the URL as delivered,
+-- the page looked fine, and the button simply did nothing. Three
+-- separate fixes were made elsewhere in the chain before anyone could
+-- see that the failure was in here.
+--
+-- Written with AppleScript's own file commands rather than
+-- `do shell script`, deliberately: the failure being recorded is a
+-- `do shell script` that couldn't run, so using one to report it would
+-- fail in exactly the same silence.
+on logLine(theText)
+	try
+		set logPath to my getProjectDir() & "notifier-log.txt"
+		-- `current date`, not a `date` call through the shell: the whole
+		-- point is to still work when the shell is the broken part.
+		set stamp to ((current date) as string)
+		set fileRef to open for access (POSIX file logPath) with write permission
+		write (stamp & "  [app] " & theText & linefeed) to fileRef starting at eof
+		close access fileRef
+	on error
+		-- Last resort: if even that failed, try to leave the file closed
+		-- rather than locked open for the next launch.
+		try
+			close access (POSIX file (my getProjectDir() & "notifier-log.txt"))
+		end try
+	end try
+end logLine
 
 on getProjectDir()
 	-- The app lives directly inside the project folder — same as how
@@ -96,5 +134,27 @@ on dispatch(theURL)
 
 	set projectDir to my getProjectDir()
 	set actionsScript to projectDir & "21-notifier-actions.js"
-	do shell script "node " & quoted form of actionsScript & " " & quoted form of actionName & " " & quoted form of theArg
+
+	-- PATH HAS TO BE SET HERE, AND THIS IS THE WHOLE BUG.
+	--
+	-- `do shell script` does NOT get the PATH from a login shell. When
+	-- this app is launched by macOS from a napominalka:// URL, it gets a
+	-- minimal environment — roughly /usr/bin:/bin:/usr/sbin:/sbin — and
+	-- Homebrew's node lives in /opt/homebrew/bin, which is not in it. So
+	-- the command failed with "node: command not found" on every single
+	-- click, and the bare `try` in `open location` swallowed it whole.
+	--
+	-- The result was a button that did nothing, with every other part of
+	-- the chain provably healthy: the page built the URL correctly,
+	-- macOS accepted and delivered it, the app launched, and the action
+	-- script it was supposed to run was never reached. Testing that
+	-- script by hand always worked, because a terminal has a real PATH.
+	--
+	-- Both Homebrew locations are covered (/opt/homebrew on Apple
+	-- silicon, /usr/local on Intel), and the inherited PATH is kept
+	-- after them so a node installed anywhere else still wins if those
+	-- two come up empty. Prepending rather than hardcoding one absolute
+	-- path also survives a node upgrade moving the binary.
+	set pathPrefix to "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; "
+	do shell script pathPrefix & "node " & quoted form of actionsScript & " " & quoted form of actionName & " " & quoted form of theArg
 end dispatch

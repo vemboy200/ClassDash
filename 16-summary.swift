@@ -57,6 +57,32 @@ let projectDir: String = {
 }()
 let pagePath = projectDir + "/summary.html"
 
+/// Records what the window did with a link, next to the notifier's own log.
+///
+/// THE WINDOW IS AS SILENT AS THE NOTIFIER WAS.
+///
+/// Launched from the Dock or Finder, this app has nowhere to print: any
+/// error it hits goes into a void. The gap that mattered was the
+/// handoff itself -- the page asks for a napominalka:// URL, this code
+/// passes it to macOS, and whether macOS actually did anything with it
+/// was never recorded. When it silently refused, the result was a
+/// button that did nothing, with every visible part of the chain
+/// looking perfectly healthy.
+func logWindow(_ text: String) {
+    let line = "\(ISO8601DateFormatter().string(from: Date()))  \(text)\n"
+    let path = projectDir + "/window-log.txt"
+    guard let data = line.data(using: .utf8) else { return }
+    // Appends if it can, creates if it can't, and gives up quietly
+    // rather than letting logging be the thing that breaks a click.
+    if let handle = FileHandle(forWritingAtPath: path) {
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: data)
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     var window: NSWindow!
     var web: WKWebView!
@@ -176,9 +202,11 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                  decidePolicyFor action: WKNavigationAction,
                  decisionHandler decision: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else {
+            logWindow("navigation with no URL at all — allowed")
             decision(.allow)
             return
         }
+        logWindow("navigation: \(url.scheme ?? "no-scheme") type=\(action.navigationType.rawValue)")
         // napominalka:// is caught BY SCHEME, not by navigation type: a
         // long press on the "reload" button sets the address from the
         // page's own code, and its type isn't "a link was clicked" but
@@ -196,7 +224,16 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             // an assignment switches to the browser and back the same
             // way, and a reload there is just as unwanted.
             lastHandoff = Date()
-            NSWorkspace.shared.open(url)
+            // THE RETURN VALUE IS THE WHOLE POINT.
+            //
+            // This used to be discarded. macOS returns false when it
+            // won't open the URL -- no handler registered, the handler
+            // refused to launch -- and discarding that turned a refusal
+            // into a button that did nothing, indistinguishable from a
+            // click that never happened.
+            let opened = NSWorkspace.shared.open(url)
+            logWindow("  handed to macOS: \(url.scheme ?? "?") -> " +
+                      (opened ? "accepted" : "REFUSED (no handler, or it would not launch)"))
             decision(.cancel)
             return
         }
