@@ -1,0 +1,16 @@
+{
+  "email": "your.school@email.example",
+  "account": 0,
+  "canvas": "https://your-school.instructure.com",
+  "language": "ru",
+  "summaryHours": [
+    8,
+    18
+  ],
+  "exclusions": [],
+  "classTimeoutMs": 60000,
+  "emptyTimeoutMs": 8000,
+  "passLimitMs": 300000,
+  "apiPort": 8734,
+  "browserPath": ""
+}
