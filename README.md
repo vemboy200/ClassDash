@@ -140,22 +140,31 @@ Cookies land in `./browser-profile` and last for weeks. When Google eventually
 signs you out, the script says so with a notification instead of silently
 showing yesterday's data.
 
+Build the notifier and the summary window app:
+
+```bash
+npm run build
+```
+
+This builds two things: a native window that shows the summary instead of a
+browser tab, and the notifier that shows the actual desktop popup and makes
+the page's buttons (`hide`, `not urgent`, `settings`, long-press reload)
+work at all — every one of them calls the notifier through a
+`napominalka://` link, and without it macOS just shows "no application set
+to open this URL" instead of doing anything. `npm run build` also registers
+that link type with macOS, so it works immediately, not just after the app
+happens to be opened once.
+
 Then run it:
 
 ```bash
 npm start
 ```
 
-Build the summary window app:
-
-```bash
-npm run build
-```
-
-> **Note.** The macOS notifier app is not in this repository — its source stays
-> on the author's machine. Without it you get everything except desktop alerts
-> and the buttons on the summary page (`mute`, `hide`, `settings`, long-press
-> reload). The collector, the page, the transcripts and the home API all work.
+> **Note.** Skip `npm run build` and the collector, the page, the transcripts,
+> and the home API all still work — you just get a plain browser tab instead
+> of a native window, and a generic system notification (from "Script
+> Editor", not "Напоминалка") instead of the buttons actually doing anything.
 > On Linux or Windows the same is true: the collector and the page are plain
 > Node, the notifier and the window are macOS-only.
 
@@ -197,15 +206,18 @@ your teachers' posts to anything on the network, with no password.
 | `18-language.js` | Russian and English wording |
 | `19-settings.js` | settings: read, write, validate |
 | `20-browser.js` | downloads and installs the project's own isolated Brave |
-| `build.sh` | builds both apps and bakes in the project path |
+| `07-notifier.applescript` | OS-level glue: registers `napominalka://`, shows the popup |
+| `21-notifier-actions.js` | the actual logic behind every `napominalka://` action |
+| `build.sh` | builds both apps, registers the notifier's URL scheme, bakes in the project path |
 
 The code comments are fairly heavy. Those comments are not decoration: nearly
 every one of them records a failure that already happened and explains why
-the obvious approach does not work. (A handful of filenames the app hands off
-to its separate, not-in-this-repo macOS notifier app — `Напоминалка.app` and
-a few `.txt` files it reads and writes — are kept in their original Russian
-on purpose, since renaming them would silently break that other app until
-its own source is updated to match.)
+the obvious approach does not work. (A handful of names the collector hands
+off to the notifier — the built app itself, `Напоминалка.app`, and a few
+`.txt` files it reads and writes — are kept in their original Russian on
+purpose. That predates this repo including a notifier at all: anyone who
+already built their own copy of it under that same convention keeps working
+unchanged.)
 
 ## A few things learned the hard way
 

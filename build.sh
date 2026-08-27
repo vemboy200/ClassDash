@@ -36,24 +36,70 @@ echo
 
 # ── Notifier ──────────────────────────────────────────────────
 #
-# Doesn't need the path: it lives inside the folder and finds it itself
-# via `path to me`.
+# Handles the page's buttons (hide, not urgent, save settings, check now)
+# via the napominalka:// URL scheme, and shows the actual notification
+# popup under its own name instead of "Script Editor" (what a bare
+# `osascript -e 'display notification ...'` shows up as instead).
 #
-# Built into a temp location and only the compiled script gets copied in.
-# Building directly on top would wipe out Info.plist, where three things
-# have accumulated, each one fixing a separate break: its own identifier
-# (otherwise there's no entry in Notification settings), the napominalka://
-# link type (otherwise the buttons on the page don't work), and
-# LSUIElement (otherwise the window switches you to a different desktop).
-if [ -d "Напоминалка.app" ] && [ -f 07-напоминалка.applescript ]; then
-  echo "→ Notifier"
-  osacompile -o "$TMPDIR_/Напоминалка.app" 07-напоминалка.applescript
-  cp "$TMPDIR_/Напоминалка.app/Contents/Resources/Scripts/main.scpt" \
-     "Напоминалка.app/Contents/Resources/Scripts/main.scpt"
-  codesign --force --deep -s - "Напоминалка.app" 2>/dev/null
-  echo "  built, Info.plist untouched"
+# Doesn't need the project path baked in: it lives directly inside the
+# project folder and finds that folder itself via `path to me`, same
+# idea as Summary's own ProjectPath but simpler, since this one never
+# gets copied to /Applications.
+#
+# All the real logic (writing to не-срочно.txt/скрытые.txt, applying
+# settings, redrawing the page, kicking off a full check) lives in
+# 21-notifier-actions.js, not here — see 07-notifier.applescript's own
+# header comment for why. This app's whole job is OS-level glue:
+# registering the URL scheme and reading/showing уведомление.txt.
+#
+# The Info.plist is fully regenerated every build rather than preserved:
+# every fix that matters (the identifier, the napominalka:// scheme
+# registration, LSUIElement so it doesn't switch you to another desktop
+# when it runs) lives right here in the script, not hand-edited into a
+# built .app over time — so there's nothing to lose by rebuilding it.
+NOTIFIER_NAME="Напоминалка"
+if [ -f 07-notifier.applescript ]; then
+  echo "→ $NOTIFIER_NAME"
+  rm -rf "$NOTIFIER_NAME.app"
+  osacompile -o "$NOTIFIER_NAME.app" 07-notifier.applescript
+
+  cat > "$NOTIFIER_NAME.app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>applet</string>
+    <key>CFBundleIconFile</key><string>applet</string>
+    <key>CFBundleIdentifier</key><string>com.artem.napominalka</string>
+    <key>CFBundleName</key><string>$NOTIFIER_NAME</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>LSUIElement</key><true/>
+    <key>LSMinimumSystemVersion</key><string>11.0</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleURLName</key><string>napominalka</string>
+        <key>CFBundleURLSchemes</key>
+        <array><string>napominalka</string></array>
+      </dict>
+    </array>
+</dict>
+</plist>
+PLIST
+
+  codesign --force --deep -s - "$NOTIFIER_NAME.app" 2>/dev/null
+
+  # macOS needs to be told this app exists and handles this scheme —
+  # that doesn't happen on its own until something (Finder, Spotlight)
+  # happens to notice it. lsregister forces it immediately, so
+  # napominalka:// links work right after this build finishes instead of
+  # only after the app happens to get noticed some other way.
+  /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister \
+    -f "$PROJ/$NOTIFIER_NAME.app" 2>/dev/null
+  echo "  built and registered: $PROJ/$NOTIFIER_NAME.app"
 else
-  echo "→ Notifier skipped (no .app or source found)"
+  echo "→ $NOTIFIER_NAME skipped (no 07-notifier.applescript found)"
 fi
 
 # ── SHREK School Software (the summary window) ──────────────────
