@@ -1,50 +1,53 @@
 /**
- * Сбор заданий из Canvas.
+ * Collects assignments from Canvas.
  *
- * УСТРОЕН ПРИНЦИПИАЛЬНО ИНАЧЕ, ЧЕМ CLASSROOM, и это к лучшему.
+ * BUILT FUNDAMENTALLY DIFFERENTLY FROM CLASSROOM, and that's for the better.
  *
- * Classroom приходится разглядывать глазами: ждать, пока страница
- * дорисуется, угадывать селекторы, ловить недобор. Мы на этом дважды
- * обожглись.
+ * Classroom has to be watched with actual eyes: wait for the page to
+ * finish rendering, guess at selectors, catch things that didn't fully
+ * load. Got burned by that twice already.
  *
- * У Canvas есть API — адрес, по которому сайт отдаёт данные не как
- * страницу для человека, а как готовый список для программы. Отсюда:
+ * Canvas has an API — an address the site hands data back from not as a
+ * page for a human, but as a ready-made list for a program. Which means:
  *
- *   - курсы НЕ НАДО прописывать руками, список приходит сам;
- *   - язык интерфейса не важен, даты приходят в машинном виде;
- *   - вёрстка может меняться сколько угодно, нас это не касается;
- *   - работает за секунды, а не за минуту.
+ *   - courses do NOT need to be typed in by hand, the list arrives on its own;
+ *   - interface language doesn't matter, dates arrive in machine form;
+ *   - the markup can change however it likes, it's none of our business;
+ *   - it runs in seconds, not a minute.
  *
- * Токен доступа не нужен: запросы уходят изнутри уже открытой страницы,
- * с теми же куками, что и у обычного браузера. Проверено — статус 200.
+ * No access token needed: requests go out from inside the already-open
+ * page, with the same cookies a normal browser would have. Confirmed —
+ * status 200.
  *
- * ── Про язык ──
- * Профиль браузера помнит русский (Chrome взял его из системы), и Canvas
- * отдавал страницы по-русски: «со сроком сдачи среда, 10 июня 2026».
- * Заголовок Accept-Language в 05-...js перебивает это. Настройки самого
- * Canvas при этом не трогаются — интерфейс пользователя остаётся русским.
+ * ── About language ──
+ * The browser profile remembers Russian (Chrome picked it up from the
+ * system), and Canvas was serving pages in Russian: "со сроком сдачи
+ * среда, 10 июня 2026". The Accept-Language header in 05-...js overrides
+ * that. Canvas's own settings aren't touched by this — the user's actual
+ * interface stays Russian.
  */
 
-// Адрес школьного Canvas берётся из настроек: у каждой школы он свой.
-const САЙТ = require('./19-настройки.js').прочитать().canvas;
+// The school's Canvas address comes from settings: every school has its own.
+const SITE = require('./19-settings.js').read().canvas;
 
-// Насколько обрезать описание задания. пользователь попросил сохранять их
-// на будущее — чтобы потом показывать прямо на странице-сводке.
+// How much to truncate an assignment's description to. The user asked
+// for these to be kept around for later — to eventually show right on
+// the summary page.
 //
-// Целиком хранить не стоит: Canvas отдаёт HTML с разметкой вроде
-// data-start="186", и на одно задание уходит несколько экранов.
-// Поэтому чистим до обычного текста и режем: четырёх тысяч знаков
-// хватает на любое школьное задание с запасом.
-const ДЛИНА_ОПИСАНИЯ = 4000;
+// Not worth storing in full: Canvas returns HTML with markup like
+// data-start="186", and one assignment can run several screens. So it's
+// cleaned down to plain text and capped: four thousand characters is
+// plenty for any school assignment, with room to spare.
+const DESCRIPTION_LENGTH = 4000;
 
 /**
- * HTML описания -> читаемый текст.
- * Абзацы и пункты списка превращаем в переводы строк, чтобы структура
- * задания не превратилась в кашу из склеенных предложений.
+ * Description HTML -> readable text.
+ * Paragraphs and list items become line breaks, so an assignment's
+ * structure doesn't turn into a mush of run-together sentences.
  */
-function очиститьОписание(html) {
+function cleanDescription(html) {
   if (!html) return null;
-  const текст = String(html)
+  const text = String(html)
     .replace(/<\s*(br|\/p|\/li|\/h[1-6]|\/div)\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
@@ -53,158 +56,162 @@ function очиститьОписание(html) {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  if (!текст) return null;
-  return текст.length > ДЛИНА_ОПИСАНИЯ
-    ? текст.slice(0, ДЛИНА_ОПИСАНИЯ) + '…'
-    : текст;
+  if (!text) return null;
+  return text.length > DESCRIPTION_LENGTH
+    ? text.slice(0, DESCRIPTION_LENGTH) + '…'
+    : text;
 }
 
 /**
- * Запрос к API изнутри открытой страницы Canvas.
- * Canvas защищается от подделки, добавляя `while(1);` перед JSON —
- * этот мусор надо срезать, иначе разбор упадёт.
+ * A request to the API from inside the already-open Canvas page.
+ * Canvas guards against forgery by prepending `while(1);` before the
+ * JSON — that junk has to be trimmed off, or parsing crashes.
  */
-async function спросить(page, путь) {
-  const текст = await page.evaluate(async (u) => {
+async function ask(page, apiPath) {
+  const text = await page.evaluate(async (u) => {
     const r = await fetch(u, { headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error(`Canvas ответил ${r.status} на ${u}`);
+    if (!r.ok) throw new Error(`Canvas responded ${r.status} to ${u}`);
     return await r.text();
-  }, САЙТ + путь);
-  return JSON.parse(текст.replace(/^while\(1\);?/, ''));
+  }, SITE + apiPath);
+  return JSON.parse(text.replace(/^while\(1\);?/, ''));
 }
 
 /**
- * Собирает задания из всех курсов.
+ * Collects assignments from every course.
  *
- * @returns {{items: Array, курсы: Array, ждут: Array}}
- *   items — задания в общем формате, как у Classroom
- *   курсы — по каким прошлись
- *   ждут  — курсы, которые учитель ещё не опубликовал
+ * @returns {{items: Array, courses: Array, pending: Array}}
+ *   items    — assignments in the shared format, same as Classroom's
+ *   courses  — which ones were actually gone through
+ *   pending  — courses the teacher hasn't published yet
  */
 /**
- * Обёртка с повтором.
+ * A wrapper with one retry.
  *
- * Переходы страницы входа непредсказуемы по времени: сколько ни жди,
- * иногда она дёрнется в самый неподходящий момент. Одна повторная
- * попытка дешевле, чем пропущенный сбор Canvas.
+ * The sign-in redirect chain is unpredictable in timing: no matter how
+ * long you wait, it sometimes lurches at the worst possible moment. One
+ * retry is cheaper than a missed Canvas collection.
  */
-async function собратьCanvas(page) {
+async function collectCanvas(page) {
   try {
-    return await собратьCanvasРаз(page);
+    return await collectCanvasOnce(page);
   } catch (e) {
-    console.warn(`  Canvas: первая попытка не удалась (${e.message}), пробую ещё раз`);
+    console.warn(`  Canvas: first attempt failed (${e.message}), retrying`);
     await page.waitForTimeout(3000);
-    return await собратьCanvasРаз(page);
+    return await collectCanvasOnce(page);
   }
 }
 
-async function собратьCanvasРаз(page) {
-  // Открываем сайт: запросы к API должны уходить с его же страницы,
-  // иначе куки не приложатся.
-  await page.goto(САЙТ + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+async function collectCanvasOnce(page) {
+  // Open the site: API requests have to go out from its own page, or the
+  // cookies won't be attached.
+  await page.goto(SITE + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-  // ЖДЁМ, ПОКА ЗАКОНЧИТСЯ ЦЕПОЧКА ВХОДА.
+  // WAIT UNTIL THE SIGN-IN CHAIN FINISHES.
   //
-  // Canvas при заходе уводит на школьную страницу входа
-  // (pdx.login.instructure.com) и возвращается обратно уже залогиненным.
-  // Спросить API посреди этой цепочки нельзя по двум причинам:
-  // запрос уйдёт с чужого адреса и будет заблокирован как межсайтовый
-  // («Failed to fetch»), либо страница уедет прямо во время запроса
-  // («Execution context was destroyed»). Обе поймали вживую 11 августа,
-  // когда перешли на видимое окно — с невидимым цепочка проходила
-  // быстрее и не попадалась.
+  // On arrival, Canvas redirects to the school's own sign-in page
+  // (pdx.login.instructure.com) and comes back already signed in. The API
+  // can't be queried in the middle of that chain for two reasons: the
+  // request would go out from the wrong origin and get blocked as
+  // cross-site ("Failed to fetch"), or the page could navigate away mid-
+  // request ("Execution context was destroyed"). Both caught live on
+  // August 11th, once things switched to a visible window — with an
+  // invisible one the chain ran faster and never got caught.
   //
-  // Поэтому ждём не «мы на нужном адресе», а «адрес перестал меняться».
-  let прошлый = null, спокойно = 0;
+  // So instead of waiting for "we're on the right address", it waits for
+  // "the address stopped changing".
+  let lastUrl = null, steady = 0;
   for (let i = 0; i < 45; i++) {
-    const сейчас = page.url();
-    спокойно = (сейчас === прошлый) ? спокойно + 1 : 0;
-    прошлый = сейчас;
-    // Три секунды без переходов и мы на Canvas — можно спрашивать.
-    if (спокойно >= 3 && сейчас.startsWith(САЙТ)) break;
+    const current = page.url();
+    steady = (current === lastUrl) ? steady + 1 : 0;
+    lastUrl = current;
+    // Three seconds with no navigation and we're on Canvas — safe to ask.
+    if (steady >= 3 && current.startsWith(SITE)) break;
     await page.waitForTimeout(1000);
   }
-  if (!page.url().startsWith(САЙТ)) {
-    throw new Error(`застряли на входе (${page.url()}) — возможно, нужен повторный вход в Canvas`);
+  if (!page.url().startsWith(SITE)) {
+    throw new Error(`stuck on sign-in (${page.url()}) — Canvas may need signing into again`);
   }
 
-  // state[]=unpublished — чтобы видеть и неоткрытые курсы.
-  // English 9 сейчас именно такой: учебный год не начался, учитель
-  // его не опубликовал. Знать о нём полезно — поймём, когда откроется.
-  // include[]=term — вместе с курсом приходят даты учебного периода.
-  // В интерфейсе их вообще не показывают, а нам они нужны, чтобы
-  // отличать прошлый год от нынешнего.
-  const все = await спросить(page,
+  // state[]=unpublished — so unopened courses are visible too.
+  // English 9 is exactly that right now: the school year hasn't started,
+  // the teacher hasn't published it. Worth knowing about — so we notice
+  // the moment it opens.
+  // include[]=term — the course's term dates come along with it. The
+  // interface never shows them at all, but they're needed here to tell
+  // last year's courses apart from this year's.
+  const all = await ask(page,
     '/api/v1/courses?enrollment_state=active&state[]=unpublished&state[]=available' +
     '&include[]=term&per_page=100');
 
-  const сейчас = Date.now();
+  const now = Date.now();
 
-  // Курс годится, если он опубликован И его учебный период ещё не кончился.
+  // A course counts if it's published AND its term hasn't ended yet.
   //
-  // Почему по дате, а не списком названий: в июне список протухнет,
-  // и правило придётся переписывать каждый год. А так оно само.
+  // Why by date and not a hardcoded name list: the list would go stale by
+  // June, and the rule would need rewriting every year. This way it
+  // handles itself.
   //
-  // Проверено на живых данных: у «2025-2026 Tech Lit» период кончился
-  // 11 июня 2026 — прошлый учебный год, и три несданных задания из него
-  // делали вид, что горят.
+  // Confirmed on live data: "2025-2026 Tech Lit"'s term ended June 11th,
+  // 2026 — last school year, and three of its unturned-in assignments
+  // were pretending to be due soon.
   //
-  // Если дат периода нет (школа не заполнила) — курс берём: лучше лишнее
-  // задание, чем пропущенное.
-  const кончился = к => {
-    const конец = к.term && к.term.end_at ? new Date(к.term.end_at).getTime() : null;
-    return конец !== null && конец < сейчас;
+  // If there's no term date at all (the school never filled it in) — the
+  // course is kept: better an extra assignment than a missed one.
+  const hasEnded = c => {
+    const end = c.term && c.term.end_at ? new Date(c.term.end_at).getTime() : null;
+    return end !== null && end < now;
   };
 
-  const доступные = все.filter(к => к.workflow_state === 'available' && !кончился(к));
-  const прошлогодние = все.filter(к => к.workflow_state === 'available' && кончился(к))
-    .map(к => к.name);
+  const active = all.filter(c => c.workflow_state === 'available' && !hasEnded(c));
+  const lastYear = all.filter(c => c.workflow_state === 'available' && hasEnded(c))
+    .map(c => c.name);
 
-  // Неопубликованные курсы. Их много: школа заводит на весь учебный год
-  // сразу, а учителя часто так и не открывают, работая через Classroom.
-  // Заданий в них не видно, но знать о них полезно — поймём момент,
-  // когда какой-нибудь откроют.
-  const ждут = все.filter(к => к.workflow_state !== 'available').map(к => к.name);
+  // Unpublished courses. There are plenty: the school sets up the whole
+  // school year at once, and teachers often never open them, working
+  // through Classroom instead. No assignments are visible in them, but
+  // it's worth knowing they exist — so the moment one opens gets noticed.
+  const pending = all.filter(c => c.workflow_state !== 'available').map(c => c.name);
 
-  if (прошлогодние.length) {
-    console.log(`  Canvas: пропускаю прошлогодние курсы: ${прошлогодние.join(', ')}`);
+  if (lastYear.length) {
+    console.log(`  Canvas: skipping last year's courses: ${lastYear.join(', ')}`);
   }
 
   const items = [];
-  for (const курс of доступные) {
-    // include[]=submission — чтобы знать, сдано ли уже.
-    // Сданное показывать в «горит» незачем.
-    const задания = await спросить(page,
-      `/api/v1/courses/${курс.id}/assignments` +
+  for (const course of active) {
+    // include[]=submission — to know whether it's already turned in.
+    // No reason to show turned-in work as due soon.
+    const assignments = await ask(page,
+      `/api/v1/courses/${course.id}/assignments` +
       '?include[]=submission&per_page=100&order_by=due_at');
 
-    for (const з of задания) {
-      const сдано = з.submission &&
-        (з.submission.submitted_at || з.submission.workflow_state === 'graded');
-      if (сдано) continue;
+    for (const a of assignments) {
+      const submitted = a.submission &&
+        (a.submission.submitted_at || a.submission.workflow_state === 'graded');
+      if (submitted) continue;
 
       items.push({
-        платформа: 'Canvas',
-        class: курс.name,
-        // Префикс обязателен: id в Canvas и в Classroom нумеруются
-        // независимо и рано или поздно совпадут. Без префикса одно
-        // задание затёрло бы другое при сравнении с прошлым запуском.
-        id: `canvas-${з.id}`,
+        platform: 'Canvas',
+        class: course.name,
+        // The prefix is required: Canvas ids and Classroom ids are
+        // numbered independently and will eventually collide. Without a
+        // prefix, one assignment would overwrite another when compared
+        // against the previous run.
+        id: `canvas-${a.id}`,
         type: 'Assignment',
-        title: з.name,
-        link: з.html_url,
-        // Готовая дата в машинном виде — разбирать текст не нужно.
-        due_iso: з.due_at || null,
+        title: a.name,
+        link: a.html_url,
+        // A ready-made machine date — no need to parse text.
+        due_iso: a.due_at || null,
         due: null,
-        posted: з.created_at || null,
-        // Сохраняем на будущее: показать описание прямо на странице,
-        // не открывая Canvas. Просьба пользователя.
-        описание: очиститьОписание(з.description),
+        posted: a.created_at || null,
+        // Kept for later: show the description right on the page without
+        // opening Canvas. The user's request.
+        description: cleanDescription(a.description),
       });
     }
   }
 
-  return { items, курсы: доступные.map(к => к.name), ждут };
+  return { items, courses: active.map(c => c.name), pending };
 }
 
-module.exports = { собратьCanvas, САЙТ };
+module.exports = { collectCanvas, SITE };

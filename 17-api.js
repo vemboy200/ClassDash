@@ -1,36 +1,40 @@
 /**
- * Домашний API: отдаёт собранное по локальной сети, как обычный сайт-API.
+ * Home API: serves what's been collected over the local network, like an
+ * ordinary web API.
  *
- * ── Зачем ──
+ * ── Why ──
  *
- * Сейчас данные живут в двух местах: файлы JSON и страница `сводка.html`.
- * Прочитать их может только сам скрипт и человек глазами. API открывает
- * их для ЧЕГО УГОДНО: телефона, часов, второго компьютера, чужой программы,
- * умного дома.
+ * Right now the data lives in two places: JSON files and the
+ * `summary.html` page. Only the script itself and a person's own eyes can
+ * read them. The API opens them up for ANYTHING: a phone, a watch, a
+ * second computer, someone else's program, a smart home setup.
  *
- * Никакого сбора здесь нет. Сервер только читает файлы, которые уже собрал
- * основной скрипт, и раскладывает их той же функцией `разложить()`, что
- * и страница-сводка. Логика намеренно не скопирована: разъехалась бы
- * при первой правке, а «горит» — главное слово во всей затее.
+ * No collecting happens here. The server only reads files the main script
+ * already collected, and sorts them with the same `sortIntoBuckets()`
+ * function the summary page uses. The logic is deliberately not
+ * duplicated: it would drift apart on the first edit, and "due soon" is
+ * the single most important word in the whole thing.
  *
- * ── Запуск ──
+ * ── Running it ──
  *
- *   node 17-api.js              только этот компьютер (127.0.0.1:8734)
- *   node 17-api.js --сеть       видно всей домашней сети
- *   node 17-api.js --порт 9000  другой порт
+ *   node 17-api.js               this computer only (127.0.0.1:8734)
+ *   node 17-api.js --network     visible to the whole home network
+ *   node 17-api.js --port 9000   a different port
  *
- * ── ПРО «--сеть» ЧИТАТЬ ОБЯЗАТЕЛЬНО ──
+ * ── READ THIS BEFORE USING "--network" ──
  *
- * По умолчанию сервер слушает 127.0.0.1 — это значит «только я сам».
- * Никто из сети достучаться не может, даже с соседнего компьютера.
+ * By default the server listens on 127.0.0.1 — meaning "only me". No one
+ * on the network can reach it, not even from the computer next door.
  *
- * Ключ --сеть снимает это ограничение, и тогда домашние задания, объявления
- * учителей и ссылки с почтой видны ЛЮБОМУ устройству в сети — включая
- * школьный вайфай, если ноутбук окажется там. Пароля тут нет.
+ * The --network flag lifts that restriction, and then homework, teacher
+ * announcements, and email-bearing links become visible to ANY device on
+ * the network — including a school wifi, if the laptop ever ends up
+ * there. There's no password here.
  *
- * Поэтому localhost выбран умолчанием, а не наоборот: включать шире
- * можно осознанно, а вот случайно раздать своё расписание на весь класс
- * не должно получаться само.
+ * That's why localhost is the default and not the other way around:
+ * opening it wider should be a deliberate choice, and accidentally
+ * broadcasting your own schedule to the whole class shouldn't happen on
+ * its own.
  */
 
 const http = require('http');
@@ -39,196 +43,198 @@ const path = require('path');
 const os = require('os');
 
 const {
-  разложить, прочитатьТихие, прочитатьСкрытые,
-} = require('./05-playwright-черновик.js');
-const { т, текущийЯзык } = require('./18-язык.js');
-// Считалка календарных дней живёт в 08-странице: круга нет, 17 и так
-// подключает 05, а тот — 08.
-const { днейДо } = require('./08-страница.js');
+  sortIntoBuckets, readMutedIds, readHiddenIds,
+} = require('./05-playwright-draft.js');
+const { t, currentLanguage } = require('./18-language.js');
+// The calendar-day counter lives in 08-page: no circular dependency,
+// 17 already pulls in 05, and 05 pulls in 08.
+const { daysUntil } = require('./08-page.js');
 
-const STATE_FILE = path.join(__dirname, 'последний-сбор.json');
-const STREAM_FILE = path.join(__dirname, 'сообщения.json');
-const CLASSES_FILE = path.join(__dirname, 'классы.json');
+const STATE_FILE = path.join(__dirname, 'last-collection.json');
+const STREAM_FILE = path.join(__dirname, 'messages.json');
+const CLASSES_FILE = path.join(__dirname, 'classes.json');
 
-const ПОРТ_ПО_УМОЛЧАНИЮ = require('./19-настройки.js').прочитать().портAPI;
+const DEFAULT_PORT = require('./19-settings.js').read().apiPort;
 
-/** Читает json-файл. Нет файла или он битый — пустой список, а не падение. */
-function прочитать(файл) {
-  if (!fs.existsSync(файл)) return [];
+/** Reads a json file. Missing or broken — an empty list, not a crash. */
+function readJson(file) {
+  if (!fs.existsSync(file)) return [];
   try {
-    const д = JSON.parse(fs.readFileSync(файл, 'utf8'));
-    return Array.isArray(д) ? д : [];
+    const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return Array.isArray(d) ? d : [];
   } catch {
     return [];
   }
 }
 
 /**
- * Готовит ответ: те же корзины, что на странице-сводке.
+ * Prepares the response: the same buckets as on the summary page.
  *
- * Читаем файлы на КАЖДЫЙ запрос, а не один раз при старте. Сбор идёт
- * каждые десять минут и переписывает их; сервер, запомнивший данные
- * при старте, отдавал бы вчерашнее и не признавался в этом.
+ * Files are read on EVERY request, not once at startup. Collection runs
+ * every ten minutes and rewrites them; a server that cached data at
+ * startup would keep serving yesterday's and never admit it.
  */
-function собрать() {
-  const задания = прочитать(STATE_FILE);
-  const объявления = прочитать(STREAM_FILE);
+function gather() {
+  const items = readJson(STATE_FILE);
+  const announcements = readJson(STREAM_FILE);
   const now = new Date();
 
-  const { burning, later, undated, отложенные, просрочено, пропавшие } =
-    разложить(задания, now, прочитатьТихие(), прочитатьСкрытые());
+  const { burning, later, undated, deferred, overdue, gone } =
+    sortIntoBuckets(items, now, readMutedIds(), readHiddenIds());
 
-  // Дата последнего сбора берётся не из наших часов, а из времени файла:
-  // если скрипт молчит третий день, это должно быть видно снаружи.
-  const собрано = fs.existsSync(STATE_FILE)
+  // The last-collection timestamp comes from the file's own mtime, not
+  // this process's clock: if the script has been silent for three days,
+  // that needs to be visible from outside.
+  const collectedAt = fs.existsSync(STATE_FILE)
     ? fs.statSync(STATE_FILE).mtime
     : null;
 
-  return { задания, объявления, burning, later, undated, отложенные,
-           просрочено, пропавшие, now, собрано };
+  return { items, announcements, burning, later, undated, deferred,
+           overdue, gone, now, collectedAt };
 }
 
-/** Задание наружу: без служебных полей, с числом дней до срока. */
-function наружу(x, now) {
+/** An assignment, outward-facing: no internal fields, plus days-until-due. */
+function toPublic(x, now) {
   return {
     id: x.id,
-    название: x.title,
-    класс: x.class,
-    платформа: x.платформа || 'Google Classroom',
-    тип: x.type || null,
-    ссылка: x.link || null,
-    срок: x.due_at ? x.due_at.toISOString() : null,
-    дней: x.due_at ? днейДо(now, x.due_at) : null,
-    // note хранится ключом («безСрока»), наружу отдаём текстом.
-    примечание: x.note ? т(x.note) : null,
+    title: x.title,
+    class: x.class,
+    platform: x.platform || 'Google Classroom',
+    type: x.type || null,
+    link: x.link || null,
+    due: x.due_at ? x.due_at.toISOString() : null,
+    daysUntilDue: x.due_at ? daysUntil(now, x.due_at) : null,
+    // note is stored as a key ("noDueDateNote"), given out as text.
+    note: x.note ? t(x.note) : null,
   };
 }
 
-const РУЧКИ = {
-  '/api/статус': (д) => ({
-    собрано: д.собрано ? д.собрано.toISOString() : null,
-    минут_назад: д.собрано ? Math.round((д.now - д.собрано) / 60000) : null,
-    классов: прочитать(CLASSES_FILE).length,
-    всего: д.задания.length,
-    горит: д.burning.length,
-    просрочено: д.просрочено.filter(x => !x.скрыто).length,
-    впереди: д.later.length,
-    объявлений: д.объявления.length,
-    удалённых: д.пропавшие.length,
-    язык: текущийЯзык(),
+const HANDLERS = {
+  '/api/status': (d) => ({
+    collectedAt: d.collectedAt ? d.collectedAt.toISOString() : null,
+    minutesAgo: d.collectedAt ? Math.round((d.now - d.collectedAt) / 60000) : null,
+    classes: readJson(CLASSES_FILE).length,
+    total: d.items.length,
+    dueSoon: d.burning.length,
+    overdue: d.overdue.filter(x => !x.hidden).length,
+    ahead: d.later.length,
+    announcements: d.announcements.length,
+    removed: d.gone.length,
+    language: currentLanguage(),
   }),
 
-  '/api/горит': (д) => д.burning.map(x => наружу(x, д.now)),
-  '/api/впереди': (д) => д.later.map(x => наружу(x, д.now)),
-  '/api/просрочено': (д) =>
-    д.просрочено.filter(x => !x.скрыто).map(x => наружу(x, д.now)),
+  '/api/due-soon': (d) => d.burning.map(x => toPublic(x, d.now)),
+  '/api/ahead': (d) => d.later.map(x => toPublic(x, d.now)),
+  '/api/overdue': (d) =>
+    d.overdue.filter(x => !x.hidden).map(x => toPublic(x, d.now)),
 
-  '/api/задания': (д) => [...д.burning, ...д.later, ...д.просрочено]
-    .map(x => наружу(x, д.now)),
+  '/api/assignments': (d) => [...d.burning, ...d.later, ...d.overdue]
+    .map(x => toPublic(x, d.now)),
 
-  '/api/объявления': (д) => д.объявления.map(п => ({
-    id: п.id,
-    класс: п.class,
-    автор: п.автор || null,
-    дата: п.дата || null,
-    заголовок: п.title || null,
-    текст: п.текст || null,
-    ссылка: п.link || null,
+  '/api/announcements': (d) => d.announcements.map(p => ({
+    id: p.id,
+    class: p.class,
+    author: p.author || null,
+    date: p.date || null,
+    title: p.title || null,
+    text: p.text || null,
+    link: p.link || null,
   })),
 
-  // Удалённые учителем — отдельной ручкой, а не в общем списке:
-  // они не про то, что надо сделать, а про то, что было.
-  '/api/удалённые': (д) => д.пропавшие.map(x => ({
-    ...наружу(x, д.now),
-    когдаУдалено: x.когдаУдалено || null,
+  // Removed by the teacher — its own handle, not part of the general
+  // list: these aren't about what needs doing, they're about what happened.
+  '/api/removed': (d) => d.gone.map(x => ({
+    ...toPublic(x, d.now),
+    removedAt: x.removedAt || null,
   })),
 
-  '/api/классы': () => прочитать(CLASSES_FILE),
+  '/api/classes': () => readJson(CLASSES_FILE),
 };
 
-/** Корень: список ручек, чтобы не лезть в исходник за адресами. */
-function оглавление() {
+/** Root: a list of handles, so no one has to dig through the source for addresses. */
+function index() {
   return {
-    это: 'Домашний API школьной сводки',
-    ручки: Object.keys(РУЧКИ),
-    заметка: 'Только чтение. Сбор идёт отдельно, каждые 10 минут.',
+    what: 'School digest home API',
+    handles: Object.keys(HANDLERS),
+    note: 'Read-only. Collection runs separately, every 10 minutes.',
   };
 }
 
-function запустить() {
-  const арг = process.argv;
-  const вСеть = арг.includes('--сеть');
-  const iПорт = арг.indexOf('--порт');
-  const порт = iПорт !== -1 && арг[iПорт + 1]
-    ? Number(арг[iПорт + 1]) : ПОРТ_ПО_УМОЛЧАНИЮ;
-  const адрес = вСеть ? '0.0.0.0' : '127.0.0.1';
+function start() {
+  const args = process.argv;
+  const onNetwork = args.includes('--network');
+  const portIndex = args.indexOf('--port');
+  const port = portIndex !== -1 && args[portIndex + 1]
+    ? Number(args[portIndex + 1]) : DEFAULT_PORT;
+  const host = onNetwork ? '0.0.0.0' : '127.0.0.1';
 
-  const сервер = http.createServer((запрос, ответ) => {
-    // Отрезаем «?что-нибудь»: адрес с хвостом должен работать так же.
+  const server = http.createServer((req, res) => {
+    // Strip "?whatever": an address with a query string should still work.
     //
-    // И РАСКОДИРУЕМ. Ручки названы по-русски, а по сети адрес приезжает
-    // закодированным: «/api/статус» становится «/api/%D1%81%D1%82...».
-    // Без decodeURIComponent ни одна ручка не находится — проверено
-    // на живом сервере сразу после написания. Та же грабля, что была
-    // с id в «не-срочно.txt».
-    const сырой = (запрос.url || '/').split('?')[0].replace(/\/+$/, '') || '/';
-    let путь = сырой;
-    try { путь = decodeURIComponent(сырой); } catch { /* битая кодировка — ищем как есть */ }
+    // And DECODE IT. Handles are named in Latin now, but this used to
+    // matter a lot back when they were Russian: over the network the
+    // address arrives percent-encoded. Without decodeURIComponent no
+    // handle would ever match — confirmed on a live server right after
+    // writing this. The same trap that bit the id in the old
+    // "not-urgent.txt" file.
+    const raw = (req.url || '/').split('?')[0].replace(/\/+$/, '') || '/';
+    let urlPath = raw;
+    try { urlPath = decodeURIComponent(raw); } catch { /* broken encoding — look up as-is */ }
 
-    ответ.setHeader('Content-Type', 'application/json; charset=utf-8');
-    // Разрешаем читать нас со страниц в браузере: без этого своя же
-    // страничка на телефоне упрётся в запрет межсайтовых запросов.
-    ответ.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    // Allow reading this from pages in a browser: without it, a page of
+    // your own on your phone would run into the cross-origin block.
+    res.setHeader('Access-Control-Allow-Origin', '*');
 
-    const отдать = (код, тело) =>
-      ответ.writeHead(код).end(JSON.stringify(тело, null, 2));
+    const respond = (status, body) =>
+      res.writeHead(status).end(JSON.stringify(body, null, 2));
 
-    if (путь === '/') return отдать(200, оглавление());
+    if (urlPath === '/') return respond(200, index());
 
-    const ручка = РУЧКИ[путь];
-    if (!ручка) {
-      return отдать(404, { ошибка: 'нет такой ручки', ручки: Object.keys(РУЧКИ) });
+    const handler = HANDLERS[urlPath];
+    if (!handler) {
+      return respond(404, { error: 'no such handle', handles: Object.keys(HANDLERS) });
     }
 
     try {
-      отдать(200, ручка(собрать()));
+      respond(200, handler(gather()));
     } catch (e) {
-      // Падение одной ручки не должно ронять сервер: он живёт часами,
-      // а ошибка может прийти из битого файла, который перезапишется
-      // следующим сбором.
-      console.error(`ошибка на ${путь}: ${e.message}`);
-      отдать(500, { ошибка: e.message });
+      // One handle crashing shouldn't take the server down: it runs for
+      // hours at a time, and an error might come from a broken file that
+      // the next collection will overwrite anyway.
+      console.error(`error on ${urlPath}: ${e.message}`);
+      respond(500, { error: e.message });
     }
   });
 
-  // Порт занят — обычно это забытый прошлый запуск. Показываем одну
-  // понятную строку вместо столбика на двадцать строк: человек, который
-  // это увидит, должен сразу знать, что делать.
-  сервер.on('error', (e) => {
+  // A port already in use is usually a forgotten previous run. Print one
+  // clear line instead of a twenty-line stack: whoever sees it should
+  // know exactly what to do.
+  server.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
-      console.error(`Порт ${порт} занят — скорее всего сервер уже запущен.`);
-      console.error(`Посмотреть кто: lsof -i :${порт}`);
-      console.error(`Прибить старый:  pkill -f 17-api.js`);
-      console.error(`Или взять другой порт: node 17-api.js --порт ${порт + 1}`);
+      console.error(`Port ${port} is in use — probably already running.`);
+      console.error(`See who: lsof -i :${port}`);
+      console.error(`Kill the old one: pkill -f 17-api.js`);
+      console.error(`Or pick another port: node 17-api.js --port ${port + 1}`);
       process.exit(1);
     }
     throw e;
   });
 
-  сервер.listen(порт, адрес, () => {
-    console.log(`Домашний API слушает http://${адрес}:${порт}`);
-    if (вСеть) {
-      const свои = Object.values(os.networkInterfaces()).flat()
-        .filter(и => и && и.family === 'IPv4' && !и.internal)
-        .map(и => и.address);
-      console.log(`ВИДНО ВСЕЙ СЕТИ. Адреса: ${свои.join(', ') || 'не нашёл'}`);
-      console.log('Пароля нет — в чужой сети (например школьной) не включать.');
+  server.listen(port, host, () => {
+    console.log(`Home API listening on http://${host}:${port}`);
+    if (onNetwork) {
+      const addresses = Object.values(os.networkInterfaces()).flat()
+        .filter(iface => iface && iface.family === 'IPv4' && !iface.internal)
+        .map(iface => iface.address);
+      console.log(`VISIBLE TO THE WHOLE NETWORK. Addresses: ${addresses.join(', ') || 'none found'}`);
+      console.log('No password — do not enable this on a network you do not trust (e.g. a school one).');
     } else {
-      console.log('Только этот компьютер. Для домашней сети: --сеть');
+      console.log('This computer only. For the home network: --network');
     }
-    console.log(`Ручки: ${Object.keys(РУЧКИ).join(' ')}`);
+    console.log(`Handles: ${Object.keys(HANDLERS).join(' ')}`);
   });
 }
 
-module.exports = { РУЧКИ, собрать, наружу };
-if (require.main === module) запустить();
+module.exports = { HANDLERS, gather, toPublic };
+if (require.main === module) start();

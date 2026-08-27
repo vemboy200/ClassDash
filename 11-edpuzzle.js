@@ -1,150 +1,153 @@
 /**
- * Сбор заданий из Edpuzzle.
+ * Collects assignments from Edpuzzle.
  *
- * ── Чем он отличается от двух других ──
+ * ── How it differs from the other two ──
  *
- * Edpuzzle не даёт работать невидимому браузеру. На headless-режим он
- * отвечает «Error 18» ещё до всякого входа — и с куками тоже. Причина
- * понятна: его защиту регулярно ломали ради обхода заданий, и он
- * недоверчив к автоматике.
+ * Edpuzzle won't work with an invisible browser. In headless mode it
+ * answers "Error 18" before any sign-in even happens — cookies included.
+ * Makes sense: its protection gets broken regularly for bypassing
+ * assignments, and it's suspicious of automation.
  *
- * Мы это НЕ обходим. Мы просто открываем настоящее окно настоящего
- * браузера под аккаунтом пользователя и читаем его собственный список заданий.
- * Ответы на вопросы внутри видео не трогаем — договорённость с первого
- * дня, и она не пересматривается. Если Edpuzzle начнёт блокировать
- * сильнее, мы отступим, а не полезем воевать.
+ * This does NOT get around that. It just opens a real window of a real
+ * browser under the user's own account and reads their own assignment
+ * list. Answers to in-video questions aren't touched — an agreement from
+ * day one, not up for revisiting. If Edpuzzle ever locks things down
+ * harder, this backs off rather than fighting it.
  *
- * Чтобы окно не мешало, оно открывается за пределами экрана
- * (--window-position=-3000,-3000 в 05-...js). Проверено: Edpuzzle такое
- * окно принимает, Classroom от этого не страдает.
+ * So the window doesn't get in the way, it opens off-screen
+ * (--window-position=-3000,-3000 in 05-...js). Confirmed: Edpuzzle accepts
+ * a window like that, and Classroom isn't bothered by it either.
  *
- * ── Адреса, подсмотренные у самого сайта ──
+ * ── Endpoints, learned by watching the site itself ──
  *
- *   /api/v3/users/me                    — кто я, нужен мой id
- *   /api/v3/classrooms/active           — мои классы
+ *   /api/v3/users/me                    — who am I, need my id
+ *   /api/v3/classrooms/active           — my classes
  *   /api/v3/learning/assignment_learners/users/<uid>/classrooms/<cid>
  *       ?status[]=not-started&status[]=in-progress&isUpcoming=<bool>&cursor=0
  *
- * Значение status[]=completed сайт отвергает — не из списка допустимых.
- * Нам оно и не нужно: выполненное показывать незачем.
+ * The value status[]=completed gets rejected by the site — not on its
+ * allowed list. Not needed anyway: no reason to show completed work.
  *
- * ── Осторожно: строение задания пока не проверено ──
+ * ── Caution: an assignment's shape hasn't been confirmed yet ──
  *
- * На момент написания заданий не было ни в одном классе, ответ приходил
- * пустым списком. Поэтому поля берутся по нескольким возможным именам,
- * а строение ПЕРВОГО же настоящего задания печатается в лог — чтобы
- * поправить точно, а не гадать дальше.
+ * At the time this was written, there were no assignments in any class —
+ * the response came back an empty list. So fields are read under several
+ * possible names, and the shape of the FIRST real assignment gets printed
+ * to the log — to fix it precisely instead of continuing to guess.
  */
 
-const САЙТ = 'https://edpuzzle.com';
+const SITE = 'https://edpuzzle.com';
 
-/** Первое непустое значение из нескольких возможных названий поля. */
-function поле(объект, ...имена) {
-  for (const имя of имена) {
-    const части = имя.split('.');
-    let v = объект;
-    for (const ч of части) v = (v && typeof v === 'object') ? v[ч] : undefined;
+/** The first non-empty value out of several possible field names. */
+function field(obj, ...names) {
+  for (const name of names) {
+    const parts = name.split('.');
+    let v = obj;
+    for (const p of parts) v = (v && typeof v === 'object') ? v[p] : undefined;
     if (v !== undefined && v !== null && v !== '') return v;
   }
   return null;
 }
 
-async function собратьEdpuzzle(page) {
-  await page.goto(САЙТ + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+async function collectEdpuzzle(page) {
+  await page.goto(SITE + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-  // Даём странице ожить: без этого запросы уходят до того, как
-  // приложение поставит нужные заголовки.
+  // Give the page a moment to come alive: without it, requests go out
+  // before the app has set the headers it needs.
   await page.waitForTimeout(5000);
 
-  const сырое = await page.evaluate(async () => {
+  const raw = await page.evaluate(async () => {
     const j = async (u) => {
       const r = await fetch(u, { headers: { Accept: 'application/json' } });
-      if (!r.ok) throw new Error(`Edpuzzle ответил ${r.status} на ${u}`);
+      if (!r.ok) throw new Error(`Edpuzzle responded ${r.status} to ${u}`);
       return await r.json();
     };
 
-    const я = await j('/api/v3/users/me');
-    const uid = я._id;
+    const me = await j('/api/v3/users/me');
+    const uid = me._id;
 
-    const ответ = await j('/api/v3/classrooms/active');
-    const классы = ответ.classrooms || ответ || [];
+    const response = await j('/api/v3/classrooms/active');
+    const classrooms = response.classrooms || response || [];
 
-    const собранное = [];
-    for (const к of классы) {
-      // Два прохода: ближайшие по сроку и все остальные.
-      for (const скоро of [true, false]) {
-        const список = await j(
-          `/api/v3/learning/assignment_learners/users/${uid}/classrooms/${к._id}` +
-          `?status[]=not-started&status[]=in-progress&isUpcoming=${скоро}&cursor=0`);
-        const пункты = Array.isArray(список) ? список : (список.items || список.assignments || []);
-        for (const п of пункты) собранное.push({ класс: к.name, пункт: п });
+    const collected = [];
+    for (const c of classrooms) {
+      // Two passes: due soon, and everything else.
+      for (const upcoming of [true, false]) {
+        const list = await j(
+          `/api/v3/learning/assignment_learners/users/${uid}/classrooms/${c._id}` +
+          `?status[]=not-started&status[]=in-progress&isUpcoming=${upcoming}&cursor=0`);
+        const items = Array.isArray(list) ? list : (list.items || list.assignments || []);
+        for (const item of items) collected.push({ className: c.name, item });
       }
     }
-    return { собранное, классы: классы.map(к => к.name) };
+    return { collected, classrooms: classrooms.map(c => c.name) };
   });
 
   const items = [];
-  let строениеПоказано = false;
+  let shapeShown = false;
 
-  for (const { класс, пункт } of сырое.собранное) {
-    // Первое настоящее задание печатаем целиком: строение не проверено,
-    // и это единственный способ узнать настоящие имена полей.
-    if (!строениеПоказано) {
-      console.log('  Edpuzzle: строение первого задания (проверить и поправить):');
-      console.log('   ', JSON.stringify(пункт).slice(0, 900));
-      строениеПоказано = true;
+  for (const { className, item } of raw.collected) {
+    // The first real assignment gets printed in full: its shape isn't
+    // confirmed, and this is the only way to learn the real field names.
+    if (!shapeShown) {
+      console.log('  Edpuzzle: first assignment\'s shape (check and fix if needed):');
+      console.log('   ', JSON.stringify(item).slice(0, 900));
+      shapeShown = true;
     }
 
-    const задание = поле(пункт, 'assignment', 'media') || пункт;
-    const id = поле(пункт, '_id', 'id', 'assignment._id');
-    const срок = поле(пункт, 'dueDate', 'assignment.dueDate', 'deadline', 'endDate');
-    const название = поле(задание, 'title', 'name', 'media.title') || 'Задание Edpuzzle';
+    const assignment = field(item, 'assignment', 'media') || item;
+    const id = field(item, '_id', 'id', 'assignment._id');
+    const dueRaw = field(item, 'dueDate', 'assignment.dueDate', 'deadline', 'endDate');
+    const title = field(assignment, 'title', 'name', 'media.title') || 'Edpuzzle assignment';
 
-    // ДАТА МОЖЕТ ПРИЙТИ НЕ ТА, И ЭТО НЕ ПОВОД РОНЯТЬ ВЕСЬ ИСТОЧНИК.
+    // THE DATE MIGHT COME BACK WRONG, AND THAT'S NOT A REASON TO CRASH THE
+    // WHOLE SOURCE.
     //
-    // Строение задания не проверено (заданий не было), поэтому «срок»
-    // берётся по нескольким именам наугад. Раньше здесь стояло
-    // new Date(срок).toISOString(), а оно на непонятной строке бросает
-    // RangeError: Invalid time value — и это уносило ВЕСЬ Edpuzzle
-    // целиком, а не одно задание с кривой датой.
-    const дата = срок ? new Date(срок) : null;
-    const годная = дата && !isNaN(дата.getTime());
-    if (срок && !годная) {
-      console.warn(`  Edpuzzle: не понял срок «${срок}» у «${название}» — считаю, что срока нет`);
+    // The assignment shape isn't confirmed (there were no assignments to
+    // check), so the due date is read from several field names, guessing.
+    // This used to be new Date(dueRaw).toISOString(), and on an
+    // unrecognized string that throws RangeError: Invalid time value —
+    // taking down the ENTIRE Edpuzzle source, not just one assignment
+    // with a bad date.
+    const parsedDue = dueRaw ? new Date(dueRaw) : null;
+    const validDue = parsedDue && !isNaN(parsedDue.getTime());
+    if (dueRaw && !validDue) {
+      console.warn(`  Edpuzzle: couldn't parse due date "${dueRaw}" for "${title}" — treating as no due date`);
     }
 
-    // Без id задание не пропадает, но и не получает выдуманный ключ.
-    // Раньше было `edpuzzle-${id}`, и при id === null ВСЕ задания получали
-    // одинаковый ключ «edpuzzle-null» — они склеились бы в одно
-    // при сравнении с памятью. Пустой id diffWithPrevious умеет:
-    // там есть запасной ключ «класс::название».
-    if (!id) console.warn(`  Edpuzzle: у задания «${название}» нет id — сверяю по названию`);
+    // Without an id the assignment isn't dropped, but it doesn't get a
+    // made-up key either. This used to be `edpuzzle-${id}`, and with
+    // id === null EVERY assignment got the same key "edpuzzle-null" —
+    // they'd merge into one when compared against memory. diffWithPrevious
+    // knows how to handle an empty id: there's a fallback key of
+    // "class::title".
+    if (!id) console.warn(`  Edpuzzle: assignment "${title}" has no id — matching by title instead`);
 
     items.push({
-      платформа: 'Edpuzzle',
-      class: класс,
+      platform: 'Edpuzzle',
+      class: className,
       id: id ? `edpuzzle-${id}` : null,
       type: 'Assignment',
-      title: название,
-      link: id ? `${САЙТ}/assignments/${id}/watch` : САЙТ,
-      due_iso: годная ? дата.toISOString() : null,
+      title,
+      link: id ? `${SITE}/assignments/${id}/watch` : SITE,
+      due_iso: validDue ? parsedDue.toISOString() : null,
       due: null,
-      posted: поле(пункт, 'createdAt', 'assignment.createdAt'),
+      posted: field(item, 'createdAt', 'assignment.createdAt'),
     });
   }
 
-  // СКЛАДЫВАЕМ ПОВТОРЫ.
+  // MERGE DUPLICATES.
   //
-  // Список тянется двумя проходами: isUpcoming=true и isUpcoming=false.
-  // Если задание попадёт в оба, оно ляжет в память ДВАЖДЫ: это дало бы
-  // «новых 2» про одно задание и две одинаковые карточки на странице.
-  // Ни current, ни итог нигде от повторов не чистятся, поэтому чистим
-  // здесь, у источника.
-  const поКлючу = new Map();
-  for (const з of items) поКлючу.set(з.id || `${з.class}::${з.title}`, з);
-  const безПовторов = [...поКлючу.values()];
+  // The list is pulled in two passes: isUpcoming=true and isUpcoming=false.
+  // If an assignment lands in both, it would go into memory TWICE: that
+  // would report "2 new" for one assignment and two identical cards on
+  // the page. Neither current nor the final result get de-duplicated
+  // anywhere else, so it happens here, at the source.
+  const byKey = new Map();
+  for (const a of items) byKey.set(a.id || `${a.class}::${a.title}`, a);
+  const deduped = [...byKey.values()];
 
-  return { items: безПовторов, классы: сырое.классы };
+  return { items: deduped, classrooms: raw.classrooms };
 }
 
-module.exports = { собратьEdpuzzle, САЙТ };
+module.exports = { collectEdpuzzle, SITE };
