@@ -1269,12 +1269,13 @@ function saveSettings() {
   // The page can't write to disk — call the notifier, it will.
   location.href = 'napominalka://config/' + toBase64Url(JSON.stringify(payload));
 
-  // And reload itself. The notifier redraws the page right after writing
-  // (takes about a second), so wait a beat and a half and refresh:
-  // otherwise a language change would only show up after the next
-  // collection, and language is an interface setting — waiting ten
-  // minutes for it would be silly.
-  setTimeout(function () { location.reload(); }, 1500);
+  // The notifier runs a quick collection (Classroom + Canvas, no Edpuzzle
+  // window, ~17 seconds) right after writing, not just a redraw. A saved
+  // exclusion only changes what gets fetched on the NEXT collection — a
+  // redraw just re-renders what's already there, which used to make
+  // saving an exclusion look like it did nothing at all. 30 seconds is a
+  // safe margin above that ~17-second baseline for a slower connection.
+  setTimeout(function () { location.reload(); }, 30000);
 }
 
 function resetFilters() {

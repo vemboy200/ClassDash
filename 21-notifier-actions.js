@@ -61,13 +61,25 @@ function fullCheck() {
   child.unref();
 }
 
+/** Same idea as fullCheck(), but the quick pass (Classroom + Canvas,
+ *  no Edpuzzle window, ~17 seconds) — enough to make a saved setting
+ *  actually apply. A saved exclusion only changes what gets fetched on
+ *  the NEXT collection; a redraw just re-renders what's already there,
+ *  which is why saving used to look like it did nothing at all. */
+function quickCheck() {
+  const child = spawn(process.execPath,
+    [path.join(__dirname, '05-playwright-draft.js')],
+    { detached: true, stdio: 'ignore', cwd: __dirname });
+  child.unref();
+}
+
 function main(action, arg) {
   switch (action) {
     case 'config': {
       const { applyBatch } = require('./19-settings.js');
       const result = applyBatch(arg);
       if (!result.ok) console.error('settings not applied:', result.rejected);
-      redraw();
+      quickCheck();
       break;
     }
     case 'quiet':
