@@ -92,12 +92,20 @@ const DEFAULTS = {
   // for 11+ months while a real one updated same-day. When this is on,
   // 11-edpuzzle.js skips any classroom that hasn't updated in 3 months.
   skipStaleEdpuzzleClasses: true,
+
+  // Off by default: the class filter only ever lists classes that
+  // currently have something due, overdue, or removed — a class with
+  // nothing outstanding just doesn't appear. Turn this on to always list
+  // every known class (Classroom, Canvas, and Edpuzzle) with a 0 next to
+  // the ones with nothing going on, instead of them disappearing.
+  showEmptyClasses: false,
 };
 
 const TYPES = {
   email: 'string', canvas: 'string', language: 'language',
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
   treatUndatedAsUrgent: 'boolean', skipStaleEdpuzzleClasses: 'boolean',
+  showEmptyClasses: 'boolean',
   passLimitMs: 'number', apiPort: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };

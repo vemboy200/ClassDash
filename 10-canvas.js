@@ -27,8 +27,18 @@
  * interface stays Russian.
  */
 
+const fs = require('fs');
+const path = require('path');
+
 // The school's Canvas address comes from settings: every school has its own.
 const SITE = require('./19-settings.js').read().canvas;
+
+// The last successfully read list of active courses. Written here, not
+// just returned, so the settings page can list every known Canvas course
+// in the exclusions picker and (with showEmptyClasses on) the class
+// filter — the same reason Classroom's own class list lives in
+// classes.json.
+const CLASSES_FILE = path.join(__dirname, 'canvas-classes.json');
 
 // How much to truncate an assignment's description to. The user asked
 // for these to be kept around for later — to eventually show right on
@@ -211,7 +221,12 @@ async function collectCanvasOnce(page) {
     }
   }
 
-  return { items, courses: active.map(c => c.name), pending };
+  const courses = active.map(c => c.name);
+  try {
+    fs.writeFileSync(CLASSES_FILE, JSON.stringify(courses.map(name => ({ name })), null, 2));
+  } catch { /* couldn't write it — the exclusions/filter UI just won't list Canvas courses this time */ }
+
+  return { items, courses, pending };
 }
 
 module.exports = { collectCanvas, SITE };

@@ -114,6 +114,8 @@ const DICTIONARIES = {
     settingsClose: 'закрыть',
     settingsTreatUndated: 'Без срока — считать срочным',
     settingsTreatUndatedHint: 'выключи, чтобы такие задания просто показывались один раз, как материалы',
+    settingsShowEmpty: 'Показывать классы без заданий',
+    settingsShowEmptyHint: 'иначе класс, где сейчас ничего не горит, просто пропадает из списка',
 
     // States
     emptyState: 'Ничего не горит и ничего нового. Можно выдохнуть.',
@@ -222,6 +224,8 @@ const DICTIONARIES = {
     settingsClose: 'close',
     settingsTreatUndated: 'No due date counts as urgent',
     settingsTreatUndatedHint: 'turn off to show these once instead, like materials',
+    settingsShowEmpty: 'Show classes with nothing due',
+    settingsShowEmptyHint: 'otherwise a class with nothing going on right now just disappears from the list',
 
     emptyState: 'Nothing due and nothing new. You can relax.',
     stillReading: 'Still reading:',

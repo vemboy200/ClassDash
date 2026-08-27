@@ -43,7 +43,18 @@
  * differently; the first-assignment log line stays, in case it doesn't.
  */
 
+const fs = require('fs');
+const path = require('path');
+
 const SITE = 'https://edpuzzle.com';
+
+// The last successfully read list of (non-excluded, non-stale) classes.
+// Written here so the settings page can list every known Edpuzzle class
+// in the exclusions picker and (with showEmptyClasses on) the class
+// filter — the same reason Classroom's own class list lives in
+// classes.json. Deliberately the post-filtering list: an excluded or
+// stale class shouldn't reappear here just because this exists.
+const CLASSES_FILE = path.join(__dirname, 'edpuzzle-classes.json');
 
 // Shared with Classroom: a class excluded by name there is excluded here
 // too. One list instead of two, since it's the same underlying school
@@ -192,6 +203,10 @@ async function collectEdpuzzle(page) {
   const byKey = new Map();
   for (const a of items) byKey.set(a.id || `${a.class}::${a.title}`, a);
   const deduped = [...byKey.values()];
+
+  try {
+    fs.writeFileSync(CLASSES_FILE, JSON.stringify(raw.classrooms.map(name => ({ name })), null, 2));
+  } catch { /* couldn't write it — the exclusions/filter UI just won't list Edpuzzle classes this time */ }
 
   return { items: deduped, classrooms: raw.classrooms };
 }

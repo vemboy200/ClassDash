@@ -5,6 +5,8 @@ settings.json
 messages.json
 summary.html
 classes.json
+canvas-classes.json
+edpuzzle-classes.json
 new.json
 last-collection.json
 notification-log.json

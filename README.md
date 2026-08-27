@@ -120,6 +120,7 @@ Settings live in `settings.json`:
 | `browserPath` | advanced override for which browser binary to automate; leave empty (see `setup-browser` above) |
 | `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
 | `skipStaleEdpuzzleClasses` | `true` (default) skips any Edpuzzle class that hasn't updated in 3 months — Edpuzzle has no concept of "archived" the way Classroom does, so an archived Classroom course can keep showing up on the Edpuzzle side indefinitely otherwise |
+| `showEmptyClasses` | `false` (default) — the class filter only lists classes with something currently due/overdue/removed; `true` always lists every known class (Classroom, Canvas, Edpuzzle) with a 0 next to the empty ones instead of them disappearing |
 
 Settings can also be edited from the summary page itself — the gear button next
 to the reload arrow — or from the command line:

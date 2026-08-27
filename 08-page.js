@@ -290,12 +290,36 @@ ${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
  * napominalka://config link, the same way "not urgent" and "hide" do.
  */
 /**
+ * Every class known across all three platforms, deduplicated.
+ *
+ * Each platform's collector persists its own last-successfully-read list
+ * (classes.json for Classroom, canvas-classes.json, edpuzzle-classes.json)
+ * for exactly this: the settings page has no other way to know what
+ * classes exist without re-reading a source itself.
+ */
+function allKnownClasses() {
+  const readNames = (file) => {
+    try {
+      if (!fs.existsSync(file)) return [];
+      return JSON.parse(fs.readFileSync(file, 'utf8')).map(c => c.name).filter(Boolean);
+    } catch { return []; }
+  };
+  const names = new Set([
+    ...readNames(path.join(__dirname, 'classes.json')),
+    ...readNames(path.join(__dirname, 'canvas-classes.json')),
+    ...readNames(path.join(__dirname, 'edpuzzle-classes.json')),
+  ]);
+  return [...names];
+}
+
+/**
  * Excluded classes — as CHECKBOXES, not a text field.
  *
  * The user's request, and a fair one: names like "AP World Hist 1 Per 2 -
  * 6255D-1 (S1)" can't be typed by hand without a typo, and a typo means
- * the exclusion just silently doesn't work. The list comes from
- * `classes.json` — that is, from what the system actually sees.
+ * the exclusion just silently doesn't work. The list comes from every
+ * platform's own last-read class list — that is, from what the system
+ * actually sees, not just Classroom's.
  *
  * Names no longer in that list (the class closed, but the exclusion
  * stayed) are still shown checked: otherwise saving would silently lose
@@ -305,13 +329,7 @@ ${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
  * to type in by hand. An empty checkbox list would be a dead end.
  */
 function exclusionsField(selected) {
-  let classes = [];
-  try {
-    const file = path.join(__dirname, 'classes.json');
-    if (fs.existsSync(file)) {
-      classes = JSON.parse(fs.readFileSync(file, 'utf8')).map(c => c.name).filter(Boolean);
-    }
-  } catch { /* couldn't read it — fall back to the manual text field */ }
+  let classes = allKnownClasses();
 
   // Checked but no longer known — goes to the bottom of the list, so it
   // doesn't disappear.
@@ -381,6 +399,11 @@ ${exclusionsField(s.exclusions)}
         <input type="checkbox" data-bool-key="treatUndatedAsUrgent"${s.treatUndatedAsUrgent ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsTreatUndatedHint'))}</span>
       </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsShowEmpty'))}</span>
+        <input type="checkbox" data-bool-key="showEmptyClasses"${s.showEmptyClasses ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsShowEmptyHint'))}</span>
+      </label>
       <div class="settings-actions">
         <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
         <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
@@ -443,7 +466,19 @@ ${content.join('\n')}
 
   const parts = [];
 
-  parts.push(group(t('filterClass'), count(x => x.class)
+  let classCounts = count(x => x.class);
+  // Off by default: without this, a class with nothing due/overdue/removed
+  // just never appears here at all, which reads as "this class doesn't
+  // exist" rather than "this class has nothing going on". Adds a 0 entry
+  // for every known class (from all three platforms) not already present.
+  if (readSettings().showEmptyClasses) {
+    const present = new Set(classCounts.map(([name]) => name));
+    for (const name of allKnownClasses()) {
+      if (!present.has(name)) classCounts.push([name, 0]);
+    }
+    classCounts = classCounts.sort((a, b) => a[0].localeCompare(b[0], 'ru'));
+  }
+  parts.push(group(t('filterClass'), classCounts
     .map(([v, n]) => checkRow('cls', v, v, n))));
 
   parts.push(group(t('filterType'), count(x => (x.type || '').trim())
