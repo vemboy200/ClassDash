@@ -61,6 +61,28 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     var window: NSWindow!
     var web: WKWebView!
 
+    // WHEN THE LAST napominalka:// HANDOFF HAPPENED.
+    //
+    // Handing a URL to the system launches the notifier, which means THIS
+    // app stops being the active one for a moment. When the notifier
+    // finishes (a fraction of a second later) and quits, this app becomes
+    // active again — and applicationDidBecomeActive used to reload the
+    // page right then, unconditionally.
+    //
+    // That reload was silently eating every settings save. The page sets
+    // "Saved. Checking now…" and starts a 30-second timer to refresh
+    // itself once the collection has actually finished — and the reload
+    // destroyed both, about a fifth of a second later. What was left was
+    // the OLD summary.html (the new collection needs ~17 seconds to
+    // produce a new one), with no message and no pending refresh. From
+    // the outside that looks exactly like the button doing nothing at
+    // all, which is precisely how it was reported, three times.
+    //
+    // This never showed up when the same clicks were driven
+    // programmatically for testing: that path didn't move focus away, so
+    // the reload never fired and the save looked fine every time.
+    var lastHandoff: Date?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
@@ -102,8 +124,24 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     // The summary gets rewritten every ten minutes. Coming back to the
     // window, it should show what's fresh, not what it was this morning.
+    //
+    // UNLESS the window only just lost focus because it handed a
+    // napominalka:// URL to the notifier — see lastHandoff. In that case
+    // becoming active again isn't "the user came back later", it's the
+    // tail end of a button press, and the page is mid-action: it's
+    // showing a status message and waiting on its own timer to refresh
+    // once the work is actually done. Reloading on top of that throws
+    // away both.
+    //
+    // 45 seconds covers the page's own 30-second refresh timer with
+    // margin. After that this goes back to reloading normally: a real
+    // "came back to the window an hour later" still gets fresh data.
     func applicationDidBecomeActive(_ notification: Notification) {
-        if web != nil { show() }
+        guard web != nil else { return }
+        if let handoff = lastHandoff, Date().timeIntervalSince(handoff) < 45 {
+            return
+        }
+        show()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ application: NSApplication) -> Bool {
@@ -132,6 +170,14 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         // everything else goes out.
         if url.scheme == "napominalka" ||
            (action.navigationType == .linkActivated && !url.isFileURL) {
+            // Noted BEFORE opening: the app can lose and regain focus
+            // before this line would otherwise finish, and
+            // applicationDidBecomeActive reads this to tell "the user
+            // came back to the window" apart from "the notifier just
+            // handed focus back". Set for outgoing links too — clicking
+            // an assignment switches to the browser and back the same
+            // way, and a reload there is just as unwanted.
+            lastHandoff = Date()
             NSWorkspace.shared.open(url)
             decision(.cancel)
             return
