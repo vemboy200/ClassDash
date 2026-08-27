@@ -373,17 +373,24 @@ ${rows}
 
 function settingsPanel() {
   const s = readSettings();
-  const field = (key, label, value, hint) =>
-    `      <label class="setting-row">
+  const field = (key, label, value, hint, sensitive) => {
+    const input = sensitive
+      ? `<span class="field-with-toggle">
+          <input type="password" data-key="${key}" value="${escapeHtml(value)}">
+          <button type="button" class="reveal-btn" onclick="toggleReveal(this)" title="${escapeHtml(t('settingsReveal'))}">👁</button>
+        </span>`
+      : `<input type="text" data-key="${key}" value="${escapeHtml(value)}">`;
+    return `      <label class="setting-row">
         <span class="field-name">${escapeHtml(label)}</span>
-        <input type="text" data-key="${key}" value="${escapeHtml(value)}">
+        ${input}
         <span class="field-hint">${escapeHtml(hint || '')}</span>
       </label>`;
+  };
 
   return `  <div class="settings-panel" id="settings-panel" hidden>
       <div class="name">${escapeHtml(t('settingsTitle'))}</div>
-${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'))}
-${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'))}
+${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
+${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
 ${field('summaryHours', t('settingsHours'), s.summaryHours.join(', '), t('settingsHoursHint'))}
 ${exclusionsField(s.exclusions)}
       <label class="setting-row">
@@ -769,12 +776,24 @@ function writePage(data, outputPath) {
      stretched to the full row width, leaving no room for its label. First
      it collapsed to zero width (names vanished entirely), then to one
      word per line. The cause wasn't the label — it was its neighbor. */
-  .setting-row input[type="text"], .setting-row select {
+  .setting-row input[type="text"], .setting-row input[type="password"], .setting-row select {
     font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 7px;
     border: 1px solid var(--line); background: var(--bg); color: var(--text);
     width: 100%;
   }
   .setting-row input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 2px 0 0; }
+  /* Email and Canvas address start masked like a password field — a
+     screen share or a screenshot for a bug report shouldn't leak either
+     one. The little eye button reveals it, same idea as a password
+     field's own show/hide toggle. */
+  .field-with-toggle { position: relative; }
+  .field-with-toggle input { padding-right: 30px; }
+  .reveal-btn {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; font-size: 14px;
+    line-height: 1; padding: 2px; color: var(--dim);
+  }
+  .reveal-btn:hover { color: var(--text); }
   .settings-actions {
     display: flex; gap: 10px; align-items: center; margin-top: 12px;
     flex-wrap: wrap;
@@ -1205,6 +1224,15 @@ function toggleSettingsPanel() {
   if (!panel) return;
   panel.hidden = !panel.hidden;
   if (!panel.hidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Reveals a masked field (email, Canvas address) the same way a password
+// field's own show/hide button does. The button sits right after the
+// input in the markup, so previousElementSibling always reaches it.
+function toggleReveal(button) {
+  var input = button.previousElementSibling;
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
 }
 
 // Text -> base64url. Not encryption: just a way to carry an email address

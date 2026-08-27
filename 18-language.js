@@ -98,6 +98,7 @@ const DICTIONARIES = {
 
     // Settings (gear icon)
     settingsTitle: 'Настройки',
+    settingsReveal: 'Показать',
     settingsEmail: 'Школьная почта',
     settingsEmailHint: 'подставляется в ссылки на задания',
     settingsCanvas: 'Адрес Canvas',
@@ -208,6 +209,7 @@ const DICTIONARIES = {
     filterShowingCount: 'showing:',
 
     settingsTitle: 'Settings',
+    settingsReveal: 'Show',
     settingsEmail: 'School email',
     settingsEmailHint: 'used in assignment links',
     settingsCanvas: 'Canvas address',
