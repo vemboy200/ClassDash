@@ -1,0 +1,17 @@
+node_modules/
+browser-profile/
+.browser/
+settings.json
+messages.json
+summary.html
+classes.json
+new.json
+last-collection.json
+notification-log.json
+не-срочно.txt
+скрытые.txt
+уведомление.txt
+.collection-lock
+Напоминалка.app
+Summary.app
+Проверить сейчас.app
