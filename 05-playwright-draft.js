@@ -332,11 +332,21 @@ async function login() {
     headless: false,          // the window has to be visible — a human signs in
     viewport: { width: 1280, height: 900 },
   });
-  const page = await ctx.newPage();
-  await page.goto('https://classroom.google.com/');
+  const classroomPage = await ctx.newPage();
+  await classroomPage.goto('https://classroom.google.com/');
 
-  console.log('\nSign into your school account in the window that opened.');
-  console.log('Once you see the class list — close the window.\n');
+  // A second tab for Edpuzzle, opened in the same persistent profile.
+  // Edpuzzle doesn't share Google's session — confirmed live: it answers
+  // 401 on its own API until someone signs into it directly, even though
+  // the Google account in this same profile is already authenticated.
+  // There used to be no way to ever sign into it at all.
+  const edpuzzlePage = await ctx.newPage();
+  await edpuzzlePage.goto('https://edpuzzle.com/');
+
+  console.log('\nTwo tabs opened: sign into your school Google account in one,');
+  console.log('and into Edpuzzle in the other (skip the Edpuzzle tab if you');
+  console.log('don\'t use it — nothing reads it unless you run --full).');
+  console.log('Once you\'re signed in — close the window.\n');
 
   // Wait for the person to finish. Just keep the process alive.
   await new Promise(resolve => ctx.on('close', resolve));

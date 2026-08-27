@@ -26,14 +26,21 @@
  *       ?status[]=not-started&status[]=in-progress&isUpcoming=<bool>&cursor=0
  *
  * The value status[]=completed gets rejected by the site — not on its
- * allowed list. Not needed anyway: no reason to show completed work.
+ * allowed list. That filter alone isn't enough, though: an assignment
+ * already graded can still come back with a top-level status of
+ * "in-progress" (confirmed live), so it's also checked client-side by
+ * assignmentLearner.gradingStatus below.
  *
- * ── Caution: an assignment's shape hasn't been confirmed yet ──
+ * ── The assignment shape, confirmed against a real one ──
  *
- * At the time this was written, there were no assignments in any class —
- * the response came back an empty list. So fields are read under several
- * possible names, and the shape of the FIRST real assignment gets printed
- * to the log — to fix it precisely instead of continuing to guess.
+ * At the time this was first written, there were no assignments in any
+ * class to check against, so fields were read under several guessed
+ * names. Confirmed now against a real one: the due date actually lives
+ * at assignmentLearner.dueDate (also duplicated at
+ * assignment.assignedTo.dueDate) — not at assignment.dueDate, which is
+ * what was guessed and silently never matched. Kept the other guessed
+ * names as fallbacks in case a different assignment type shapes this
+ * differently; the first-assignment log line stays, in case it doesn't.
  */
 
 const SITE = 'https://edpuzzle.com';
@@ -87,17 +94,25 @@ async function collectEdpuzzle(page) {
   let shapeShown = false;
 
   for (const { className, item } of raw.collected) {
-    // The first real assignment gets printed in full: its shape isn't
-    // confirmed, and this is the only way to learn the real field names.
+    // The first real assignment still gets printed in full: confirmed
+    // once already (see the file header), but a different assignment
+    // type could still shape this differently.
     if (!shapeShown) {
       console.log('  Edpuzzle: first assignment\'s shape (check and fix if needed):');
       console.log('   ', JSON.stringify(item).slice(0, 900));
       shapeShown = true;
     }
 
+    // Already graded — treated the same way Canvas treats submitted
+    // work: no reason to show it as due soon. Checked here, not just via
+    // the status[]= query filter, because a graded assignment can still
+    // come back with assignmentLearner.status === 'in-progress'.
+    if (field(item, 'assignmentLearner.gradingStatus') === 'graded') continue;
+
     const assignment = field(item, 'assignment', 'media') || item;
     const id = field(item, '_id', 'id', 'assignment._id');
-    const dueRaw = field(item, 'dueDate', 'assignment.dueDate', 'deadline', 'endDate');
+    const dueRaw = field(item, 'assignmentLearner.dueDate', 'dueDate',
+      'assignment.dueDate', 'assignment.assignedTo.dueDate', 'deadline', 'endDate');
     const title = field(assignment, 'title', 'name', 'media.title') || 'Edpuzzle assignment';
 
     // THE DATE MIGHT COME BACK WRONG, AND THAT'S NOT A REASON TO CRASH THE
