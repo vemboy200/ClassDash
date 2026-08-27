@@ -45,6 +45,18 @@
 
 const SITE = 'https://edpuzzle.com';
 
+// Shared with Classroom: a class excluded by name there is excluded here
+// too. One list instead of two, since it's the same underlying school
+// class either way, just fetched through a different platform.
+const EXCLUSIONS = require('./19-settings.js').read().exclusions;
+
+// See the comment on skipStaleEdpuzzleClasses in 19-settings.js for why
+// this exists at all. Fixed at 3 months rather than a separate setting:
+// this is a safety net for archived classes Edpuzzle doesn't know are
+// archived, not something that needs fine-tuning.
+const SKIP_STALE = require('./19-settings.js').read().skipStaleEdpuzzleClasses;
+const STALE_MONTHS = 3;
+
 /** The first non-empty value out of several possible field names. */
 function field(obj, ...names) {
   for (const name of names) {
@@ -63,7 +75,9 @@ async function collectEdpuzzle(page) {
   // before the app has set the headers it needs.
   await page.waitForTimeout(5000);
 
-  const raw = await page.evaluate(async () => {
+  const staleBeforeIso = new Date(Date.now() - STALE_MONTHS * 30 * 864e5).toISOString();
+
+  const raw = await page.evaluate(async ({ exclusions, skipStale, staleBeforeIso }) => {
     const j = async (u) => {
       const r = await fetch(u, { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error(`Edpuzzle responded ${r.status} to ${u}`);
@@ -74,7 +88,16 @@ async function collectEdpuzzle(page) {
     const uid = me._id;
 
     const response = await j('/api/v3/classrooms/active');
-    const classrooms = response.classrooms || response || [];
+    const all = response.classrooms || response || [];
+
+    const excluded = all.filter(c => exclusions.includes(c.name));
+    // A missing updatedAt is treated as "not stale": better an extra
+    // classroom read than one silently dropped over a field that isn't
+    // always there.
+    const stale = all.filter(c => !exclusions.includes(c.name) &&
+      skipStale && c.updatedAt && c.updatedAt < staleBeforeIso);
+    const classrooms = all.filter(c =>
+      !excluded.includes(c) && !stale.includes(c));
 
     const collected = [];
     for (const c of classrooms) {
@@ -87,8 +110,16 @@ async function collectEdpuzzle(page) {
         for (const item of items) collected.push({ className: c.name, item });
       }
     }
-    return { collected, classrooms: classrooms.map(c => c.name) };
-  });
+    return {
+      collected,
+      classrooms: classrooms.map(c => c.name),
+      stale: stale.map(c => c.name),
+    };
+  }, { exclusions: EXCLUSIONS, skipStale: SKIP_STALE, staleBeforeIso });
+
+  if (raw.stale.length) {
+    console.log(`  Edpuzzle: skipping stale classes (no update in ${STALE_MONTHS} months): ${raw.stale.join(', ')}`);
+  }
 
   const items = [];
   let shapeShown = false;

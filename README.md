@@ -111,7 +111,7 @@ Settings live in `settings.json`:
 | `canvas` | your school's Canvas address; leave empty to skip Canvas |
 | `language` | `ru` or `en` |
 | `summaryHours` | hours for the full daily reminder, e.g. `[8, 18]` |
-| `exclusions` | class names to skip |
+| `exclusions` | class names to skip — applies to both Classroom and Edpuzzle |
 | `account` | Google multi-login index inside the browser profile; usually `0` |
 | `apiPort` | port for the home API, default `8734` |
 | `classTimeoutMs` | how long to wait for a class page, ms |
@@ -119,6 +119,7 @@ Settings live in `settings.json`:
 | `passLimitMs` | a pass longer than this is treated as hung and killed, ms |
 | `browserPath` | advanced override for which browser binary to automate; leave empty (see `setup-browser` above) |
 | `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
+| `skipStaleEdpuzzleClasses` | `true` (default) skips any Edpuzzle class that hasn't updated in 3 months — Edpuzzle has no concept of "archived" the way Classroom does, so an archived Classroom course can keep showing up on the Edpuzzle side indefinitely otherwise |
 
 Settings can also be edited from the summary page itself — the gear button next
 to the reload arrow — or from the command line:

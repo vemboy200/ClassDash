@@ -84,12 +84,20 @@ const DEFAULTS = {
   // to instead treat undated assignments like materials: shown once,
   // never marked as due soon.
   treatUndatedAsUrgent: true,
+
+  // Edpuzzle has no concept of "archived" the way Google Classroom does:
+  // archiving a course on the Classroom side does nothing to Edpuzzle's
+  // own class list, which keeps reporting it as active indefinitely.
+  // Confirmed live: an actually-archived class's updatedAt sat untouched
+  // for 11+ months while a real one updated same-day. When this is on,
+  // 11-edpuzzle.js skips any classroom that hasn't updated in 3 months.
+  skipStaleEdpuzzleClasses: true,
 };
 
 const TYPES = {
   email: 'string', canvas: 'string', language: 'language',
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
-  treatUndatedAsUrgent: 'boolean',
+  treatUndatedAsUrgent: 'boolean', skipStaleEdpuzzleClasses: 'boolean',
   passLimitMs: 'number', apiPort: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
