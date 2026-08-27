@@ -8,13 +8,14 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node 05-playwright-черновик.js",
-    "login": "node 05-playwright-черновик.js --login",
-    "full": "node 05-playwright-черновик.js --всё",
-    "page": "node 05-playwright-черновик.js --перерисовать",
+    "setup-browser": "node 20-browser.js",
+    "start": "node 05-playwright-draft.js",
+    "login": "node 05-playwright-draft.js --login",
+    "full": "node 05-playwright-draft.js --full",
+    "page": "node 05-playwright-draft.js --redraw",
     "api": "node 17-api.js",
-    "config": "node 19-настройки.js",
-    "build": "./собрать.sh"
+    "config": "node 19-settings.js",
+    "build": "./build.sh"
   },
   "dependencies": {
     "playwright": "^1.62.1"

@@ -61,41 +61,70 @@ it says nothing at all.
 
 - macOS (notifications, the summary window and the scheduler are macOS-specific)
 - Node.js 18+
-- Google Chrome
+- A real Chromium-based browser: if you already have Google Chrome installed,
+  nothing else is needed — it's used automatically, with its own isolated
+  profile folder that never touches your everyday Chrome profile. If you
+  don't have Chrome, `npm run setup-browser` installs a dedicated, isolated
+  copy of Brave instead.
 - Optional, for video transcripts: `ffmpeg`, `whisper-cpp`, and a Whisper model
 
 ## Setup
 
 ```bash
 npm install
-npx playwright install chromium
-cp настройки.пример.json настройки.json    # then edit it
+npm run setup-browser
+cp settings.example.json settings.json    # then edit it
 ```
 
-Filenames in this project are Russian, and so are the code comments. You will
-not have to type them: every command below goes through `npm run`.
+`setup-browser` first checks whether Google Chrome is already installed — if
+so, it prints a note and does nothing else, since Chrome already works
+safely (see below). Only if Chrome is missing does it download a copy of
+Brave (open source, Chromium-based) into `.browser/` inside this project —
+not a system install, not your everyday browser, nothing outside this
+folder.
 
-Settings live in `настройки.json`:
+Why any of this is needed at all: Google's login flow blocks plain automated
+Chromium as "not secure," so a real, recognized browser has to be launched
+instead of Playwright's bundled one. That's normally safe, because
+`--user-data-dir` (an isolated profile folder inside this project) keeps the
+automated session completely separate from whatever profile you actually use
+day-to-day — real Chrome and Brave both respect that flag correctly. It
+*isn't* safe with every Chromium-based browser, though: one fork (Arc) turned
+out to ignore its assigned profile folder entirely and write into the real
+one instead, and the account-isolation flags Playwright launches with
+corrupted that profile's saved logins and extensions on the next normal
+launch. That's the specific failure this whole setup avoids — by using only
+Chrome or a dedicated Brave copy, never a browser confirmed to ignore its
+profile folder.
+
+Filenames and code comments were originally Russian, and have since been
+translated to English so contributors who don't read Russian can follow the
+code. The bilingual interface on the summary page itself (`ru`/`en`) is
+unrelated to that and still works exactly the same — only the *source code*
+changed language, not the app's own UI.
+
+Settings live in `settings.json`:
 
 | key | meaning |
 |---|---|
-| `почта` | your school email — goes into assignment links as `?authuser=` |
+| `email` | your school email — goes into assignment links as `?authuser=` |
 | `canvas` | your school's Canvas address; leave empty to skip Canvas |
-| `язык` | `ru` or `en` |
-| `часыСводки` | hours for the full daily reminder, e.g. `[8, 18]` |
-| `исключения` | class names to skip |
-| `аккаунт` | Google multi-login index inside the browser profile; usually `0` |
-| `портAPI` | port for the home API, default `8734` |
-| `ожиданиеКласса` | how long to wait for a class page, ms |
-| `ожиданиеПустого` | shorter wait for classes that never had assignments, ms |
-| `пределПрохода` | a pass longer than this is treated as hung and killed, ms |
+| `language` | `ru` or `en` |
+| `summaryHours` | hours for the full daily reminder, e.g. `[8, 18]` |
+| `exclusions` | class names to skip |
+| `account` | Google multi-login index inside the browser profile; usually `0` |
+| `apiPort` | port for the home API, default `8734` |
+| `classTimeoutMs` | how long to wait for a class page, ms |
+| `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms |
+| `passLimitMs` | a pass longer than this is treated as hung and killed, ms |
+| `browserPath` | advanced override for which browser binary to automate; leave empty (see `setup-browser` above) |
 
 Settings can also be edited from the summary page itself — the gear button next
 to the reload arrow — or from the command line:
 
 ```bash
 npm run config                                    # show current settings
-node 19-настройки.js --задать язык en             # change one
+node 19-settings.js --set language en             # change one
 ```
 
 Sign in once — a real browser window opens and you log in by hand:
@@ -138,13 +167,13 @@ a phone, a second machine, a home dashboard:
 
 ```bash
 npm run api                    # localhost only
-node 17-api.js --сеть          # visible to your home network
+node 17-api.js --network       # visible to your home network
 ```
 
-Endpoints: `/api/статус` `/api/горит` `/api/впереди` `/api/просрочено`
-`/api/задания` `/api/объявления` `/api/удалённые` `/api/классы`
+Endpoints: `/api/status` `/api/due-soon` `/api/ahead` `/api/overdue`
+`/api/assignments` `/api/announcements` `/api/removed` `/api/classes`
 
-**Localhost is the default on purpose.** `--сеть` exposes your assignments and
+**Localhost is the default on purpose.** `--network` exposes your assignments and
 your teachers' posts to anything on the network, with no password.
 
 ---
@@ -153,22 +182,27 @@ your teachers' posts to anything on the network, with no password.
 
 | file | what it does |
 |---|---|
-| `05-playwright-черновик.js` | the collector: reads sources, diffs against memory, notifies |
-| `08-страница.js` | builds `сводка.html` — plain code, no model involved |
+| `05-playwright-draft.js` | the collector: reads sources, diffs against memory, notifies |
+| `08-page.js` | builds `summary.html` — plain code, no model involved |
 | `10-canvas.js` | Canvas through its API; courses are discovered, not hardcoded |
 | `11-edpuzzle.js` | Edpuzzle through its API; needs a visible window |
-| `12-лента.js` | teacher announcements from the Classroom stream |
-| `13-транскрипты.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
-| `14-страница-транскрипта.js` | renders one transcript as its own page — **not wired in yet** |
-| `16-сводка.swift` | the summary window — a real app, not a browser tab |
+| `12-feed.js` | teacher announcements from the Classroom stream |
+| `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
+| `14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
+| `16-summary.swift` | the summary window — a real app, not a browser tab |
 | `17-api.js` | the home API |
-| `18-язык.js` | Russian and English wording |
-| `19-настройки.js` | settings: read, write, validate |
-| `собрать.sh` | builds both apps and bakes in the project path |
+| `18-language.js` | Russian and English wording |
+| `19-settings.js` | settings: read, write, validate |
+| `20-browser.js` | downloads and installs the project's own isolated Brave |
+| `build.sh` | builds both apps and bakes in the project path |
 
-The code is commented in Russian, fairly heavily. Those comments are not
-decoration: nearly every one of them records a failure that already happened
-and explains why the obvious approach does not work.
+The code comments are fairly heavy. Those comments are not decoration: nearly
+every one of them records a failure that already happened and explains why
+the obvious approach does not work. (A handful of filenames the app hands off
+to its separate, not-in-this-repo macOS notifier app — `Напоминалка.app` and
+a few `.txt` files it reads and writes — are kept in their original Russian
+on purpose, since renaming them would silently break that other app until
+its own source is updated to match.)
 
 ## A few things learned the hard way
 
