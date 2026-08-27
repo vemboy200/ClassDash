@@ -25,6 +25,36 @@ const { execFileSync, spawn } = require('child_process');
 
 const QUIET_FILE = path.join(__dirname, 'не-срочно.txt');
 const HIDDEN_FILE = path.join(__dirname, 'скрытые.txt');
+const ACTION_LOG = path.join(__dirname, 'notifier-log.txt');
+
+/**
+ * Records every action that arrives here, and how it ended.
+ *
+ * THIS EXISTS BECAUSE THE NOTIFIER FAILS INVISIBLY.
+ *
+ * It's launched by macOS from a URL, with no terminal attached: nothing
+ * it prints goes anywhere a person can see. So "the button did nothing"
+ * covers everything from "the click never became a URL" through "the URL
+ * never reached this file" to "this ran fine and the page just didn't
+ * show it" — three completely different bugs that look identical from
+ * the outside. One of them ("the page reloaded on top of the result")
+ * cost three rounds of fixing the wrong end of the chain.
+ *
+ * A line here settles which one it is immediately. Deliberately dumb:
+ * plain text, appended, no rotation beyond a size cap — a log that
+ * itself needs debugging is worse than none.
+ */
+function logAction(text) {
+  try {
+    // Truncate rather than grow forever. A few hundred lines is plenty
+    // of history for "what happened when I clicked that", and this file
+    // should never be something anyone has to think about.
+    if (fs.existsSync(ACTION_LOG) && fs.statSync(ACTION_LOG).size > 64 * 1024) {
+      fs.writeFileSync(ACTION_LOG, '');
+    }
+    fs.appendFileSync(ACTION_LOG, `${new Date().toISOString()}  ${text}\n`);
+  } catch { /* logging must never be the thing that breaks an action */ }
+}
 
 function readLines(file) {
   if (!fs.existsSync(file)) return [];
@@ -74,12 +104,23 @@ function quickCheck() {
 }
 
 function main(action, arg) {
+  logAction(`${action} ${arg}`);
   switch (action) {
     case 'config': {
       const { applyBatch } = require('./19-settings.js');
       const result = applyBatch(arg);
-      if (!result.ok) console.error('settings not applied:', result.rejected);
+      if (!result.ok) {
+        // Two different failures share this branch: the chunk didn't
+        // parse at all (result.why), or it parsed and every key in it
+        // was refused (result.rejected). Both get logged as they are.
+        console.error('settings not applied:', result.why || result.rejected);
+        logAction(`  NOT APPLIED: ${result.why || JSON.stringify(result.rejected)}`);
+      } else {
+        logAction(`  applied: ${result.accepted.join(', ')}` +
+          (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
+      }
       quickCheck();
+      logAction('  quick collection started');
       break;
     }
     case 'quiet':
