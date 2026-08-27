@@ -897,6 +897,38 @@ ${announcementsSection(announcements, freshAnnouncementIds)}
   <footer>${escapeHtml(t('footerNote'))}</footer>
 </main>
 <script>
+// A BROKEN SCRIPT HAS TO SAY SO OUT LOUD.
+//
+// This page's buttons all depend on the script below. In a browser, a
+// script that dies leaves an explanation in the console. In the native
+// window there is no console, so the failure is completely silent: the
+// buttons just quietly stop working, which is indistinguishable from
+// them working and having nothing to do. That has now happened twice —
+// once from a single escaped character, once from a page-reload race —
+// and both times the search started at the wrong end because there was
+// no error to see.
+//
+// So errors get pinned to the top of the page instead. Ugly on purpose:
+// this should be impossible to miss and embarrassing to leave in place.
+// Registered before everything else, so it also catches a syntax error
+// in the script that follows it.
+window.onerror = function (message, source, line, column) {
+  try {
+    var box = document.getElementById('script-error');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'script-error';
+      box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+        'background:#7f1d1d;color:#fff;padding:10px 14px;font:13px monospace;' +
+        'white-space:pre-wrap;';
+      document.body.insertBefore(box, document.body.firstChild);
+    }
+    box.textContent += 'Script error: ' + message + '\\n  line ' + line +
+      ':' + column + '\\n';
+  } catch (e) { /* nothing left to report with */ }
+  return false;
+};
+
 // WORDS — translations for the code that already runs inside the page.
 //
 // Pasting the translation directly into the code text isn't safe: an

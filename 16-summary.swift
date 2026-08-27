@@ -107,6 +107,24 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         web = WKWebView(frame: window.contentView!.bounds)
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
+
+        // THE PAGE'S OWN ERRORS ARE INVISIBLE IN HERE.
+        //
+        // In a browser a broken script says so in the console. This
+        // window has no console, so a script that dies on line one looks
+        // exactly like a script that ran perfectly and had nothing to
+        // do — every button simply stops responding, silently. That cost
+        // several rounds of fixing things that were never broken.
+        //
+        // This makes the window inspectable from Safari's Develop menu
+        // (Develop -> the machine's name -> SHREK School Software), which
+        // gives a real console and breakpoints on the actual page as it
+        // runs here, rather than a copy of it opened in a browser where
+        // the bug doesn't happen.
+        if #available(macOS 13.3, *) {
+            web.isInspectable = true
+        }
+
         window.contentView!.addSubview(web)
 
         show()
