@@ -1333,6 +1333,25 @@ function diffWithPrevious(current, broken = []) {
   for (const x of previous) {
     if (currentlyPresent.has(key(x))) continue;   // arrived this time — nothing to ask
 
+    // AN EXCLUDED CLASS ISN'T "UNREAD" — IT'S DELIBERATELY SKIPPED.
+    //
+    // wasUnread() below is about classes that failed to load or weren't
+    // checked this pass (network error, Canvas off, quick-pass Edpuzzle
+    // skip) — those get the benefit of the doubt and are carried over
+    // untouched. An excluded class was skipped on purpose, forever, so
+    // it never gets read again to prove its old assignments are gone.
+    // Without this check those assignments fell into the missCount/
+    // "removed" dance below instead: three passes later they'd get
+    // marked removed:true, and a removed entry is carried over FOREVER
+    // (see the removedAt comment below) — so excluding a class never
+    // actually made its old assignments go away, they just sat under
+    // "removed" permanently. Dropping them here means excluding a class
+    // clears it from memory outright, same as if it never existed. If
+    // the exclusion is later lifted, the class is read fresh and its
+    // current assignments come back looking new — which is correct,
+    // there's no way to know what happened while it was excluded.
+    if (EXCLUSIONS.includes(x.class)) continue;
+
     if (wasUnread(x)) { carriedOver.push(x); continue; }
 
     const missCount = (x.missCount || 0) + 1;
@@ -1641,7 +1660,15 @@ if (require.main !== module) return;
   // Announcements, unlike assignments, don't disappear: a teacher almost
   // never deletes one. So old and new are simply merged by id — the
   // freshest version wins, nothing gets lost.
-  const merged = new Map(messageMemory.map(x => [x.id, x]));
+  //
+  // EXCEPT for a class on the exclusion list. That's the same case as
+  // the EXCLUSIONS check in diffWithPrevious: excluding a class was
+  // never going to un-happen, so there's no "did it really disappear"
+  // question to ask — its old posts just get dropped here instead of
+  // living in messageMemory forever with nothing left to ever clear
+  // them out again.
+  const merged = new Map(
+    messageMemory.filter(x => !EXCLUSIONS.includes(x.class)).map(x => [x.id, x]));
   for (const post of announcements) merged.set(post.id, post);
   const allAnnouncements = [...merged.values()];
 
