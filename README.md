@@ -155,6 +155,29 @@ to open this URL" instead of doing anything. `npm run build` also registers
 that link type with macOS, so it works immediately, not just after the app
 happens to be opened once.
 
+**Long-press "check now" may prompt for an Automation permission the first
+time** — the notifier launching a full check means launching the browser,
+and macOS wants to confirm that's allowed. Grant it in System Settings →
+Privacy & Security → Automation.
+
+By default this rebuilds with a fresh ad-hoc signature every time
+`npm run build` runs, which means macOS treats every rebuild as a brand
+new app — so that permission grant stops applying the moment you rebuild
+again. To make a grant stick across rebuilds, create a stable local
+code-signing certificate once:
+
+1. Open **Keychain Access** (Spotlight → "Keychain Access")
+2. Menu bar: **Keychain Access → Certificate Assistant → Create a Certificate…**
+3. Name it exactly `SHREK School Software Local`, set **Identity Type** to
+   *Self Signed Root*, and **Certificate Type** to *Code Signing*
+4. Click Create, then Done
+5. Find it under **My Certificates** in Keychain Access, double-click it,
+   expand **Trust**, and set **Code Signing** to *Always Trust*
+   (enter your password to confirm)
+
+`npm run build` automatically detects and uses that certificate from then
+on — no other changes needed.
+
 Then run it:
 
 ```bash

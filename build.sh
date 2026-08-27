@@ -34,6 +34,37 @@ trap 'rm -rf "$TMPDIR_"' EXIT
 echo "Project: $PROJ"
 echo
 
+# ── Code-signing identity ────────────────────────────────────────
+#
+# Ad-hoc signing (-s -) gives the app a NEW identity every single
+# rebuild, since the signature is derived from the binary's own content.
+# macOS ties Automation/Files-and-Folders permission grants to that
+# identity — so every rebuild looked like a brand new, never-approved
+# app, and a permission granted before this rebuild stopped applying
+# after it. Confirmed live: the notifier got blocked from launching the
+# browser for "check now" right after a rebuild that had already been
+# granted permission once.
+#
+# If a local code-signing certificate named below exists in the
+# keychain, it's used instead — same identity every rebuild, so a grant
+# survives. Falls back to ad-hoc if it doesn't exist yet, same as before.
+# Creating that certificate is a one-time, manual step (Keychain Access
+# → Certificate Assistant → Create a Certificate → Code Signing) — not
+# something this script creates on its own, since it means asking macOS
+# to trust a new identity, and that's a call for a person to make, not
+# a build script.
+LOCAL_CERT_NAME="SHREK School Software Local"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$LOCAL_CERT_NAME"; then
+  CODESIGN_ID="$LOCAL_CERT_NAME"
+  echo "Signing with local certificate: $LOCAL_CERT_NAME"
+else
+  CODESIGN_ID="-"
+  echo "No \"$LOCAL_CERT_NAME\" certificate found — signing ad-hoc."
+  echo "Automation permissions will need re-granting after every rebuild"
+  echo "until one exists. See the README for how to create it."
+fi
+echo
+
 # ── Notifier ──────────────────────────────────────────────────
 #
 # Handles the page's buttons (hide, not urgent, save settings, check now)
@@ -88,7 +119,7 @@ if [ -f 07-notifier.applescript ]; then
 </plist>
 PLIST
 
-  codesign --force --deep -s - "$NOTIFIER_NAME.app" 2>/dev/null
+  codesign --force --deep -s "$CODESIGN_ID" "$NOTIFIER_NAME.app" 2>/dev/null
 
   # macOS needs to be told this app exists and handles this scheme —
   # that doesn't happen on its own until something (Finder, Spotlight)
@@ -136,7 +167,7 @@ PLIST
   # 11.0 covers everything this app actually uses (NSWindow, WKWebView).
   # $(uname -m) keeps this working on both Apple Silicon and Intel.
   swiftc -O -target "$(uname -m)-apple-macos11" -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" 16-summary.swift
-  codesign --force -s - "$APP_NAME.app" 2>/dev/null
+  codesign --force -s "$CODESIGN_ID" "$APP_NAME.app" 2>/dev/null
   echo "  built, path baked into Info.plist"
 
   # A copy in /Applications: Quick Actions only list programs from there,
@@ -169,7 +200,7 @@ if [ -d "Проверить сейчас.app" ] && [ -f 09-проверить-с
   osacompile -o "$TMPDIR_/Проверить сейчас.app" "$TMPDIR_/check.applescript"
   cp "$TMPDIR_/Проверить сейчас.app/Contents/Resources/Scripts/main.scpt" \
      "Проверить сейчас.app/Contents/Resources/Scripts/main.scpt"
-  codesign --force --deep -s - "Проверить сейчас.app" 2>/dev/null
+  codesign --force --deep -s "$CODESIGN_ID" "Проверить сейчас.app" 2>/dev/null
   echo "  built"
 fi
 
