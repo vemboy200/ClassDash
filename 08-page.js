@@ -376,6 +376,11 @@ ${exclusionsField(s.exclusions)}
         </select>
         <span class="field-hint"></span>
       </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsTreatUndated'))}</span>
+        <input type="checkbox" data-bool-key="treatUndatedAsUrgent"${s.treatUndatedAsUrgent ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsTreatUndatedHint'))}</span>
+      </label>
       <div class="settings-actions">
         <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
         <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
@@ -1214,6 +1219,14 @@ function saveSettings() {
     }
   }
   for (var k in lists) payload[k] = lists[k];
+
+  // Single true/false toggles use their own attribute, data-bool-key, not
+  // data-key: a lone checkbox has no other values to collect alongside
+  // it, so it maps straight to true/false instead of building a list.
+  var boolFields = panel.querySelectorAll('[data-bool-key]');
+  for (var b = 0; b < boolFields.length; b++) {
+    payload[boolFields[b].getAttribute('data-bool-key')] = boolFields[b].checked;
+  }
 
   var result = document.getElementById('settings-result');
   if (result) result.textContent = WORDS.saved;

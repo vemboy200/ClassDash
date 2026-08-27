@@ -77,11 +77,19 @@ const DEFAULTS = {
   // Do NOT point this at a browser you use every day: see 20-browser.js
   // for why that can cost you your cookies and extensions.
   browserPath: '',
+
+  // An assignment with no due date at all still needs doing, so by
+  // default it's treated as due tomorrow — see the comment in
+  // sortIntoBuckets in 05-playwright-draft.js for why. Set this to false
+  // to instead treat undated assignments like materials: shown once,
+  // never marked as due soon.
+  treatUndatedAsUrgent: true,
 };
 
 const TYPES = {
   email: 'string', canvas: 'string', language: 'language',
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
+  treatUndatedAsUrgent: 'boolean',
   passLimitMs: 'number', apiPort: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
@@ -120,6 +128,13 @@ function validate(key, raw) {
     const l = String(raw).trim().toLowerCase();
     if (l !== 'ru' && l !== 'en') return { ok: false, why: 'language is ru or en' };
     return { ok: true, value: l };
+  }
+  if (kind === 'boolean') {
+    if (raw === true || raw === false) return { ok: true, value: raw };
+    const b = String(raw).trim().toLowerCase();
+    if (b === 'true' || b === '1') return { ok: true, value: true };
+    if (b === 'false' || b === '0') return { ok: true, value: false };
+    return { ok: false, why: 'needs to be true or false' };
   }
   if (kind === 'numbers') {
     // This kind only describes "full-summary hours", so the check is

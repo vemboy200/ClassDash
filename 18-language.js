@@ -112,6 +112,8 @@ const DICTIONARIES = {
     settingsSave: 'Сохранить',
     settingsSaved: 'Сохранено. Подействует со следующего сбора.',
     settingsClose: 'закрыть',
+    settingsTreatUndated: 'Без срока — считать срочным',
+    settingsTreatUndatedHint: 'выключи, чтобы такие задания просто показывались один раз, как материалы',
 
     // States
     emptyState: 'Ничего не горит и ничего нового. Можно выдохнуть.',
@@ -218,6 +220,8 @@ const DICTIONARIES = {
     settingsSave: 'Save',
     settingsSaved: 'Saved. Takes effect on the next collection.',
     settingsClose: 'close',
+    settingsTreatUndated: 'No due date counts as urgent',
+    settingsTreatUndatedHint: 'turn off to show these once instead, like materials',
 
     emptyState: 'Nothing due and nothing new. You can relax.',
     stillReading: 'Still reading:',

@@ -12,5 +12,6 @@
   "emptyTimeoutMs": 8000,
   "passLimitMs": 300000,
   "apiPort": 8734,
-  "browserPath": ""
+  "browserPath": "",
+  "treatUndatedAsUrgent": true
 }

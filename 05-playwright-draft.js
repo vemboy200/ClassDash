@@ -1185,9 +1185,12 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
       // gets translated, and the logic would fall apart on a language switch.
       if (mutedIds.has(x.id)) { deferred.push({ ...x, muted: true }); continue; }
 
-      // But an assignment with no date can't be lost: it still has to be
-      // turned in, the teacher just never set a due date. Treated as
-      // "by tomorrow".
+      // By default, an assignment with no date can't be lost: it still
+      // has to be turned in, the teacher just never set a due date, so
+      // it's treated as "by tomorrow". SETTINGS.treatUndatedAsUrgent
+      // lets that be turned off for anyone who'd rather these behaved
+      // exactly like materials instead — shown once, never due soon.
+      if (!SETTINGS.treatUndatedAsUrgent) { undated.push(x); continue; }
       due = tomorrow;
       note = 'noDueDateNote';
     }

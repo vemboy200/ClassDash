@@ -118,6 +118,7 @@ Settings live in `settings.json`:
 | `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms |
 | `passLimitMs` | a pass longer than this is treated as hung and killed, ms |
 | `browserPath` | advanced override for which browser binary to automate; leave empty (see `setup-browser` above) |
+| `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
 
 Settings can also be edited from the summary page itself — the gear button next
 to the reload arrow — or from the command line:
