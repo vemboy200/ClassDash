@@ -111,17 +111,26 @@ const STATE_FILE = path.join(__dirname, 'last-collection.json');
 
 // The notifier app. Sits next to the script.
 // Built with:
-//   osacompile -o Напоминалка.app napominalka.applescript
-// Its icon is changed by replacing the Contents/Resources/applet.icns file.
+//   osacompile -o "SHREK Notifier.app" 07-notifier.applescript
+// (see build.sh — it also writes the Info.plist and registers the
+// napominalka:// scheme). Its icon is changed by replacing the
+// Contents/Resources/applet.icns file.
 //
-// NOTE: NOTIFIER_APP, NOTIFY_FILE, QUIET_FILE and HIDDEN_FILE below keep
-// their original Cyrillic filenames on purpose, even though everything
-// else in this codebase was translated to English. They're a live
-// contract with the separate macOS notifier app (its source isn't in
-// this repo — see the README), which reads and writes these exact paths
-// by name. Renaming them here would silently break notifications until
-// that other app is updated to match.
-const NOTIFIER_APP = path.join(__dirname, 'Напоминалка.app');
+// NAMED IN ENGLISH ON PURPOSE, UNLIKE NOTIFY_FILE/QUIET_FILE/HIDDEN_FILE
+// BELOW. This constant used to be Напоминалка.app, back when the
+// notifier's own source lived outside this repo and this was a live
+// contract with something this project didn't control — renaming it
+// here would have silently broken notifications until that other app
+// was updated to match.
+//
+// That's no longer true: 07-notifier.applescript and
+// 21-notifier-actions.js are this project's own code now, so both ends
+// of the contract move together. The other three constants stay
+// Cyrillic regardless — not because they still can't change, but
+// because there's no real reason to: nobody sees a data filename, only
+// an app's own name in Privacy & Security prompts and notification
+// banners, which is what made THIS one worth fixing.
+const NOTIFIER_APP = path.join(__dirname, 'SHREK Notifier.app');
 
 // The script hands the popup text to the app through this file.
 // First line is the title, the rest is the body. The app deletes
@@ -966,14 +975,14 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 function notify(title, subtitle, message) {
   const { execFileSync } = require('child_process');
 
-  // Main path: our Напоминалка.app.
+  // Main path: our SHREK Notifier.app.
   //
   // Launches the EXECUTABLE FILE inside the app directly.
   // Three approaches were tried, only this one works:
   //
-  //   osascript Напоминалка.app     — the popup arrives from
+  //   osascript SHREK Notifier.app  — the popup arrives from
   //                                   "Script Editor", not from us
-  //   open -a Напоминалка.app       — opens Finder instead of launching
+  //   open -a SHREK Notifier.app    — opens Finder instead of launching
   //                                   the app on this machine
   //   Contents/MacOS/applet         — works: name and icon are ours
   //
@@ -988,7 +997,7 @@ function notify(title, subtitle, message) {
       execFileSync(binary);
       return;
     } catch (e) {
-      console.warn('Напоминалка.app failed:', e.message);
+      console.warn('SHREK Notifier.app failed:', e.message);
     }
   }
 

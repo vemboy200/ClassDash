@@ -187,7 +187,7 @@ npm start
 > **Note.** Skip `npm run build` and the collector, the page, the transcripts,
 > and the home API all still work — you just get a plain browser tab instead
 > of a native window, and a generic system notification (from "Script
-> Editor", not "Напоминалка") instead of the buttons actually doing anything.
+> Editor", not "SHREK Notifier") instead of the buttons actually doing anything.
 > On Linux or Windows the same is true: the collector and the page are plain
 > Node, the notifier and the window are macOS-only.
 
@@ -235,12 +235,14 @@ your teachers' posts to anything on the network, with no password.
 
 The code comments are fairly heavy. Those comments are not decoration: nearly
 every one of them records a failure that already happened and explains why
-the obvious approach does not work. (A handful of names the collector hands
-off to the notifier — the built app itself, `Напоминалка.app`, and a few
-`.txt` files it reads and writes — are kept in their original Russian on
-purpose. That predates this repo including a notifier at all: anyone who
-already built their own copy of it under that same convention keeps working
-unchanged.)
+the obvious approach does not work. (A few `.txt` files the collector hands
+off to the notifier are still named in their original Russian — internal
+state nobody but this code ever sees, so there was no real reason to touch
+them. The notifier *app itself* used to be `Напоминалка.app`, but that name
+is what actually shows up in Privacy & Security prompts and notification
+banners, which reads as alarming — a Cyrillic-named background app asking
+for permissions — to anyone who doesn't know this project. It's built as
+`SHREK Notifier.app` now.)
 
 ## A few things learned the hard way
 

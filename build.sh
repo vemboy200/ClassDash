@@ -88,7 +88,7 @@ echo
 # registration, LSUIElement so it doesn't switch you to another desktop
 # when it runs) lives right here in the script, not hand-edited into a
 # built .app over time — so there's nothing to lose by rebuilding it.
-NOTIFIER_NAME="Напоминалка"
+NOTIFIER_NAME="SHREK Notifier"
 if [ -f 07-notifier.applescript ]; then
   echo "→ $NOTIFIER_NAME"
   rm -rf "$NOTIFIER_NAME.app"
@@ -102,6 +102,13 @@ if [ -f 07-notifier.applescript ]; then
     <key>CFBundleExecutable</key><string>applet</string>
     <key>CFBundleIconFile</key><string>applet</string>
     <key>CFBundleIdentifier</key><string>com.artem.napominalka</string>
+    <!-- Left as com.artem.napominalka on purpose, even though the app's
+         own name changed. macOS ties an Automation/App Management grant
+         to this identifier, not to the visible name or the folder it
+         sits in — changing it would orphan any grant already given to
+         the old build, forcing a re-grant for no real reason. Nobody
+         ever sees this string; only $NOTIFIER_NAME, in the prompt
+         itself, is what looked alarming. -->
     <key>CFBundleName</key><string>$NOTIFIER_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
