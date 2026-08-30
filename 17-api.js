@@ -21,15 +21,24 @@
  *   node 17-api.js --network     visible to the whole home network
  *   node 17-api.js --port 9000   a different port
  *
+ * First run generates api-cert.pem, api-key.pem and api-token.txt
+ * next to this file (gitignored, unique to this install) and prints the
+ * token and the certificate's fingerprint once. A client needs both: the
+ * token as "Authorization: Bearer <token>" on every request, and the
+ * fingerprint pinned instead of trusting a real CA — there isn't one for
+ * a private home address, so the certificate is self-signed. Neither is
+ * ever regenerated automatically; a client that already has them would
+ * silently be locked out if they changed underneath it.
+ *
  * ── READ THIS BEFORE USING "--network" ──
  *
  * By default the server listens on 127.0.0.1 — meaning "only me". No one
  * on the network can reach it, not even from the computer next door.
  *
  * The --network flag lifts that restriction, and then homework, teacher
- * announcements, and email-bearing links become visible to ANY device on
- * the network — including a school wifi, if the laptop ever ends up
- * there. There's no password here.
+ * announcements, and email-bearing links become reachable — encrypted and
+ * token-gated, but reachable — by any device on the network, including a
+ * school wifi if the laptop ever ends up there.
  *
  * That's why localhost is the default and not the other way around:
  * opening it wider should be a deliberate choice, and accidentally
@@ -37,10 +46,12 @@
  * its own.
  */
 
-const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 
 const {
   sortIntoBuckets, readMutedIds, readHiddenIds,
@@ -54,7 +65,74 @@ const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
 const CLASSES_FILE = path.join(__dirname, 'classes.json');
 
+// ── TLS + auth, generated locally, per install ──
+//
+// This used to be plain http, no password. Fine for "this computer only",
+// but --network puts real personal information (school, teachers,
+// assignment text) on the wire in the clear, and this project is now
+// meant to run on OTHER people's computers, not just one. There's no
+// central server to hand out a real certificate from, and no single
+// shared secret this code could ship with — every install needs its own.
+//
+// So both are generated ONCE, on first run, and kept: a self-signed TLS
+// certificate (openssl, not a new dependency — already on macOS and
+// virtually every Linux box) and a random bearer token. A client on the
+// LAN pins the certificate's own fingerprint instead of trusting a real
+// CA (there isn't one for a private home address), and sends the token
+// back on every request. TLS alone would stop eavesdropping but not stop
+// some other device on the network from just asking politely; the token
+// is what actually gates that.
+const CERT_FILE = path.join(__dirname, 'api-cert.pem');
+const KEY_FILE = path.join(__dirname, 'api-key.pem');
+const TOKEN_FILE = path.join(__dirname, 'api-token.txt');
+
 const DEFAULT_PORT = require('./19-settings.js').read().apiPort;
+
+/** Generates the self-signed cert + key on first run only — never
+ *  regenerated after, since a client pins the fingerprint of whatever
+ *  it first saw, and a silent replacement would just lock them out. */
+function ensureCert() {
+  if (fs.existsSync(CERT_FILE) && fs.existsSync(KEY_FILE)) return;
+  try {
+    execFileSync('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-days', '3650',
+      '-nodes', '-subj', '/CN=classdash-local',
+      '-keyout', KEY_FILE, '-out', CERT_FILE,
+    ], { stdio: 'ignore' });
+  } catch (e) {
+    console.error('Could not generate a TLS certificate (is openssl on PATH?):', e.message);
+    process.exit(1);
+  }
+}
+
+/** The fingerprint a client pins — same value openssl itself would print,
+ *  computed the same way rather than shelling out twice for it. */
+function certFingerprint() {
+  const der = new crypto.X509Certificate(fs.readFileSync(CERT_FILE)).raw;
+  return crypto.createHash('sha256').update(der).digest('hex')
+    .replace(/(.{2})(?=.)/g, '$1:').toUpperCase();
+}
+
+/** Generates the bearer token on first run only, same reasoning as the
+ *  certificate: it's what a client is configured with, not something
+ *  that should ever change out from under them on its own. */
+function ensureToken() {
+  if (!fs.existsSync(TOKEN_FILE)) {
+    fs.writeFileSync(TOKEN_FILE, crypto.randomBytes(32).toString('hex'));
+  }
+  return fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+}
+
+/** Timing-safe, and tolerant of a missing/malformed header — those are
+ *  just "not authorized", not a crash. */
+function isAuthorized(req, token) {
+  const header = req.headers['authorization'] || '';
+  const prefix = 'Bearer ';
+  if (!header.startsWith(prefix)) return false;
+  const given = Buffer.from(header.slice(prefix.length));
+  const expected = Buffer.from(token);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+}
 
 /** Reads a json file. Missing or broken — an empty list, not a crash. */
 function readJson(file) {
@@ -155,9 +233,88 @@ const HANDLERS = {
 function index() {
   return {
     what: 'School digest home API',
-    handles: Object.keys(HANDLERS),
-    note: 'Read-only. Collection runs separately, every 10 minutes.',
+    handles: [...Object.keys(HANDLERS), '/api/stream'],
+    note: 'Read-only. Collection runs separately, every 10 minutes. ' +
+      'Every request needs "Authorization: Bearer <token>" — see api-token.txt.',
   };
+}
+
+/** Everything every handle returns, bundled into one object — what
+ *  /api/stream pushes. One combined shape rather than one stream per
+ *  handle: a client that wants push doesn't get to pick and choose,
+ *  it gets the whole picture each time, same as loading the page does. */
+function snapshot() {
+  const d = gather();
+  const out = {};
+  for (const [name, handler] of Object.entries(HANDLERS)) {
+    out[name.replace(/^\/api\//, '')] = handler(d);
+  }
+  return out;
+}
+
+// ── Push, for /api/stream ──
+//
+// Watches the two files a collection pass actually rewrites, rather than
+// the collector telling this process anything directly — there's no
+// coupling between the two beyond files, same as everywhere else in this
+// project, and it means the API doesn't care whether the collector is
+// running right now, was launched five minutes ago, or isn't running at
+// all yet.
+//
+// fs.watch fires more than once for a single write on some platforms
+// (temp-file-then-rename is a common pattern that trips it), so this
+// debounces before actually reacting. And a collection pass that changed
+// NOTHING still rewrites both files (a fresh timestamp, same content) —
+// so what actually decides whether to push is a plain equality check
+// against the last snapshot sent, not "a file changed at all".
+let sseClients = [];
+let lastBroadcast = null;
+
+function broadcastIfChanged() {
+  let data;
+  try {
+    data = snapshot();
+  } catch (e) {
+    console.error('snapshot failed, not broadcasting:', e.message);
+    return;
+  }
+  // collectedAt/minutesAgo drift on their own, every single collection
+  // pass, even one that fetched nothing new — the file still gets
+  // rewritten with a fresh mtime. Comparing the raw snapshot against
+  // that would mean this never actually stays quiet, so the comparison
+  // is done with them zeroed out. The real values still go out in what's
+  // actually sent, so a client still knows how fresh this is.
+  const comparable = JSON.stringify({
+    ...data,
+    status: { ...data.status, collectedAt: null, minutesAgo: null },
+  });
+  if (comparable === lastBroadcast) return;
+  lastBroadcast = comparable;
+  const payload = JSON.stringify(data);
+  for (const res of sseClients) res.write(`event: update\ndata: ${payload}\n\n`);
+}
+
+function watchForChanges() {
+  let timer = null;
+  const debounced = () => {
+    clearTimeout(timer);
+    timer = setTimeout(broadcastIfChanged, 400);
+  };
+  // Watching the files, not the directory: STATE_FILE/STREAM_FILE may not
+  // exist yet on a fresh install (no collection has run), and fs.watch
+  // throws immediately on a path that isn't there. Falls back to polling
+  // every 5s until the file shows up, then switches to the real watch.
+  for (const file of [STATE_FILE, STREAM_FILE]) {
+    const tryWatch = () => {
+      if (!fs.existsSync(file)) { setTimeout(tryWatch, 5000); return; }
+      try {
+        fs.watch(file, debounced);
+      } catch (e) {
+        console.error(`could not watch ${file}, push disabled for it:`, e.message);
+      }
+    };
+    tryWatch();
+  }
 }
 
 function start() {
@@ -168,7 +325,13 @@ function start() {
     ? Number(args[portIndex + 1]) : DEFAULT_PORT;
   const host = onNetwork ? '0.0.0.0' : '127.0.0.1';
 
-  const server = http.createServer((req, res) => {
+  ensureCert();
+  const token = ensureToken();
+
+  const server = https.createServer({
+    cert: fs.readFileSync(CERT_FILE),
+    key: fs.readFileSync(KEY_FILE),
+  }, (req, res) => {
     // Strip "?whatever": an address with a query string should still work.
     //
     // And DECODE IT. Handles are named in Latin now, but this used to
@@ -181,15 +344,38 @@ function start() {
     let urlPath = raw;
     try { urlPath = decodeURIComponent(raw); } catch { /* broken encoding — look up as-is */ }
 
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     // Allow reading this from pages in a browser: without it, a page of
     // your own on your phone would run into the cross-origin block.
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    const respond = (status, body) =>
+    const respond = (status, body) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.writeHead(status).end(JSON.stringify(body, null, 2));
+    };
+
+    // EVERY route needs the token, root included — this API only exists
+    // to read out personal data (school, teachers, assignment text), so
+    // there's no handle worth leaving open just for discoverability.
+    if (!isAuthorized(req, token)) {
+      return respond(401, { error: 'missing or wrong bearer token' });
+    }
 
     if (urlPath === '/') return respond(200, index());
+
+    if (urlPath === '/api/stream') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      // Sends the current state immediately, THEN only again on change —
+      // a client that just connected shouldn't have to wait for the next
+      // collection pass to find out anything at all.
+      res.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
+      sseClients.push(res);
+      req.on('close', () => { sseClients = sseClients.filter(r => r !== res); });
+      return;
+    }
 
     const handler = HANDLERS[urlPath];
     if (!handler) {
@@ -222,19 +408,22 @@ function start() {
   });
 
   server.listen(port, host, () => {
-    console.log(`Home API listening on http://${host}:${port}`);
+    console.log(`Home API listening on https://${host}:${port}`);
+    console.log(`Bearer token (needed on every request): ${token}`);
+    console.log(`Certificate fingerprint (pin this, don't trust it blind): ${certFingerprint()}`);
     if (onNetwork) {
       const addresses = Object.values(os.networkInterfaces()).flat()
         .filter(iface => iface && iface.family === 'IPv4' && !iface.internal)
         .map(iface => iface.address);
       console.log(`VISIBLE TO THE WHOLE NETWORK. Addresses: ${addresses.join(', ') || 'none found'}`);
-      console.log('No password — do not enable this on a network you do not trust (e.g. a school one).');
+      console.log('Encrypted and token-gated, but still only open this to a network you trust.');
     } else {
       console.log('This computer only. For the home network: --network');
     }
-    console.log(`Handles: ${Object.keys(HANDLERS).join(' ')}`);
+    console.log(`Handles: ${Object.keys(HANDLERS).join(' ')} /api/stream`);
+    watchForChanges();
   });
 }
 
-module.exports = { HANDLERS, gather, toPublic };
+module.exports = { HANDLERS, gather, toPublic, snapshot };
 if (require.main === module) start();

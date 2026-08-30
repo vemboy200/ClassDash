@@ -208,19 +208,33 @@ absolute paths, so write your own.
 
 ## Home API
 
-A small read-only HTTP server, in case you want the data somewhere else —
-a phone, a second machine, a home dashboard:
+A small read-only HTTPS server, in case you want the data somewhere else —
+a phone, a second machine, a home dashboard, a Home Assistant integration:
 
 ```bash
 npm run api                    # localhost only
 node 17-api.js --network       # visible to your home network
 ```
 
-Endpoints: `/api/status` `/api/due-soon` `/api/ahead` `/api/overdue`
-`/api/assignments` `/api/announcements` `/api/removed` `/api/classes`
+First run generates `api-cert.pem`, `api-key.pem` and `api-token.txt` next
+to `17-api.js` (gitignored, unique to your install) and prints the token
+and the certificate's fingerprint once. Every request needs
+`Authorization: Bearer <token>`; a client should pin the printed
+fingerprint rather than trust the certificate blindly, since it's
+self-signed — there's no real CA for a private home address to get one
+from. Neither the certificate nor the token is ever regenerated on its
+own; delete the files yourself if you actually want new ones (any client
+already configured with the old ones will need updating too).
 
-**Localhost is the default on purpose.** `--network` exposes your assignments and
-your teachers' posts to anything on the network, with no password.
+Endpoints: `/api/status` `/api/due-soon` `/api/ahead` `/api/overdue`
+`/api/assignments` `/api/announcements` `/api/removed` `/api/classes`, plus
+`/api/stream` — a Server-Sent Events feed of everything above bundled
+together, pushed once on connect and again only when a collection pass
+actually changes something.
+
+**Localhost is the default on purpose.** `--network` makes your
+assignments and your teachers' posts reachable — encrypted and
+token-gated, but reachable — by anything on the network.
 
 ---
 
