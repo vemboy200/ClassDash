@@ -808,19 +808,28 @@ function writePage(data, outputPath) {
      the multi-select one's shape. Still a real <input type="checkbox">
      underneath — :checked, onchange, data-bool-key, id all keep working
      exactly as before; only the appearance changes. */
-  input.toggle {
+  /* input[type="checkbox"].toggle, NOT plain input.toggle — has to tie
+     .setting-row input[type="checkbox"]'s specificity above (a class +
+     an attribute selector) to actually win the width. Losing that fight
+     was exactly what made these stretch to fill the whole row: an
+     auto-width grid item defaults to STRETCHING to fill its column,
+     and width: auto (from the older, more specific rule) never
+     overrode the explicit width set here, so the pill filled the
+     entire middle column instead of staying a fixed 34px wide. */
+  input[type="checkbox"].toggle {
     appearance: none; -webkit-appearance: none;
     width: 34px; height: 20px; border-radius: 10px;
     background: var(--line); position: relative; cursor: pointer;
-    transition: background 0.15s; flex: 0 0 auto; margin: 0; padding: 0;
+    transition: background 0.15s; flex: 0 0 auto; justify-self: start;
+    margin: 0; padding: 0;
   }
-  input.toggle::before {
+  input[type="checkbox"].toggle::before {
     content: ''; position: absolute; top: 2px; left: 2px;
     width: 16px; height: 16px; border-radius: 50%; background: #fff;
     transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,.3);
   }
-  input.toggle:checked { background: var(--new); }
-  input.toggle:checked::before { transform: translateX(14px); }
+  input[type="checkbox"].toggle:checked { background: var(--new); }
+  input[type="checkbox"].toggle:checked::before { transform: translateX(14px); }
   /* Email and Canvas address start masked like a password field — a
      screen share or a screenshot for a bug report shouldn't leak either
      one. The little eye button reveals it, same idea as a password
