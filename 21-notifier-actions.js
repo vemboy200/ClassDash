@@ -103,6 +103,12 @@ function quickCheck() {
   child.unref();
 }
 
+/**
+ * Runs one action and returns what happened — never throws for an
+ * expected failure (a parse error, a rejected setting), only for
+ * something genuinely unexpected, which the CLI entry point below
+ * turns into a result too rather than letting it vanish.
+ */
 function main(action, arg) {
   logAction(`${action} ${arg}`);
   switch (action) {
@@ -115,36 +121,37 @@ function main(action, arg) {
         // was refused (result.rejected). Both get logged as they are.
         console.error('settings not applied:', result.why || result.rejected);
         logAction(`  NOT APPLIED: ${result.why || JSON.stringify(result.rejected)}`);
-      } else {
-        logAction(`  applied: ${result.accepted.join(', ')}` +
-          (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
+        return { ok: false, action, why: result.why, rejected: result.rejected };
       }
+      logAction(`  applied: ${result.accepted.join(', ')}` +
+        (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
       quickCheck();
       logAction('  quick collection started');
-      break;
+      return { ok: true, action, accepted: result.accepted, rejected: result.rejected };
     }
     case 'quiet':
       appendLine(QUIET_FILE, arg);
       redraw();
-      break;
+      return { ok: true, action };
     case 'unquiet':
       removeLine(QUIET_FILE, arg);
       redraw();
-      break;
+      return { ok: true, action };
     case 'hide':
       appendLine(HIDDEN_FILE, arg);
       redraw();
-      break;
+      return { ok: true, action };
     case 'unhide':
       removeLine(HIDDEN_FILE, arg);
       redraw();
-      break;
+      return { ok: true, action };
     case 'check':
       fullCheck();
-      break;
+      return { ok: true, action };
     default:
       console.error('unknown napominalka action:', action);
       process.exitCode = 1;
+      return { ok: false, action, why: `unknown action: ${action}` };
   }
 }
 
@@ -152,5 +159,25 @@ module.exports = { main, appendLine, removeLine, readLines };
 
 if (require.main === module) {
   const [action, arg] = process.argv.slice(2);
-  main(action, arg || '');
+  let result;
+  try {
+    result = main(action, arg || '');
+  } catch (e) {
+    // A CRASH HERE USED TO MEAN THE CALLER GOT NOTHING AT ALL.
+    //
+    // Whatever ran this — the AppleScript notifier's `do shell script`,
+    // or the native window's own bridge in 16-summary.swift — needs
+    // SOME answer even when this throws outright. An unhandled
+    // exception with empty stdout looked exactly like a click that
+    // never reached here, which is the one thing this file exists to
+    // stop being ambiguous. So this is the one place that can't itself
+    // become the next silent failure.
+    logAction(`  CRASHED: ${e.message}`);
+    result = { ok: false, action, why: e.message };
+    process.exitCode = 1;
+  }
+  // Printed as the LAST line of stdout, always. 16-summary.swift's
+  // bridge and 07-notifier.applescript's dispatch both read this
+  // program's own answer instead of guessing from a bare exit code.
+  console.log(JSON.stringify(result));
 }
