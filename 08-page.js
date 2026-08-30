@@ -403,6 +403,7 @@ function settingsPanel() {
       <div class="name">${escapeHtml(t('settingsTitle'))}</div>
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
+${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
 ${field('summaryHours', t('settingsHours'), s.summaryHours.join(', '), t('settingsHoursHint'))}
 ${exclusionsField(s.exclusions)}
       <label class="setting-row">
@@ -477,6 +478,13 @@ ${exclusionsField(s.exclusions)}
           <span class="field-hint">${escapeHtml(t('settingsApiFingerprintHint'))}</span>
         </label>
       </div>
+      <details class="advanced-settings">
+        <summary>${escapeHtml(t('settingsAdvanced'))}</summary>
+${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
+${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
+${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('settingsPassLimitHint'))}
+${field('browserPath', t('settingsBrowserPath'), s.browserPath, t('settingsBrowserPathHint'))}
+      </details>
       <div class="settings-actions">
         <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
         <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
@@ -946,6 +954,19 @@ function writePage(data, outputPath) {
   }
   .settings-actions button:hover { color: var(--text); border-color: var(--dim); }
   #settings-result { color: var(--dim); font-size: 12px; }
+  /* Timeouts and the browser-path override: real settings, but not ones
+     most people will ever need to touch, so they start collapsed rather
+     than crowding the panel everyone sees by default. */
+  .advanced-settings {
+    border: 1px solid var(--line); border-radius: 7px; background: var(--bg);
+    padding: 2px 8px; margin-bottom: 8px;
+  }
+  .advanced-settings summary {
+    cursor: pointer; padding: 6px 0; color: var(--dim); font-size: 13px;
+    user-select: none;
+  }
+  .advanced-settings summary:hover { color: var(--text); }
+  .advanced-settings[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
   /* Collapsible class list. */
   .class-picker {
     border: 1px solid var(--line); border-radius: 7px; background: var(--bg);
