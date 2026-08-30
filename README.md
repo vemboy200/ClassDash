@@ -60,6 +60,13 @@ sends you notifications, instead of you having to open a file by hand).
 
 ### 1. Set up the project folder
 
+This step is the least friendly part of the whole thing — Terminal, a
+few typed commands, editing a JSON file by hand. There's no getting
+around that today; a real installer or a guided first-run setup inside
+the app that skips Terminal entirely is possible in principle, but
+nothing like that has been built yet. This is the actual state of things
+right now, not a "coming soon."
+
 **Requirements:**
 - macOS (the notification popup, the summary window, and the scheduler
   are all macOS-specific — the rest of this runs on Linux/Windows too)
@@ -118,11 +125,6 @@ the latest `.dmg`, open it, and drag **ClassDash** into your
 > that doesn't work, go to **System Settings → Privacy & Security**,
 > scroll down, and click **Open Anyway** after your first blocked
 > attempt. You only need to do this once; after that it opens normally.
->
-> If this project ever gets a paid Apple Developer account, this whole
-> step goes away — a signed, notarized build just opens like any other
-> downloaded app, no warning and no workaround needed. Not something to
-> count on for now, just the actual fix if it ever happens.
 
 **Building it yourself** is the other option, if you'd rather not run a
 downloaded binary or want to modify the code — see
