@@ -39,7 +39,7 @@ const DICTIONARIES = {
     locale: 'ru-RU',
 
     // Page header
-    title: 'SHREK School Software',
+    title: 'ClassDash',
     updated: 'обновлено',
     reloadHint: 'Нажать — перечитать. Держать секунду — проверить заново.',
     checking: 'проверяю…',
@@ -172,7 +172,7 @@ const DICTIONARIES = {
   en: {
     locale: 'en-US',
 
-    title: 'SHREK School Software',
+    title: 'ClassDash',
     updated: 'updated',
     reloadHint: 'Click to reload. Hold for a second to run a fresh check.',
     checking: 'checking…',

@@ -65,7 +65,7 @@ else
 fi
 echo
 
-# ── SHREK School Software (the summary window AND the notifier) ──
+# ── ClassDash (the summary window AND the notifier) ──
 #
 # THIS USED TO BE TWO APPS. A second one, invisible (LSUIElement),
 # handled the page's buttons via the napominalka:// URL scheme and
@@ -79,7 +79,7 @@ echo
 #     browser tab instead, this app still claims napominalka:// (see
 #     CFBundleURLTypes below) and handles it the same way, via the
 #     Apple Event handler registered in applicationWillFinishLaunching.
-#   - Notifications: `SHREK School Software --notify` is a distinct,
+#   - Notifications: `ClassDash --notify` is a distinct,
 #     window-less launch mode (see runNotifyMode() in 16-summary.swift)
 #     that posts through UserNotifications and exits, instead of a
 #     separate always-resident app doing it.
@@ -91,7 +91,7 @@ echo
 # A real Swift program, WKWebView draws the window. The path gets baked
 # into Info.plist under the key "ProjectPath", and that's where
 # 16-summary.swift reads it from.
-APP_NAME="SHREK School Software"
+APP_NAME="ClassDash"
 if command -v swiftc >/dev/null; then
   echo "→ $APP_NAME"
   mkdir -p "$APP_NAME.app/Contents/MacOS"

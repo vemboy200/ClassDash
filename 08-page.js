@@ -1065,7 +1065,7 @@ const WORDS = ${JSON.stringify({
 // way had any means of reporting a failure back to this page.
 //
 // Running inside the native window, there's a second, better path now:
-// window.webkit.messageHandlers.shrek, a direct bridge straight into
+// window.webkit.messageHandlers.classdash, a direct bridge straight into
 // the Swift app hosting this page (see 16-summary.swift). One hop, and
 // a REAL result comes back — not just "the click happened somewhere",
 // but what it actually did. dispatchAction() below prefers this path
@@ -1081,13 +1081,13 @@ var bridgeRequestCounter = 0;
 
 function hasNativeBridge() {
   return !!(window.webkit && window.webkit.messageHandlers &&
-            window.webkit.messageHandlers.shrek);
+            window.webkit.messageHandlers.classdash);
 }
 
 // Called BY THE NATIVE APP, by this exact name, once a bridge action it
 // ran has actually finished — see 16-summary.swift's deliver(). Not
 // wired up through any DOM event, so the fixed global name matters.
-window.shrekBridgeResult = function (id, result) {
+window.classdashBridgeResult = function (id, result) {
   var callback = bridgeCallbacks[id];
   delete bridgeCallbacks[id];
   if (callback) callback(result);
@@ -1108,7 +1108,7 @@ function dispatchAction(action, arg, onResult) {
   if (hasNativeBridge()) {
     var id = 'r' + (++bridgeRequestCounter);
     if (onResult) bridgeCallbacks[id] = onResult;
-    window.webkit.messageHandlers.shrek.postMessage({ id: id, action: action, arg: arg || '' });
+    window.webkit.messageHandlers.classdash.postMessage({ id: id, action: action, arg: arg || '' });
   } else {
     location.href = 'napominalka://' + action + (arg ? '/' + arg : '');
   }

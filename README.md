@@ -1,6 +1,4 @@
-# SHREK School Software
-
-**S**exy **H**elpful **R**adiant **E**xcellent **K**issable.
+# ClassDash
 
 One page with everything due, collected automatically from Google Classroom,
 Canvas and Edpuzzle. Runs on a schedule, costs nothing to run, and stays quiet
@@ -148,7 +146,7 @@ Build the app:
 npm run build
 ```
 
-This builds one native window app, SHREK School Software, that does
+This builds one native window app, ClassDash, that does
 everything: shows the summary instead of a browser tab, shows the actual
 desktop notification popup, and makes the page's buttons (`hide`,
 `not urgent`, `settings`, long-press reload) work. Buttons reach it two
@@ -168,7 +166,7 @@ permission the first time** — either one means launching the browser to
 actually read Classroom/Canvas, and macOS wants to confirm that's allowed.
 Grant it in System Settings → Privacy & Security. **Notifications need a
 separate, manual grant of their own**, the first time one would show:
-System Settings → Notifications → SHREK School Software → Allow
+System Settings → Notifications → ClassDash → Allow
 Notifications. No system prompt appears for this one in practice — it
 silently defaults to off, so this is worth doing right after the first
 build rather than waiting to notice notifications never arrive.
@@ -200,7 +198,7 @@ npm start
 > **Note.** Skip `npm run build` and the collector, the page, the transcripts,
 > and the home API all still work — you just get a plain browser tab instead
 > of a native window, and a generic system notification (from "Script
-> Editor", not "SHREK School Software") instead of the buttons actually doing
+> Editor", not "ClassDash") instead of the buttons actually doing
 > anything. On Linux or Windows the same is true: the collector and the page
 > are plain Node, the app is macOS-only.
 
@@ -254,7 +252,7 @@ nobody but this code ever sees, so there was no real reason to touch them.
 There used to be a *second app* here too — first `Напоминалка.app`, briefly
 `SHREK Notifier.app` — whose name showed up in Privacy & Security prompts
 and notification banners, which read as alarming to anyone who didn't know
-this project. It's one app now, SHREK School Software, doing both jobs.)
+this project. It's one app now, ClassDash, doing both jobs.)
 
 ## A few things learned the hard way
 

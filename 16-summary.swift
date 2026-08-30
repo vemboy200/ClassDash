@@ -92,7 +92,7 @@ func logWindow(_ text: String) {
 // whether this app is already running -- see notify() in
 // 05-playwright-draft.js for why there have to be two:
 //
-//   - NOT running: launched fresh as `SHREK School Software --notify`
+//   - NOT running: launched fresh as `ClassDash --notify`
 //     (see the bottom of this file), which sets .accessory and calls
 //     runNotifyMode() below before any window gets created.
 //   - ALREADY running (the window is open): reached via a
@@ -296,7 +296,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = "SHREK School Software"
+        window.title = "ClassDash"
         window.center()
         // Remembers the window's size and position between launches.
         window.setFrameAutosaveName("SummaryWindow")
@@ -334,7 +334,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // Must be registered on the configuration BEFORE the WKWebView is
         // created — adding it afterward doesn't work.
         let config = WKWebViewConfiguration()
-        config.userContentController.add(self, name: "shrek")
+        config.userContentController.add(self, name: "classdash")
 
         web = WKWebView(frame: window.contentView!.bounds, configuration: config)
         web.autoresizingMask = [.width, .height]
@@ -350,7 +350,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // several rounds of fixing things that were never broken.
         //
         // This makes the window inspectable from Safari's Develop menu
-        // (Develop -> the machine's name -> SHREK School Software), which
+        // (Develop -> the machine's name -> ClassDash), which
         // gives a real console and breakpoints on the actual page as it
         // runs here, rather than a copy of it opened in a browser where
         // the bug doesn't happen.
@@ -493,7 +493,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // real JS object — not a string the page has to parse itself.
     private func deliver(requestId: String, resultJSON: String) {
         let idLiteral = Delegate.jsStringLiteral(requestId)
-        let script = "window.shrekBridgeResult && window.shrekBridgeResult(\(idLiteral), \(resultJSON));"
+        let script = "window.classdashBridgeResult && window.classdashBridgeResult(\(idLiteral), \(resultJSON));"
         DispatchQueue.main.async {
             self.web.evaluateJavaScript(script, completionHandler: nil)
         }

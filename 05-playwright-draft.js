@@ -134,7 +134,7 @@ const STATE_FILE = path.join(__dirname, 'last-collection.json');
 // separate process from the local copy instead of reaching the real
 // one. That's not hypothetical — it's exactly what happened testing
 // this the first time.
-const SUMMARY_APP = '/Applications/SHREK School Software.app';
+const SUMMARY_APP = '/Applications/ClassDash.app';
 
 // The script hands the popup text to the app through this file.
 // First line is the title, the rest is the body. The app deletes
@@ -995,8 +995,8 @@ function notify(title, subtitle, message) {
       // TWO PATHS, BECAUSE macOS TREATS "RUNNING" AND "NOT RUNNING"
       // COMPLETELY DIFFERENTLY FOR A SINGLE-INSTANCE APP.
       //
-      // Confirmed directly, the hard way: `open -a SHREK School
-      // Software --args --notify` against an ALREADY-RUNNING instance
+      // Confirmed directly, the hard way: `open -a ClassDash
+      // --args --notify` against an ALREADY-RUNNING instance
       // does nothing at all — no error, no new process, the file just
       // sits there unread. macOS doesn't hand a running single-instance
       // app a fresh set of command-line arguments; --args is only
@@ -1021,7 +1021,7 @@ function notify(title, subtitle, message) {
       }
       return;
     } catch (e) {
-      console.warn('SHREK School Software notification failed:', e.message);
+      console.warn('ClassDash notification failed:', e.message);
     }
   }
 
@@ -1040,7 +1040,7 @@ function notify(title, subtitle, message) {
 /** Whether the summary app already has a process running — determines
  *  which of notify()'s two delivery paths actually reaches it.
  *  execFileSync, not a shell string: the path has spaces in it
- *  ("SHREK School Software.app"), and this way there's no shell quoting
+ *  ("ClassDash.app"), and this way there's no shell quoting
  *  to get right at all. */
 function isSummaryAppRunning() {
   const { execFileSync } = require('child_process');
