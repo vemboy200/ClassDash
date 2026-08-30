@@ -12,6 +12,7 @@
   "emptyTimeoutMs": 8000,
   "passLimitMs": 300000,
   "apiPort": 8734,
+  "apiEnabled": false,
   "browserPath": "",
   "treatUndatedAsUrgent": true,
   "skipStaleClasses": true,

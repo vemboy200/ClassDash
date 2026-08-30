@@ -112,6 +112,7 @@ Settings live in `settings.json`:
 | `exclusions` | class names to skip — applies to both Classroom and Edpuzzle |
 | `account` | Google multi-login index inside the browser profile; usually `0` |
 | `apiPort` | port for the home API, default `8734` |
+| `apiEnabled` | `false` (default) — starts or stops the home API itself when toggled from the settings panel (or set here directly). The access key and certificate fingerprint show up in the panel once it's on — see [Home API](#home-api) |
 | `classTimeoutMs` | how long to wait for a class page, ms |
 | `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms |
 | `passLimitMs` | a pass longer than this is treated as hung and killed, ms |
@@ -209,22 +210,32 @@ absolute paths, so write your own.
 ## Home API
 
 A small read-only HTTPS server, in case you want the data somewhere else —
-a phone, a second machine, a home dashboard, a Home Assistant integration:
+a phone, a second machine, a home dashboard, a Home Assistant integration.
+
+**Easiest path:** the gear icon on the summary page has an "Enable home
+API" toggle. Turning it on and saving starts the server in the
+background (still localhost-only — see below for opening it to the
+network) and shows an **access key** and a **certificate fingerprint**
+right there in the panel, each with a Copy button. The key can be
+revealed (it's masked by default) and **rolled** — generates a brand new
+one and cuts the old one off immediately, for when a key might have
+leaked or a client config got shared somewhere it shouldn't have.
+
+**Manual path**, for running it outside the app or scripting around it:
 
 ```bash
 npm run api                    # localhost only
 node 17-api.js --network       # visible to your home network
 ```
 
-First run generates `api-cert.pem`, `api-key.pem` and `api-token.txt` next
-to `17-api.js` (gitignored, unique to your install) and prints the token
-and the certificate's fingerprint once. Every request needs
-`Authorization: Bearer <token>`; a client should pin the printed
-fingerprint rather than trust the certificate blindly, since it's
+Either way, first run generates `api-cert.pem`, `api-key.pem` and
+`api-token.txt` next to `17-api.js` (gitignored, unique to your install).
+Every request needs `Authorization: Bearer <token>`; a client should pin
+the certificate's fingerprint rather than trust it blindly, since it's
 self-signed — there's no real CA for a private home address to get one
-from. Neither the certificate nor the token is ever regenerated on its
-own; delete the files yourself if you actually want new ones (any client
-already configured with the old ones will need updating too).
+from. Neither file changes on its own; rolling the key from the panel (or
+deleting `api-token.txt` by hand) is the only way it changes, and any
+client already configured with the old one will need updating.
 
 Endpoints: `/api/status` `/api/due-soon` `/api/ahead` `/api/overdue`
 `/api/assignments` `/api/announcements` `/api/removed` `/api/classes`, plus
@@ -256,6 +267,7 @@ token-gated, but reachable — by anything on the network.
 | `20-browser.js` | downloads and installs the project's own isolated Brave |
 | `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly, not a separate app |
 | `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
+| `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
 | `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 
 The code comments are fairly heavy. Those comments are not decoration: nearly

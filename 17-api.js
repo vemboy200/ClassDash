@@ -50,8 +50,6 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
-const { execFileSync } = require('child_process');
 
 const {
   sortIntoBuckets, readMutedIds, readHiddenIds,
@@ -60,79 +58,23 @@ const { t, currentLanguage } = require('./18-language.js');
 // The calendar-day counter lives in 08-page: no circular dependency,
 // 17 already pulls in 05, and 05 pulls in 08.
 const { daysUntil } = require('./08-page.js');
+// Cert/token generation, the running-process pid file, and the auth
+// check itself all live in their own leaf module — 21-notifier-actions.js
+// needs the exact same logic (starting/stopping this server, rolling the
+// token) without requiring this whole file. See 23-api-security.js's own
+// comment for why generation specifically can't just happen lazily here.
+const {
+  ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized,
+  writePid, clearPid,
+} = require('./23-api-security.js');
 
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
 const CLASSES_FILE = path.join(__dirname, 'classes.json');
-
-// ── TLS + auth, generated locally, per install ──
-//
-// This used to be plain http, no password. Fine for "this computer only",
-// but --network puts real personal information (school, teachers,
-// assignment text) on the wire in the clear, and this project is now
-// meant to run on OTHER people's computers, not just one. There's no
-// central server to hand out a real certificate from, and no single
-// shared secret this code could ship with — every install needs its own.
-//
-// So both are generated ONCE, on first run, and kept: a self-signed TLS
-// certificate (openssl, not a new dependency — already on macOS and
-// virtually every Linux box) and a random bearer token. A client on the
-// LAN pins the certificate's own fingerprint instead of trusting a real
-// CA (there isn't one for a private home address), and sends the token
-// back on every request. TLS alone would stop eavesdropping but not stop
-// some other device on the network from just asking politely; the token
-// is what actually gates that.
 const CERT_FILE = path.join(__dirname, 'api-cert.pem');
 const KEY_FILE = path.join(__dirname, 'api-key.pem');
-const TOKEN_FILE = path.join(__dirname, 'api-token.txt');
 
 const DEFAULT_PORT = require('./19-settings.js').read().apiPort;
-
-/** Generates the self-signed cert + key on first run only — never
- *  regenerated after, since a client pins the fingerprint of whatever
- *  it first saw, and a silent replacement would just lock them out. */
-function ensureCert() {
-  if (fs.existsSync(CERT_FILE) && fs.existsSync(KEY_FILE)) return;
-  try {
-    execFileSync('openssl', [
-      'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-days', '3650',
-      '-nodes', '-subj', '/CN=classdash-local',
-      '-keyout', KEY_FILE, '-out', CERT_FILE,
-    ], { stdio: 'ignore' });
-  } catch (e) {
-    console.error('Could not generate a TLS certificate (is openssl on PATH?):', e.message);
-    process.exit(1);
-  }
-}
-
-/** The fingerprint a client pins — same value openssl itself would print,
- *  computed the same way rather than shelling out twice for it. */
-function certFingerprint() {
-  const der = new crypto.X509Certificate(fs.readFileSync(CERT_FILE)).raw;
-  return crypto.createHash('sha256').update(der).digest('hex')
-    .replace(/(.{2})(?=.)/g, '$1:').toUpperCase();
-}
-
-/** Generates the bearer token on first run only, same reasoning as the
- *  certificate: it's what a client is configured with, not something
- *  that should ever change out from under them on its own. */
-function ensureToken() {
-  if (!fs.existsSync(TOKEN_FILE)) {
-    fs.writeFileSync(TOKEN_FILE, crypto.randomBytes(32).toString('hex'));
-  }
-  return fs.readFileSync(TOKEN_FILE, 'utf8').trim();
-}
-
-/** Timing-safe, and tolerant of a missing/malformed header — those are
- *  just "not authorized", not a crash. */
-function isAuthorized(req, token) {
-  const header = req.headers['authorization'] || '';
-  const prefix = 'Bearer ';
-  if (!header.startsWith(prefix)) return false;
-  const given = Buffer.from(header.slice(prefix.length));
-  const expected = Buffer.from(token);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
-}
 
 /** Reads a json file. Missing or broken — an empty list, not a crash. */
 function readJson(file) {
@@ -325,8 +267,17 @@ function start() {
     ? Number(args[portIndex + 1]) : DEFAULT_PORT;
   const host = onNetwork ? '0.0.0.0' : '127.0.0.1';
 
-  ensureCert();
-  const token = ensureToken();
+  // Idempotent — 21-notifier-actions.js already generates these before
+  // ever spawning this process, but `node 17-api.js` run by hand
+  // (still fully supported, see the file's own top comment) needs this
+  // to happen somewhere, and there's no harm calling it twice.
+  try {
+    ensureCert();
+    ensureToken();
+  } catch (e) {
+    console.error('Could not generate a TLS certificate (is openssl on PATH?):', e.message);
+    process.exit(1);
+  }
 
   const server = https.createServer({
     cert: fs.readFileSync(CERT_FILE),
@@ -356,7 +307,7 @@ function start() {
     // EVERY route needs the token, root included — this API only exists
     // to read out personal data (school, teachers, assignment text), so
     // there's no handle worth leaving open just for discoverability.
-    if (!isAuthorized(req, token)) {
+    if (!isAuthorized(req)) {
       return respond(401, { error: 'missing or wrong bearer token' });
     }
 
@@ -408,8 +359,13 @@ function start() {
   });
 
   server.listen(port, host, () => {
+    // Written AFTER listen succeeds, not before — a pid file for a
+    // process that then immediately died on EADDRINUSE (see the error
+    // handler above) would tell 21-notifier-actions.js this server is
+    // running when the real one never even started.
+    writePid();
     console.log(`Home API listening on https://${host}:${port}`);
-    console.log(`Bearer token (needed on every request): ${token}`);
+    console.log(`Bearer token (needed on every request): ${currentToken()}`);
     console.log(`Certificate fingerprint (pin this, don't trust it blind): ${certFingerprint()}`);
     if (onNetwork) {
       const addresses = Object.values(os.networkInterfaces()).flat()
@@ -423,6 +379,16 @@ function start() {
     console.log(`Handles: ${Object.keys(HANDLERS).join(' ')} /api/stream`);
     watchForChanges();
   });
+
+  // The settings-panel toggle stops this process with SIGTERM (see
+  // stopApiServer() in 21-notifier-actions.js) — without a handler, the
+  // default behavior still exits, but skips this and leaves the pid file
+  // behind, which would make isServerRunning() think a dead process is
+  // still the API right up until something happens to check its pid and
+  // find it gone. Cleaning up here means that never has a chance to lie.
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => { clearPid(); process.exit(0); });
+  }
 }
 
 module.exports = { HANDLERS, gather, toPublic, snapshot };

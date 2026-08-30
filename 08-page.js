@@ -15,6 +15,11 @@ const fs = require('fs');
 const { t, locale } = require('./18-language.js');
 const { read: readSettings } = require('./19-settings.js');
 const path = require('path');
+// The API's token/fingerprint aren't settings — nothing here writes
+// them, 23-api-security.js is the only writer — just values this page
+// reads at redraw time to show in the panel. See that file's own
+// comment on why it exists separately from 17-api.js.
+const { currentToken, certFingerprint, isServerRunning } = require('./23-api-security.js');
 
 // Substituted when an assignment has no platform of its own — that's how
 // Classroom assignments arrive. Canvas and Edpuzzle have their own field.
@@ -378,6 +383,8 @@ ${rows}
 
 function settingsPanel() {
   const s = readSettings();
+  const apiToken = currentToken();
+  const apiFingerprint = certFingerprint();
   const field = (key, label, value, hint, sensitive) => {
     const input = sensitive
       ? `<span class="field-with-toggle">
@@ -435,6 +442,41 @@ ${exclusionsField(s.exclusions)}
         </span>
         <span class="field-hint">${escapeHtml(t('settingsStaleMonthsHint'))}</span>
       </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="apiEnabled"${s.apiEnabled ? ' checked' : ''}
+               onchange="toggleApiKeySection(this)">
+        <span class="field-hint">${escapeHtml(t('settingsApiEnabledHint'))}
+          ${isServerRunning()
+            ? `<span class="api-status api-status-on">${escapeHtml(t('settingsApiRunning'))}</span>`
+            : `<span class="api-status">${escapeHtml(t('settingsApiNotRunning'))}</span>`}
+        </span>
+      </label>
+      <div class="api-key-row"${s.apiEnabled ? '' : ' hidden'}>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('settingsApiToken'))}</span>
+          <span class="field-with-value">
+            <span class="field-with-toggle" style="flex:1 1 auto;min-width:0;">
+              <input type="password" readonly id="api-token-field"
+                     value="${escapeHtml(apiToken || t('settingsApiNotGenerated'))}">
+              <button type="button" class="reveal-btn" onclick="toggleReveal(this)"
+                      title="${escapeHtml(t('settingsReveal'))}">👁</button>
+            </span>
+            <button type="button" class="mini-btn" onclick="copyFieldValue(this, 'api-token-field')">${escapeHtml(t('settingsCopy'))}</button>
+            <button type="button" class="mini-btn" onclick="rollApiToken()">${escapeHtml(t('settingsRoll'))}</button>
+          </span>
+          <span class="field-hint">${escapeHtml(t('settingsApiTokenHint'))}</span>
+        </label>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('settingsApiFingerprint'))}</span>
+          <span class="field-with-value">
+            <input type="text" readonly id="api-fingerprint-field" style="flex:1 1 auto;min-width:0;"
+                   value="${escapeHtml(apiFingerprint || t('settingsApiNotGenerated'))}">
+            <button type="button" class="mini-btn" onclick="copyFieldValue(this, 'api-fingerprint-field')">${escapeHtml(t('settingsCopy'))}</button>
+          </span>
+          <span class="field-hint">${escapeHtml(t('settingsApiFingerprintHint'))}</span>
+        </label>
+      </div>
       <div class="settings-actions">
         <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
         <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
@@ -885,6 +927,14 @@ function writePage(data, outputPath) {
     line-height: 1; padding: 2px; color: var(--dim);
   }
   .reveal-btn:hover { color: var(--text); }
+  .mini-btn {
+    background: none; border: 1px dashed var(--line); border-radius: 6px;
+    color: var(--dim); font: inherit; font-size: 12px; padding: 3px 8px;
+    cursor: pointer; flex: 0 0 auto; white-space: nowrap;
+  }
+  .mini-btn:hover { color: var(--text); border-color: var(--dim); }
+  .api-status { margin-left: 6px; }
+  .api-status-on { color: var(--new); }
   .settings-actions {
     display: flex; gap: 10px; align-items: center; margin-top: 12px;
     flex-wrap: wrap;
@@ -1046,6 +1096,9 @@ const WORDS = ${JSON.stringify({
   restored: t('restoredBadge'),
   monthWord: t('monthWord'),
   monthsWord: t('monthsWord'),
+  confirmRollToken: t('confirmRollToken'),
+  confirmRollTokenHint: t('confirmRollTokenHint'),
+  copied: t('settingsCopied'),
 })};
 
 // ── Reaching outside the page ──
@@ -1505,6 +1558,60 @@ function updateStaleMonthsLabel(slider) {
   if (!label) return;
   var n = slider.value;
   label.textContent = n + ' ' + (n == 1 ? WORDS.monthWord : WORDS.monthsWord);
+}
+
+// Shows/hides the token+fingerprint block the instant the "enable home
+// API" checkbox is clicked — same "don't make the person wait for a
+// save round-trip just to see the UI react" idea as optimisticExclusions
+// elsewhere on this page. The actual server only starts or stops once
+// Save is clicked and the setting really changes; this is purely about
+// not showing a key section for an API that (as far as the page can
+// tell right now) isn't turned on.
+function toggleApiKeySection(checkbox) {
+  var row = document.querySelector('.api-key-row');
+  if (row) row.hidden = !checkbox.checked;
+}
+
+// Copies a readonly field's value — the token or the certificate
+// fingerprint. navigator.clipboard needs a secure context, which this
+// page doesn't always have (see dispatchAction's own comment: this can
+// be opened as a plain, non-HTTPS browser tab), so a manual select +
+// execCommand fallback covers that case instead of the button silently
+// doing nothing.
+function copyFieldValue(button, fieldId) {
+  var input = document.getElementById(fieldId);
+  if (!input) return;
+  var text = input.value;
+  var flash = function () {
+    var original = button.textContent;
+    button.textContent = WORDS.copied;
+    setTimeout(function () { button.textContent = original; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(flash, flash);
+    return;
+  }
+  var wasReadonly = input.hasAttribute('readonly');
+  var wasPassword = input.type === 'password';
+  input.type = 'text';
+  input.removeAttribute('readonly');
+  input.select();
+  try { document.execCommand('copy'); } catch (e) { /* nothing left to try */ }
+  if (wasReadonly) input.setAttribute('readonly', 'readonly');
+  if (wasPassword) input.type = 'password';
+  flash();
+}
+
+// Rolling the token cuts the OLD one off immediately (see rollToken()'s
+// own comment in 23-api-security.js) — anything already configured with
+// it, like a Home Assistant integration, breaks until updated with the
+// new one. Confirmed the same way "hide" on an overdue item is, so it
+// isn't hit by accident.
+function rollApiToken() {
+  if (!confirm(WORDS.confirmRollToken + '\\n\\n' + WORDS.confirmRollTokenHint)) return;
+  dispatchAction('rollApiToken', '', function (res) {
+    if (res && res.ok) setTimeout(function () { location.reload(); }, 1500);
+  });
 }
 
 // Text -> base64url. Not encryption: just a way to carry an email address

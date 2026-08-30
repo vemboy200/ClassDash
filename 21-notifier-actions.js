@@ -103,6 +103,35 @@ function quickCheck() {
   child.unref();
 }
 
+/** Starts 17-api.js as a detached background process, if it isn't
+ *  already running — called when the settings-panel toggle turns
+ *  apiEnabled on. Generates the cert/token FIRST, synchronously, in
+ *  THIS process, rather than leaving it to the spawned server's own
+ *  startup — see 23-api-security.js's own comment on why that avoids a
+ *  real race against the redraw that follows right after, which reads
+ *  those same files to show the token in the settings panel. */
+function startApiServer() {
+  const security = require('./23-api-security.js');
+  if (security.isServerRunning()) return;
+  security.ensureCert();
+  security.ensureToken();
+  const child = spawn(process.execPath,
+    [path.join(__dirname, '17-api.js')],
+    { detached: true, stdio: 'ignore', cwd: __dirname });
+  child.unref();
+}
+
+/** Stops it — apiEnabled turned off. SIGTERM, not SIGKILL: 17-api.js
+ *  has its own handler (see its start()) that clears the pid file
+ *  before exiting, and skipping straight to SIGKILL would leave that
+ *  file behind lying about whether the server's still up. */
+function stopApiServer() {
+  const security = require('./23-api-security.js');
+  if (!security.isServerRunning()) return;
+  const pid = parseInt(fs.readFileSync(security.PID_FILE, 'utf8'), 10);
+  try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+}
+
 /**
  * Runs one action and returns what happened — never throws for an
  * expected failure (a parse error, a rejected setting), only for
@@ -150,6 +179,20 @@ function main(action, arg) {
       const NEEDS_REAL_FETCH = ['exclusions', 'canvas'];
       const needsFetch = result.changed.some(key => NEEDS_REAL_FETCH.includes(key));
 
+      // apiEnabled starts or stops a whole separate background process —
+      // orthogonal to needsFetch above (it doesn't touch Classroom/Canvas
+      // at all), so it's handled alongside that check, not instead of it.
+      if (result.changed.includes('apiEnabled')) {
+        const { apiEnabled } = require('./19-settings.js').read();
+        if (apiEnabled) {
+          startApiServer();
+          logAction('  home API server started');
+        } else {
+          stopApiServer();
+          logAction('  home API server stopped');
+        }
+      }
+
       if (needsFetch) {
         quickCheck();
         logAction('  quick collection started (fetch-affecting setting changed)');
@@ -180,6 +223,14 @@ function main(action, arg) {
       return { ok: true, action };
     case 'check':
       fullCheck();
+      return { ok: true, action };
+    case 'rollApiToken':
+      // No restart needed: 17-api.js's isAuthorized() reads the token
+      // file fresh on every single request rather than caching it at
+      // startup, specifically so a roll takes effect on the very next
+      // request instead of requiring the server to be bounced.
+      require('./23-api-security.js').rollToken();
+      redraw();
       return { ok: true, action };
     default:
       console.error('unknown napominalka action:', action);

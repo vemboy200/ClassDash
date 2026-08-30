@@ -13,6 +13,7 @@ class-activity.json
 api-cert.pem
 api-key.pem
 api-token.txt
+api-server.pid
 notification-log.json
 notifier-log.txt
 не-срочно.txt

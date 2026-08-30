@@ -71,6 +71,15 @@ const DEFAULTS = {
   // Home API port.
   apiPort: 8734,
 
+  // Off by default — this is the actual opt-in for 17-api.js. Even
+  // read-only, it's real personal data (school, teachers, assignment
+  // text) reachable over the network, so it shouldn't start just because
+  // the project is installed. Toggling this on/off from the settings
+  // panel starts or stops the server itself — see startApiServer()/
+  // stopApiServer() in 21-notifier-actions.js — not just whether it
+  // WOULD run if launched by hand.
+  apiEnabled: false,
+
   // Path to the browser executable — override only. Empty (default) —
   // uses this project's own Brave from .browser/ if it's installed
   // (npm run setup-browser), otherwise the system's Google Chrome.
@@ -127,6 +136,7 @@ const TYPES = {
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
   treatUndatedAsUrgent: 'boolean', skipStaleClasses: 'boolean',
   showEmptyClasses: 'boolean', hideInactiveClasses: 'boolean',
+  apiEnabled: 'boolean',
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
