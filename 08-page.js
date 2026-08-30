@@ -1289,6 +1289,7 @@ function updateCounts(showHidden, showRemoved) {
       var r = rows[j];
       if (!showRemoved && r.getAttribute('data-removed') === 'yes') continue;
       if (!showHidden && r.classList.contains('hidden-row')) continue;
+      if (optimisticExclusions.indexOf(r.getAttribute('data-cls')) !== -1) continue;
       if (group === 'cls' && r.getAttribute('data-cls') !== value) continue;
       if (group === 'type' && r.getAttribute('data-type') !== value) continue;
       if (group === 'days' && !matchesDueFilter([value], r.getAttribute('data-days'))) continue;
@@ -1297,6 +1298,23 @@ function updateCounts(showHidden, showRemoved) {
     label.textContent = count;
   }
 }
+
+// Classes just excluded via Save, before a real collection has actually
+// caught up. saveSettings() sets this and re-runs the two filter
+// functions below, which is what makes excluding a class feel instant
+// instead of a 20-second wait: the data is already on the page, so
+// there's no real reason to wait for a fresh fetch just to stop
+// showing it.
+//
+// A SEPARATE VARIABLE, NOT JUST A ONE-OFF DOM HIDE, because a filter
+// checkbox click re-runs applyFilters()/filterAnnouncements() and would
+// otherwise un-hide anything this doesn't know to keep excluding. Both
+// functions AND this in with their own checks, so it survives being
+// re-run for any other reason. It only ever needs to live until the
+// next real reload, at which point the excluded class isn't in the
+// fetched data at all anymore and this array is moot (the reload wipes
+// all page state, this included).
+var optimisticExclusions = [];
 
 function applyFilters() {
   var cls = getSelectedValues('cls');
@@ -1315,6 +1333,7 @@ function applyFilters() {
     // A section made entirely of them hides itself — it'll have zero
     // visible cards.
     if (!showRemoved && r.getAttribute('data-removed') === 'yes') ok = false;
+    if (ok && optimisticExclusions.indexOf(r.getAttribute('data-cls')) !== -1) ok = false;
 
     if (ok && cls.length && cls.indexOf(r.getAttribute('data-cls')) === -1) ok = false;
     if (ok && types.length && types.indexOf(r.getAttribute('data-type')) === -1) ok = false;
@@ -1440,23 +1459,41 @@ function saveSettings() {
     payload[boolFields[b].getAttribute('data-bool-key')] = boolFields[b].checked;
   }
 
+  // INSTANT, using data already on the page — no reason to make an
+  // exclusion feel like it takes 20 seconds just because the real fetch
+  // that makes it permanent does. Same idea hide/quiet already use:
+  // update what's on screen right now, let the actual persistence catch
+  // up in the background afterward.
+  //
+  // This only ever COVERS what's visibly on the page already, not
+  // bucket placement (treatUndatedAsUrgent) or the class list's own
+  // 0-counts (showEmptyClasses) — those come from server-side logic in
+  // 05-playwright-draft.js that isn't duplicated here, and still only
+  // change once the background collection below actually runs.
+  if (payload.exclusions) {
+    optimisticExclusions = payload.exclusions;
+    applyFilters();
+    filterAnnouncements();
+  }
+
   var result = document.getElementById('settings-result');
   var encoded = toBase64Url(JSON.stringify(payload));
 
-  // A saved exclusion only changes what gets fetched on the NEXT
-  // collection — the notifier runs a quick one (Classroom + Canvas, no
-  // Edpuzzle window, ~17 seconds) right after writing, not just a
-  // redraw, specifically so a saved setting actually applies instead of
-  // just re-rendering what was already there.
+  // A saved exclusion still needs to reach settings.json and, to be
+  // PERMANENT (surviving a reload, actually stopping the class from
+  // being fetched at all), still needs the notifier's own quick
+  // collection to run — the optimistic update above only ever touched
+  // this one page's DOM. What changed is that nothing here asks the
+  // user to wait around for that anymore; the reload below is just a
+  // quiet background sync; the page already looks right before it fires.
   //
-  // WITH A BRIDGE, the reload below only fires once dispatchAction's
-  // onResult actually reports success — not on a blind timer. That
-  // matters: this used to reload unconditionally 30 seconds after
-  // firing, with zero idea whether anything had actually been accepted.
-  // A rejected setting, or the notifier never being reached at all
-  // (which is exactly what happened for one whole evening — see
-  // 21-notifier-actions.js's own PATH comment), looked identical to a
-  // successful save that just hadn't finished yet.
+  // WITH A BRIDGE, "Saved" only appears once dispatchAction's onResult
+  // actually reports success — not on a blind assumption. That matters
+  // on its own, apart from the instant update above: this used to
+  // assume success unconditionally, and a rejected setting, or the
+  // notifier never being reached at all (which is exactly what happened
+  // for one whole evening — see 21-notifier-actions.js's own PATH
+  // comment), looked identical to a working save.
   if (hasNativeBridge()) {
     if (result) result.textContent = WORDS.saving;
     dispatchAction('config', encoded, function (res) {
@@ -1474,7 +1511,8 @@ function saveSettings() {
 
   // No bridge (a plain browser tab): there's no way to ask whether this
   // worked, so this keeps behaving exactly as it always has — assume it
-  // did, and reload on a flat timer sized for the quick collection above.
+  // did, and quietly sync up on the same timer. The instant update above
+  // still applies here too; it's plain DOM/JS, nothing bridge-specific.
   if (result) result.textContent = WORDS.saved;
   dispatchAction('config', encoded);
   setTimeout(function () { location.reload(); }, 30000);
@@ -1509,7 +1547,8 @@ function filterAnnouncements() {
   for (var i = 0; i < posts.length; i++) {
     var p = posts[i];
     var ok = true;
-    if (classes.length && classes.indexOf(p.getAttribute('data-cls')) === -1) ok = false;
+    if (optimisticExclusions.indexOf(p.getAttribute('data-cls')) !== -1) ok = false;
+    if (ok && classes.length && classes.indexOf(p.getAttribute('data-cls')) === -1) ok = false;
     if (ok && newOnly && p.getAttribute('data-new') !== 'yes') ok = false;
     p.hidden = !ok;
     if (ok) visible++;
