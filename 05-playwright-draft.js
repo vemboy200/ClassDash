@@ -1074,42 +1074,54 @@ function parseDue(dueStr, now = new Date()) {
 
   // CLASSROOM WRITES NEAR DUE DATES AS WORDS, NOT AS A DATE.
   //
-  // "Due Today", "Due Tomorrow, 8:30 AM", and sometimes just a bare
-  // time — "Due 8:00 AM", meaning today. The regex below expects three
-  // month letters followed by a digit, so none of these strings matched
-  // it: "Today" is three letters, but followed by "ay", not a number.
+  // "Due Today", "Due Tomorrow, 8:30 AM", "Due Yesterday", and sometimes
+  // just a bare time — "Due 8:00 AM", meaning today. The regex below
+  // expects three month letters followed by a digit, so none of these
+  // strings matched it: "Today" is three letters, but followed by "ay",
+  // not a number.
   //
   // What this caused: `at` came back null, the assignment was treated as
-  // "no due date at all", got pushed to "by tomorrow", and got a "not
-  // urgent" button. Meaning a real, TODAY deadline sorted BELOW tomorrow's
-  // assignments, never landed in "Overdue", and clicking the button
-  // dismissed it from view entirely.
+  // "no due date at all", got pushed to "by tomorrow" (or, for
+  // "Yesterday", straight into "undated" with no way to tell it had
+  // already passed), and got a "not urgent" button. Meaning a real,
+  // TODAY deadline sorted BELOW tomorrow's assignments, never landed in
+  // "Overdue", and clicking the button dismissed it from view entirely.
   //
   // Caught in an independent check on August 24th against live memory:
   // six out of ten due dates failed to parse, and they were the most
-  // urgent assignments.
+  // urgent assignments. "Yesterday" specifically was found later,
+  // reported directly against a real assignment ("Name Poem") that had
+  // genuinely passed its due date the day before but showed as having
+  // no due date at all — the exact same failure shape, just one word
+  // this regex hadn't been taught yet.
   //
   // \b — "not followed by a letter": otherwise "Tomorrowland" would match
   // Tomorrow.
-  const wordMatch = s.match(/^(Today|Tomorrow)\b(?:,\s*(\d{1,2}):(\d{2})\s*(AM|PM))?/i);
+  const wordMatch = s.match(/^(Yesterday|Today|Tomorrow)\b(?:,\s*(\d{1,2}):(\d{2})\s*(AM|PM))?/i);
   const timeOnlyMatch = wordMatch ? null : s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
 
   if (wordMatch || timeOnlyMatch) {
     // "Time only" with no date means today.
     const isTomorrow = !!(wordMatch && /^tomorrow$/i.test(wordMatch[1]));
+    const isYesterday = !!(wordMatch && /^yesterday$/i.test(wordMatch[1]));
+    const dayOffset = isTomorrow ? 1 : isYesterday ? -1 : 0;
     const [hourStr, minuteStr, ampmStr] = wordMatch
       ? [wordMatch[2], wordMatch[3], wordMatch[4]]
       : [timeOnlyMatch[1], timeOnlyMatch[2], timeOnlyMatch[3]];
 
     // No time given — end of day, same as "Due Aug 26" with no time.
+    // For "Yesterday" this also means: however uncertain the exact hour,
+    // treating it as end-of-day still correctly lands it in the past —
+    // there's no reading of "Due Yesterday" that could mean anything else.
     let hour = hourStr ? parseInt(hourStr, 10) % 12 : 23;
     if (ampmStr && /pm/i.test(ampmStr)) hour += 12;
     const minute = minuteStr ? parseInt(minuteStr, 10) : 59;
 
-    // Date handles rolling over the end of a month on its own: August
-    // 31st + 1 = September 1st.
+    // Date handles rolling over the end of a month on its own in both
+    // directions: August 31st + 1 = September 1st, September 1st - 1 =
+    // August 31st.
     const at = new Date(now.getFullYear(), now.getMonth(),
-                        now.getDate() + (isTomorrow ? 1 : 0), hour, minute);
+                        now.getDate() + dayOffset, hour, minute);
     return { at, placeholder: false };
   }
 
