@@ -1,5 +1,6 @@
--- The notifier: the small always-running piece that makes the page's
--- buttons actually do something, and that shows the popup.
+-- The notifier: the small always-running piece that shows the popup, and
+-- that makes the page's buttons work when there's no native window around
+-- to ask directly.
 --
 -- Two separate jobs, two separate entry points into this same app:
 --
@@ -8,19 +9,33 @@
 --      (title/subtitle/message, one per line) and shows a real
 --      notification under this app's own name — not "Script Editor",
 --      which is what a bare `osascript -e 'display notification ...'`
---      shows up as.
+--      shows up as. Always this app's job, native window or not: a
+--      notification needs to appear whether or not anything is open to
+--      look at.
 --
 --   2. Opened via a napominalka:// link on the page -> `open location`.
 --      That's how macOS delivers a custom URL scheme to whichever app
 --      registered it (see the CFBundleURLTypes entry build.sh writes
 --      into this app's Info.plist).
 --
--- All the actual work for #2 — writing to не-срочно.txt/скрытые.txt,
--- applying settings, redrawing the page, kicking off a full check — is
+-- JOB 2 USED TO BE THE ONLY WAY THE PAGE COULD REACH OUTSIDE ITSELF, FOR
+-- EVERY BUTTON, ALL THE TIME. It no longer is: 16-summary.swift's native
+-- window now hands actions straight to itself through a
+-- WKScriptMessageHandler bridge, one hop instead of four, with a real
+-- result coming back instead of silence. This file's `open location`
+-- entry point still exists ONLY for when there's no native window to ask
+-- — the page opened as a plain browser tab. Both paths end up running
+-- the exact same 21-notifier-actions.js, so nothing about what an action
+-- actually DOES lives in two places; only how the request gets there
+-- differs.
+--
+-- All the actual work — writing to не-срочно.txt/скрытые.txt, applying
+-- settings, redrawing the page, kicking off a full check — is
 -- deliberately NOT written here. It lives in 21-notifier-actions.js,
 -- because that's testable by just running it with node, while an
 -- AppleScript app can only really be tested by rebuilding and relaunching
--- it. This file's only job is parsing the URL and handing off to that.
+-- it. This file's only job (for job 2) is parsing the URL and handing off
+-- to that.
 
 on run
 	try
@@ -33,8 +48,14 @@ end run
 on open location theURL
 	my logLine("open location: " & theURL)
 	try
-		my dispatch(theURL)
-		my logLine("  dispatch ok")
+		set actionResult to my dispatch(theURL)
+		-- actionResult is 21-notifier-actions.js's own JSON answer — its
+		-- last line of stdout, which `do shell script` returns as its
+		-- result. Logging it here, not just "ok", is what lets a REJECTED
+		-- setting or a failed parse show up in this file at all: the shell
+		-- command itself still exits 0 in both cases, so success/failure
+		-- was never visible from this end without reading what it said.
+		my logLine("  dispatch ok: " & actionResult)
 	on error errMsg number errNum
 		my logLine("  dispatch FAILED: " & errNum & " — " & errMsg)
 	end try
@@ -156,5 +177,8 @@ on dispatch(theURL)
 	-- two come up empty. Prepending rather than hardcoding one absolute
 	-- path also survives a node upgrade moving the binary.
 	set pathPrefix to "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; "
-	do shell script pathPrefix & "node " & quoted form of actionsScript & " " & quoted form of actionName & " " & quoted form of theArg
+	-- `do shell script`'s return value IS the command's stdout, and
+	-- 21-notifier-actions.js prints exactly one JSON line as the last
+	-- thing it does — so this already IS that result, not just a status.
+	return do shell script pathPrefix & "node " & quoted form of actionsScript & " " & quoted form of actionName & " " & quoted form of theArg
 end dispatch
