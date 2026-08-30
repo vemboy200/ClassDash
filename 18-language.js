@@ -43,6 +43,7 @@ const DICTIONARIES = {
     updated: 'обновлено',
     reloadHint: 'Нажать — перечитать. Держать секунду — проверить заново.',
     checking: 'проверяю…',
+    checkFailed: 'не удалось запустить проверку',
 
     // Sections
     dueSoon: 'Горит',
@@ -111,6 +112,8 @@ const DICTIONARIES = {
     settingsExclusionsCheckboxHint: 'отметь те, что читать не надо',
     settingsOf: 'из',
     settingsSave: 'Сохранить',
+    settingsSaving: 'Сохраняю…',
+    settingsSaveFailed: 'Не удалось сохранить',
     settingsSaved: 'Сохранено. Проверяю — секунд 20…',
     settingsClose: 'закрыть',
     settingsTreatUndated: 'Без срока — считать срочным',
@@ -159,6 +162,7 @@ const DICTIONARIES = {
     updated: 'updated',
     reloadHint: 'Click to reload. Hold for a second to run a fresh check.',
     checking: 'checking…',
+    checkFailed: "couldn't start a check",
 
     dueSoon: 'Due soon',
     overdue: 'Overdue',
@@ -222,6 +226,8 @@ const DICTIONARIES = {
     settingsExclusionsCheckboxHint: 'tick the ones to skip',
     settingsOf: 'of',
     settingsSave: 'Save',
+    settingsSaving: 'Saving…',
+    settingsSaveFailed: 'Save failed',
     settingsSaved: 'Saved. Checking now — about 20 seconds…',
     settingsClose: 'close',
     settingsTreatUndated: 'No due date counts as urgent',

@@ -93,7 +93,7 @@ function itemCard(x, now, isFresh, section) {
   // ones couldn't. Asymmetric and inconvenient.
   const button = x.muted
     ? `\n        <a class="quiet" href="napominalka://unquiet/${escapeHtml(x.id)}"
-           onclick="restoreUrgency(this)">${escapeHtml(t('restore'))}</a>`
+           onclick="restoreUrgency(event, this)">${escapeHtml(t('restore'))}</a>`
     : (x.note === 'noDueDateNote')
       ? `\n        <a class="quiet" href="napominalka://quiet/${escapeHtml(x.id)}"
            onclick="muteItem(event, this)">${escapeHtml(t('notUrgent'))}</a>`
@@ -243,7 +243,7 @@ function overdueSection(items, now) {
       </a>
       ${x.hidden
         ? `<a class="quiet" href="napominalka://unhide/${escapeHtml(x.id)}"
-             onclick="restoreOverdueItem(this)">${escapeHtml(t('restore'))}</a>`
+             onclick="restoreOverdueItem(event, this)">${escapeHtml(t('restore'))}</a>`
         : `<a class="quiet quiet-faint" href="napominalka://hide/${escapeHtml(x.id)}"
              onclick="return hideOverdueItem(event, this)">${escapeHtml(t('hide'))}</a>`}
       </div>`;
@@ -286,8 +286,9 @@ ${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
  * fields and assumes there are no settings at all.
  *
  * Saving doesn't happen from here — the page can't write to disk. The
- * button collects everything into one chunk and calls the notifier via a
- * napominalka://config link, the same way "not urgent" and "hide" do.
+ * button collects everything into one chunk and hands it to
+ * dispatchAction('config', ...), the same as every other action on this
+ * page — see saveSettings() for the actual save button's logic.
  */
 /**
  * Every class known across all three platforms, deduplicated.
@@ -948,14 +949,112 @@ const WORDS = ${JSON.stringify({
   hideAgain: t('hideAgain'),
   showing: t('filterShowingCount'),
   checking: t('checking'),
+  checkFailed: t('checkFailed'),
+  saving: t('settingsSaving'),
+  saveFailed: t('settingsSaveFailed'),
   saved: t('settingsSaved'),
   restored: t('restoredBadge'),
 })};
 
-// The napominalka:// link goes to the notifier and gets written to disk
-// there, but the page won't find out until the next collection. So the
-// card is dimmed right away — otherwise it's unclear whether the click
-// registered.
+// ── Reaching outside the page ──
+//
+// A page has no filesystem access at all — that's a browser security
+// guarantee, not something this project can work around — so every
+// action that needs to persist anything (a hidden item, a saved
+// setting, a fresh collection) has to ask something else to do it.
+//
+// THIS USED TO MEAN ONE PATH FOR EVERYTHING: set the address bar to a
+// napominalka:// URL, and let macOS Launch Services find the app that
+// claimed that scheme. That path crosses FOUR boundaries to write one
+// file — page, Launch Services, a separate AppleScript app, a shell
+// command — and one of them (the shell command's own stripped
+// environment not containing Homebrew's node) silently broke every
+// single button here for an entire evening, because nothing along the
+// way had any means of reporting a failure back to this page.
+//
+// Running inside the native window, there's a second, better path now:
+// window.webkit.messageHandlers.shrek, a direct bridge straight into
+// the Swift app hosting this page (see 16-summary.swift). One hop, and
+// a REAL result comes back — not just "the click happened somewhere",
+// but what it actually did. dispatchAction() below prefers this path
+// whenever it exists.
+//
+// The old napominalka:// path still exists and is still used when this
+// bridge doesn't — chiefly, the page opened as a plain browser tab,
+// with no native app around it to ask directly. Nothing about what an
+// action DOES differs between the two paths; they run the exact same
+// 21-notifier-actions.js on the other end either way.
+var bridgeCallbacks = {};
+var bridgeRequestCounter = 0;
+
+function hasNativeBridge() {
+  return !!(window.webkit && window.webkit.messageHandlers &&
+            window.webkit.messageHandlers.shrek);
+}
+
+// Called BY THE NATIVE APP, by this exact name, once a bridge action it
+// ran has actually finished — see 16-summary.swift's deliver(). Not
+// wired up through any DOM event, so the fixed global name matters.
+window.shrekBridgeResult = function (id, result) {
+  var callback = bridgeCallbacks[id];
+  delete bridgeCallbacks[id];
+  if (callback) callback(result);
+};
+
+// Sends one action to the notifier, one of two ways.
+//
+// With a native bridge: posts {id, action, arg} straight across it, and
+// -- IF the caller wants to know what happened -- onResult fires later
+// with the real result object once the native side reports it.
+//
+// Without one (a plain browser tab): the only way left to reach outside
+// the page is the old napominalka:// link, which has no way to answer
+// back at all. onResult, if given, is simply never called on this path
+// -- exactly the "fire it and hope" behavior this page has always had
+// there, unchanged.
+function dispatchAction(action, arg, onResult) {
+  if (hasNativeBridge()) {
+    var id = 'r' + (++bridgeRequestCounter);
+    if (onResult) bridgeCallbacks[id] = onResult;
+    window.webkit.messageHandlers.shrek.postMessage({ id: id, action: action, arg: arg || '' });
+  } else {
+    location.href = 'napominalka://' + action + (arg ? '/' + arg : '');
+  }
+}
+
+// Reads the (action, arg) pair back out of a napominalka:// href that
+// was already built for the old path — rather than re-deriving them
+// from scratch, which would mean keeping two copies of the same id in
+// sync. Whatever encoding that href already used (there's a real
+// inconsistency between how different buttons build one — not
+// something this rewrite set out to fix) is preserved exactly, since
+// this only ever forwards a string that already worked.
+function napominalkaActionFromHref(href) {
+  var prefix = 'napominalka://';
+  var rest = href.indexOf(prefix) === 0 ? href.slice(prefix.length) : href;
+  var slash = rest.indexOf('/');
+  return slash === -1
+    ? { action: rest, arg: '' }
+    : { action: rest.slice(0, slash), arg: rest.slice(slash + 1) };
+}
+
+// Used by every button below that's still a real <a href="napominalka://...">
+// link (hide, unhide, "not urgent", restore). With a bridge available,
+// this sends the action directly and cancels the link's own navigation
+// -- otherwise it would go out BOTH ways at once. Without one, it does
+// nothing and returns true, which is exactly what these callers already
+// checked for: let the href navigate on its own, same as always.
+function sendLinkViaBridge(e, link) {
+  if (!hasNativeBridge()) return true;
+  var parsed = napominalkaActionFromHref(link.getAttribute('href'));
+  dispatchAction(parsed.action, parsed.arg);
+  if (e) e.preventDefault();
+  return false;
+}
+
+// The link (of either kind) gets written to disk there, but the page
+// won't find out until the next collection. So the card is dimmed right
+// away — otherwise it's unclear whether the click registered.
 // The "expand" button is only shown for announcements that actually
 // didn't fit. That can only be known after rendering: compare the full
 // text height against the visible one.
@@ -999,26 +1098,37 @@ function hideOverdueItem(e, link) {
   // pointed out that nothing works that way: click "hide" and it should
   // be hidden. The app will still update the file on disk regardless —
   // the page just no longer waits for that to behave correctly.
+  //
+  // sendLinkViaBridge reads the "hide" href off this link, so it has to
+  // run BEFORE the line below rewrites that same href to "unhide" for
+  // next time — reading it after would send the wrong action.
+  var sentDirectly = sendLinkViaBridge(e, link);
+
   row.classList.add('hidden-row');
   row.classList.remove('shown');
   link.className = 'quiet';
   link.textContent = WORDS.restore;
   link.href = 'napominalka://unhide/' + encodeURIComponent(row.dataset.id);
-  link.onclick = function () { restoreOverdueItem(link); };
+  link.onclick = function (ev) { return restoreOverdueItem(ev, link); };
 
   refreshSection(row.closest('section'));
-  return true;
+  return sentDirectly;
 }
 
-function restoreOverdueItem(link) {
+function restoreOverdueItem(e, link) {
   var row = link.closest('.row');
+  // Same ordering requirement as hideOverdueItem: read the current
+  // ("unhide") href before it gets rewritten to "hide" below.
+  var sentDirectly = sendLinkViaBridge(e, link);
+
   row.classList.remove('hidden-row', 'shown');
   link.className = 'quiet quiet-faint';
   link.textContent = WORDS.hide;
   link.href = 'napominalka://hide/' + encodeURIComponent(row.dataset.id);
-  link.onclick = function (e) { return hideOverdueItem(e, link); };
+  link.onclick = function (ev) { return hideOverdueItem(ev, link); };
 
   refreshSection(row.closest('section'));
+  return sentDirectly;
 }
 
 // Refreshes the "show hidden" button. Header counters are handled by
@@ -1054,10 +1164,13 @@ function toggleHiddenRows(button) {
 }
 
 // "Not urgent": fades, shows "muted", and slides away a second later.
-// The link isn't cancelled — it still needs to reach the app so it can
-// write the id to disk. But there's no reason to wait for the next
-// collection for the card to disappear.
+// sendLinkViaBridge sends the id to the app directly when it can, or
+// leaves the link's own href to do it the old way when it can't — either
+// way there's no reason to wait for the next collection for the card to
+// disappear.
 function muteItem(e, button) {
+  sendLinkViaBridge(e, button);
+
   var row = button.closest('.row');
   row.classList.add('done');
   button.textContent = WORDS.muted;
@@ -1229,7 +1342,9 @@ function applyFilters() {
 // Restore urgency: the assignment moves back out of "Muted".
 // Like "not urgent", the card is removed right away, without waiting for
 // a collection — click it, and it's restored.
-function restoreUrgency(link) {
+function restoreUrgency(e, link) {
+  sendLinkViaBridge(e, link);
+
   var row = link.closest('.row');
   row.classList.add('done');
   link.textContent = WORDS.restored;
@@ -1242,7 +1357,9 @@ function restoreUrgency(link) {
       refreshSection(section);
     }, 300);
   }, 800);
-  // The link isn't cancelled: it needs to reach the notifier.
+  // With a bridge, sendLinkViaBridge above already cancelled the link
+  // and sent this directly. Without one, it's left alone here — it
+  // still needs to navigate to reach the notifier the old way.
 }
 
 // ── Settings ──
@@ -1324,17 +1441,42 @@ function saveSettings() {
   }
 
   var result = document.getElementById('settings-result');
+  var encoded = toBase64Url(JSON.stringify(payload));
+
+  // A saved exclusion only changes what gets fetched on the NEXT
+  // collection — the notifier runs a quick one (Classroom + Canvas, no
+  // Edpuzzle window, ~17 seconds) right after writing, not just a
+  // redraw, specifically so a saved setting actually applies instead of
+  // just re-rendering what was already there.
+  //
+  // WITH A BRIDGE, the reload below only fires once dispatchAction's
+  // onResult actually reports success — not on a blind timer. That
+  // matters: this used to reload unconditionally 30 seconds after
+  // firing, with zero idea whether anything had actually been accepted.
+  // A rejected setting, or the notifier never being reached at all
+  // (which is exactly what happened for one whole evening — see
+  // 21-notifier-actions.js's own PATH comment), looked identical to a
+  // successful save that just hadn't finished yet.
+  if (hasNativeBridge()) {
+    if (result) result.textContent = WORDS.saving;
+    dispatchAction('config', encoded, function (res) {
+      if (!res || !res.ok) {
+        var why = res && (res.why ||
+          (res.rejected && res.rejected.length && res.rejected.join('; ')));
+        if (result) result.textContent = WORDS.saveFailed + (why ? ': ' + why : '');
+        return;
+      }
+      if (result) result.textContent = WORDS.saved;
+      setTimeout(function () { location.reload(); }, 30000);
+    });
+    return;
+  }
+
+  // No bridge (a plain browser tab): there's no way to ask whether this
+  // worked, so this keeps behaving exactly as it always has — assume it
+  // did, and reload on a flat timer sized for the quick collection above.
   if (result) result.textContent = WORDS.saved;
-
-  // The page can't write to disk — call the notifier, it will.
-  location.href = 'napominalka://config/' + toBase64Url(JSON.stringify(payload));
-
-  // The notifier runs a quick collection (Classroom + Canvas, no Edpuzzle
-  // window, ~17 seconds) right after writing, not just a redraw. A saved
-  // exclusion only changes what gets fetched on the NEXT collection — a
-  // redraw just re-renders what's already there, which used to make
-  // saving an exclusion look like it did nothing at all. 30 seconds is a
-  // safe margin above that ~17-second baseline for a slower connection.
+  dispatchAction('config', encoded);
   setTimeout(function () { location.reload(); }, 30000);
 }
 
@@ -1383,8 +1525,9 @@ function filterAnnouncements() {
 // check — a full one, like "Check now".
 //
 // The page can't launch the program itself, the browser won't allow it.
-// But it can call it via a napominalka:// link, which the notifier
-// intercepts — the same way "not urgent" and "hide" work.
+// dispatchAction sends it through the native bridge when there is one,
+// or the old napominalka:// link when there isn't — the same as every
+// other action on this page.
 (function () {
   var button = document.getElementById('reload-button');
   if (!button) return;
@@ -1398,7 +1541,18 @@ function filterAnnouncements() {
       wasLongPress = true;
       button.classList.add('spinning');
       button.title = WORDS.checking;
-      location.href = 'napominalka://check';
+
+      // onResult here only ever confirms the request was DISPATCHED — a
+      // full check runs detached, in the background, and takes about a
+      // minute, so nothing can report back when it's actually DONE. What
+      // it catches instead is the request never having gone anywhere at
+      // all, which used to look identical to a check quietly running.
+      dispatchAction('check', '', function (res) {
+        if (res && res.ok) return;
+        button.classList.remove('spinning');
+        button.title = (res && res.why) ? res.why : WORDS.checkFailed;
+      });
+
       // A full check takes about a minute. The page redraws after every
       // source it reads, so reloading it is safe: you'll see at least
       // part of it, not nothing.
