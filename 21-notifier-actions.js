@@ -121,15 +121,63 @@ function startApiServer() {
   child.unref();
 }
 
+/** Blocks the calling thread — Node has no sleep() built in, and this
+ *  needs to be a genuine, synchronous pause, not a setTimeout a script
+ *  that's about to exit anyway would never actually wait for. Atomics.wait
+ *  on the main thread is specifically allowed in Node (unlike a browser). */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /** Stops it — apiEnabled turned off. SIGTERM, not SIGKILL: 17-api.js
  *  has its own handler (see its start()) that clears the pid file
  *  before exiting, and skipping straight to SIGKILL would leave that
- *  file behind lying about whether the server's still up. */
+ *  file behind lying about whether the server's still up.
+ *
+ *  DOESN'T RETURN UNTIL THE PROCESS IS ACTUALLY GONE, not just signaled.
+ *  SIGTERM is only a request — the process needs a moment to act on it.
+ *  Returning right away used to mean a quick toggle-off-then-back-on
+ *  could have startApiServer()'s isServerRunning() check see this same
+ *  pid, still alive for another few milliseconds, and skip spawning a
+ *  replacement entirely — leaving nothing running at all, silently.
+ *  That's exactly what "turning it off and on again didn't fix it"
+ *  looks like from outside. */
 function stopApiServer() {
   const security = require('./23-api-security.js');
   if (!security.isServerRunning()) return;
   const pid = parseInt(fs.readFileSync(security.PID_FILE, 'utf8'), 10);
-  try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    security.clearPid(); // already gone; the pid file just hadn't caught up
+    return;
+  }
+
+  let gone = false;
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      gone = true;
+      break;
+    }
+    sleepSync(50);
+  }
+  // A plain HTTP server should react to SIGTERM in milliseconds — two
+  // full seconds of not doing so means something's actually stuck, not
+  // just slow. SIGKILL guarantees the port is free by the time this
+  // returns; without it, a stuck old process would make the very next
+  // startApiServer() call fail to bind and die silently, the same
+  // "toggled it back on and nothing happened" symptom this whole
+  // function exists to prevent.
+  if (!gone) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* gone right at the wire */ }
+  }
+  // Cleared here regardless of whether the loop above confirmed it or
+  // just timed out — a pid file left behind either way would keep
+  // isServerRunning() reporting a dead (or stuck) process as live forever.
+  security.clearPid();
 }
 
 /**
