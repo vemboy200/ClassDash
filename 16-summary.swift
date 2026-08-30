@@ -253,7 +253,6 @@ func promptForProjectFolder() -> String? {
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
-    var statusItem: NSStatusItem!
 
     // WHEN THE LAST OUTGOING LINK WAS HANDED TO macOS.
     //
@@ -440,8 +439,6 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
-        setupStatusItem()
     }
 
     // MARK: - Menu bar
@@ -464,6 +461,12 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About ClassDash",
                          action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        // Cmd-, — the standard shortcut every app with a settings/
+        // preferences item binds, expected to work without having to be
+        // discovered from the menu first.
+        let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu()
@@ -512,58 +515,15 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         NSApp.mainMenu = mainMenu
     }
 
-    // A STATUS ITEM, SO THE APP IS STILL REACHABLE WITH THE WINDOW CLOSED.
-    //
-    // Closing the window used to quit the whole app
-    // (applicationShouldTerminateAfterLastWindowClosed returned true,
-    // see below) — the only way back in was the Dock or Spotlight. A
-    // menu bar icon that only exists while the window happens to be
-    // open wouldn't actually add anything, so this is paired with that
-    // same change: closing the window now just hides it, and Quit here
-    // (or Cmd-Q) is the actual way to exit.
-    func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            // "checklist" over an emoji or custom asset: a real SF Symbol
-            // adapts to light/dark menu bars and Retina scaling for free,
-            // and needs no image asset shipped alongside the binary.
-            button.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "ClassDash")
-        }
-
-        let menu = NSMenu()
-        let open = NSMenuItem(title: "Open ClassDash", action: #selector(statusItemOpen), keyEquivalent: "")
-        open.target = self
-        menu.addItem(open)
-
-        let check = NSMenuItem(title: "Check Now", action: #selector(statusItemCheckNow), keyEquivalent: "")
-        check.target = self
-        menu.addItem(check)
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit ClassDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-
-        statusItem.menu = menu
-    }
-
-    @objc func statusItemOpen() {
+    // Cmd-, opening settings is a macOS-wide convention (every app with
+    // a Preferences item binds it), so it needs to work here even
+    // though settings live inside the page itself, not a native window —
+    // this just calls the exact same toggleSettingsPanel() the gear icon
+    // already calls, from the native side instead of a click.
+    @objc func openSettings() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        // Same reasoning as applicationDidBecomeActive: reload if it's
-        // actually been a while, not on every single reopen from the
-        // menu bar, which would throw away a page mid-action.
-        if let handoff = lastHandoff, Date().timeIntervalSince(handoff) < 45 {
-            return
-        }
-        show()
-    }
-
-    // Same action the page's own long-press-reload button triggers —
-    // reused rather than duplicated, see runAction()'s own "check" case
-    // wiring through to 21-notifier-actions.js's fullCheck().
-    @objc func statusItemCheckNow() {
-        runAction("check", "") { resultJSON in
-            logWindow("  menu bar check result: \(resultJSON)")
-        }
+        web.evaluateJavaScript("toggleSettingsPanel()", completionHandler: nil)
     }
 
     func show() {
@@ -595,17 +555,33 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         show()
     }
 
-    // FALSE, NOT TRUE, NOW THAT THERE'S A MENU BAR ICON.
-    //
-    // This used to be true — closing the window quit the whole app,
-    // Dock or Spotlight were the only way back in. With a status item
-    // (see setupStatusItem() above) there's a real reason for the app
-    // to keep running with no window open: the menu bar icon is the
-    // point. "Quit ClassDash" in that menu, or Cmd-Q, is the actual way
-    // to exit now — this delegate method only governs what happens when
-    // the LAST WINDOW closes on its own, not an explicit quit.
+    // FALSE, NOT TRUE — paired with applicationShouldHandleReopen right
+    // below, not with the status item that briefly existed and was
+    // removed again. This used to be true (closing the window quit the
+    // whole app), which is fine on its own, but doesn't match how any
+    // other normal Mac app behaves: closing every window on Safari or
+    // Mail doesn't quit them either. "Quit ClassDash" in the app menu,
+    // or Cmd-Q, is the actual way to exit — this delegate method only
+    // governs what happens when the LAST WINDOW closes on its own, not
+    // an explicit quit.
     func applicationShouldTerminateAfterLastWindowClosed(_ application: NSApplication) -> Bool {
         return false
+    }
+
+    // THE OTHER HALF OF THAT — WITHOUT THIS, A CLOSED WINDOW STAYS
+    // CLOSED FOREVER.
+    //
+    // The standard convention every properly-behaved Mac app follows:
+    // click its Dock icon with no windows open, a window comes back.
+    // Skipping this would leave the app running but genuinely
+    // unreachable once its one window is closed — worse than the
+    // original "closing quits" behavior, not better.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return true
     }
 
     // MARK: - Bridge
