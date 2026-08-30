@@ -175,7 +175,11 @@ function announcementsSection(announcements, freshIds) {
 
   const checkRow = (group, value, label, count, id) =>
     `        <label class="check-row"><input type="checkbox"` +
-    (id ? ` id="${id}"` : ` data-group="${group}" value="${escapeHtml(value)}"`) +
+    // A lone id (no group/value) means this one isn't part of a
+    // multi-select set — "new only" is its own single yes/no, same as
+    // the two "show hidden/removed" filters, so it gets the toggle look
+    // instead of the checkbox one.
+    (id ? ` id="${id}" class="toggle"` : ` data-group="${group}" value="${escapeHtml(value)}"`) +
     ` onchange="filterAnnouncements()">` +
     `<span class="label-text">${escapeHtml(label)}</span>` +
     `<span class="count-badge">${count}</span></label>`;
@@ -404,12 +408,12 @@ ${exclusionsField(s.exclusions)}
       </label>
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsTreatUndated'))}</span>
-        <input type="checkbox" data-bool-key="treatUndatedAsUrgent"${s.treatUndatedAsUrgent ? ' checked' : ''}>
+        <input type="checkbox" class="toggle" data-bool-key="treatUndatedAsUrgent"${s.treatUndatedAsUrgent ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsTreatUndatedHint'))}</span>
       </label>
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsShowEmpty'))}</span>
-        <input type="checkbox" data-bool-key="showEmptyClasses"${s.showEmptyClasses ? ' checked' : ''}>
+        <input type="checkbox" class="toggle" data-bool-key="showEmptyClasses"${s.showEmptyClasses ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsShowEmptyHint'))}</span>
       </label>
       <div class="settings-actions">
@@ -510,9 +514,9 @@ ${content.join('\n')}
   // A separate checkbox: not a value filter, but "show what's been removed".
   parts.push(`    <div class="filter-group">
       <div class="group-name">${escapeHtml(t('filterHidden'))}</div>
-        <label class="check-row"><input type="checkbox" id="f-hidden" onchange="applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden" onchange="applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowHiddenMuted'))}</span></label>
-        <label class="check-row"><input type="checkbox" id="f-removed" onchange="applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed" onchange="applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowRemoved'))}</span></label>
       <button onclick="resetFilters()">${escapeHtml(t('filterResetAll'))}</button>
       <div class="result" id="f-result"></div>
@@ -794,6 +798,29 @@ function writePage(data, outputPath) {
     width: 100%;
   }
   .setting-row input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 2px 0 0; }
+  /* A TOGGLE SWITCH, NOT A CHECKBOX, FOR A STANDALONE ON/OFF SETTING.
+     Checkboxes read as "pick zero or more from this set" — right for
+     the class list, the type list, the due-date ranges, where several
+     can be checked at once. treatUndatedAsUrgent, showEmptyClasses, and
+     the two "show hidden/removed" filters are each their own single
+     yes/no, with nothing else in the group to pick alongside them, so
+     they look like the setting they actually are instead of borrowing
+     the multi-select one's shape. Still a real <input type="checkbox">
+     underneath — :checked, onchange, data-bool-key, id all keep working
+     exactly as before; only the appearance changes. */
+  input.toggle {
+    appearance: none; -webkit-appearance: none;
+    width: 34px; height: 20px; border-radius: 10px;
+    background: var(--line); position: relative; cursor: pointer;
+    transition: background 0.15s; flex: 0 0 auto; margin: 0; padding: 0;
+  }
+  input.toggle::before {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,.3);
+  }
+  input.toggle:checked { background: var(--new); }
+  input.toggle:checked::before { transform: translateX(14px); }
   /* Email and Canvas address start masked like a password field — a
      screen share or a screenshot for a bug report shouldn't leak either
      one. The little eye button reveals it, same idea as a password
