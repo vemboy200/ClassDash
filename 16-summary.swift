@@ -253,6 +253,7 @@ func promptForProjectFolder() -> String? {
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
+    var statusItem: NSStatusItem!
 
     // WHEN THE LAST OUTGOING LINK WAS HANDED TO macOS.
     //
@@ -437,6 +438,64 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        setupStatusItem()
+    }
+
+    // MARK: - Menu bar
+
+    // A STATUS ITEM, SO THE APP IS STILL REACHABLE WITH THE WINDOW CLOSED.
+    //
+    // Closing the window used to quit the whole app
+    // (applicationShouldTerminateAfterLastWindowClosed returned true,
+    // see below) — the only way back in was the Dock or Spotlight. A
+    // menu bar icon that only exists while the window happens to be
+    // open wouldn't actually add anything, so this is paired with that
+    // same change: closing the window now just hides it, and Quit here
+    // (or Cmd-Q) is the actual way to exit.
+    func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem.button {
+            // "checklist" over an emoji or custom asset: a real SF Symbol
+            // adapts to light/dark menu bars and Retina scaling for free,
+            // and needs no image asset shipped alongside the binary.
+            button.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "ClassDash")
+        }
+
+        let menu = NSMenu()
+        let open = NSMenuItem(title: "Open ClassDash", action: #selector(statusItemOpen), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+
+        let check = NSMenuItem(title: "Check Now", action: #selector(statusItemCheckNow), keyEquivalent: "")
+        check.target = self
+        menu.addItem(check)
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Quit ClassDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        statusItem.menu = menu
+    }
+
+    @objc func statusItemOpen() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        // Same reasoning as applicationDidBecomeActive: reload if it's
+        // actually been a while, not on every single reopen from the
+        // menu bar, which would throw away a page mid-action.
+        if let handoff = lastHandoff, Date().timeIntervalSince(handoff) < 45 {
+            return
+        }
+        show()
+    }
+
+    // Same action the page's own long-press-reload button triggers —
+    // reused rather than duplicated, see runAction()'s own "check" case
+    // wiring through to 21-notifier-actions.js's fullCheck().
+    @objc func statusItemCheckNow() {
+        runAction("check", "") { resultJSON in
+            logWindow("  menu bar check result: \(resultJSON)")
+        }
     }
 
     func show() {
@@ -468,8 +527,17 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         show()
     }
 
+    // FALSE, NOT TRUE, NOW THAT THERE'S A MENU BAR ICON.
+    //
+    // This used to be true — closing the window quit the whole app,
+    // Dock or Spotlight were the only way back in. With a status item
+    // (see setupStatusItem() above) there's a real reason for the app
+    // to keep running with no window open: the menu bar icon is the
+    // point. "Quit ClassDash" in that menu, or Cmd-Q, is the actual way
+    // to exit now — this delegate method only governs what happens when
+    // the LAST WINDOW closes on its own, not an explicit quit.
     func applicationShouldTerminateAfterLastWindowClosed(_ application: NSApplication) -> Bool {
-        return true
+        return false
     }
 
     // MARK: - Bridge
