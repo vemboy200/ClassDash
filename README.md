@@ -140,25 +140,36 @@ Cookies land in `./browser-profile` and last for weeks. When Google eventually
 signs you out, the script says so with a notification instead of silently
 showing yesterday's data.
 
-Build the notifier and the summary window app:
+Build the app:
 
 ```bash
 npm run build
 ```
 
-This builds two things: a native window that shows the summary instead of a
-browser tab, and the notifier that shows the actual desktop popup and makes
-the page's buttons (`hide`, `not urgent`, `settings`, long-press reload)
-work at all — every one of them calls the notifier through a
-`napominalka://` link, and without it macOS just shows "no application set
-to open this URL" instead of doing anything. `npm run build` also registers
-that link type with macOS, so it works immediately, not just after the app
-happens to be opened once.
+This builds one native window app, SHREK School Software, that does
+everything: shows the summary instead of a browser tab, shows the actual
+desktop notification popup, and makes the page's buttons (`hide`,
+`not urgent`, `settings`, long-press reload) work. Buttons reach it two
+ways — directly, through a bridge, when the page is open in this window;
+through a `napominalka://` link, same as always, when it's a plain browser
+tab instead (see the note below). `npm run build` registers that link type
+with macOS, so it works immediately, not just after the app happens to be
+opened once.
 
-**Long-press "check now" may prompt for an Automation permission the first
-time** — the notifier launching a full check means launching the browser,
-and macOS wants to confirm that's allowed. Grant it in System Settings →
-Privacy & Security → Automation.
+This used to be two separate apps — a visible window and an invisible
+notifier running alongside it. They're one app now: less to sign, less to
+grant permissions to, and one less place a `napominalka://` registration
+could point at the wrong thing.
+
+**A full check or a save may prompt for an App Management / Data Access
+permission the first time** — either one means launching the browser to
+actually read Classroom/Canvas, and macOS wants to confirm that's allowed.
+Grant it in System Settings → Privacy & Security. **Notifications need a
+separate, manual grant of their own**, the first time one would show:
+System Settings → Notifications → SHREK School Software → Allow
+Notifications. No system prompt appears for this one in practice — it
+silently defaults to off, so this is worth doing right after the first
+build rather than waiting to notice notifications never arrive.
 
 By default this rebuilds with a fresh ad-hoc signature every time
 `npm run build` runs, which means macOS treats every rebuild as a brand
@@ -187,9 +198,9 @@ npm start
 > **Note.** Skip `npm run build` and the collector, the page, the transcripts,
 > and the home API all still work — you just get a plain browser tab instead
 > of a native window, and a generic system notification (from "Script
-> Editor", not "SHREK Notifier") instead of the buttons actually doing anything.
-> On Linux or Windows the same is true: the collector and the page are plain
-> Node, the notifier and the window are macOS-only.
+> Editor", not "SHREK School Software") instead of the buttons actually doing
+> anything. On Linux or Windows the same is true: the collector and the page
+> are plain Node, the app is macOS-only.
 
 To run on a schedule, point `launchd` (macOS) or `cron` (Linux) at
 `npm start` in this folder. There is no `.plist` in the repo — it contains
@@ -224,25 +235,23 @@ your teachers' posts to anything on the network, with no password.
 | `12-feed.js` | teacher announcements from the Classroom stream |
 | `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
 | `14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
-| `16-summary.swift` | the summary window — a real app, not a browser tab |
+| `16-summary.swift` | the app — the summary window, the `napominalka://` bridge and its browser-tab fallback, and notifications, all in one |
 | `17-api.js` | the home API |
 | `18-language.js` | Russian and English wording |
 | `19-settings.js` | settings: read, write, validate |
 | `20-browser.js` | downloads and installs the project's own isolated Brave |
-| `07-notifier.applescript` | OS-level glue: registers `napominalka://`, shows the popup |
-| `21-notifier-actions.js` | the actual logic behind every `napominalka://` action |
-| `build.sh` | builds both apps, registers the notifier's URL scheme, bakes in the project path |
+| `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly, not a separate app |
+| `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 
 The code comments are fairly heavy. Those comments are not decoration: nearly
 every one of them records a failure that already happened and explains why
-the obvious approach does not work. (A few `.txt` files the collector hands
-off to the notifier are still named in their original Russian — internal
-state nobody but this code ever sees, so there was no real reason to touch
-them. The notifier *app itself* used to be `Напоминалка.app`, but that name
-is what actually shows up in Privacy & Security prompts and notification
-banners, which reads as alarming — a Cyrillic-named background app asking
-for permissions — to anyone who doesn't know this project. It's built as
-`SHREK Notifier.app` now.)
+the obvious approach does not work. (A few `.txt` files the collector reads
+and writes are still named in their original Russian — internal state
+nobody but this code ever sees, so there was no real reason to touch them.
+There used to be a *second app* here too — first `Напоминалка.app`, briefly
+`SHREK Notifier.app` — whose name showed up in Privacy & Security prompts
+and notification banners, which read as alarming to anyone who didn't know
+this project. It's one app now, SHREK School Software, doing both jobs.)
 
 ## A few things learned the hard way
 
