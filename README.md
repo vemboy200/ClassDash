@@ -108,11 +108,21 @@ stale data.
 the latest `.dmg`, open it, and drag **ClassDash** into your
 **Applications** folder, same as installing any other Mac app.
 
-> **First launch will show a warning** — "Apple could not verify this app
-> is free of malware" or similar. That's expected: this project isn't
-> signed with a paid Apple Developer certificate. **Right-click the app
-> → Open**, then confirm in the dialog that appears. You only need to do
-> this once; after that it opens normally.
+> [!WARNING]
+> **macOS builds are not code-signed or notarized by Apple.** Gatekeeper
+> will block the app by default and may say it's "damaged" or from an
+> "unidentified developer" — that's expected, not a sign anything's
+> actually wrong with it, it's just what happens without a paid Apple
+> Developer account to sign builds with. To run it anyway: right-click
+> (Control-click) the app → **Open** → **Open** again to confirm. If
+> that doesn't work, go to **System Settings → Privacy & Security**,
+> scroll down, and click **Open Anyway** after your first blocked
+> attempt. You only need to do this once; after that it opens normally.
+>
+> If this project ever gets a paid Apple Developer account, this whole
+> step goes away — a signed, notarized build just opens like any other
+> downloaded app, no warning and no workaround needed. Not something to
+> count on for now, just the actual fix if it ever happens.
 
 **Building it yourself** is the other option, if you'd rather not run a
 downloaded binary or want to modify the code — see
@@ -192,8 +202,9 @@ read-only this is real information about your school and teachers.
 
 ## Troubleshooting
 
-**"Apple could not verify this app is free of malware."** Expected, see
-[Get the app](#2-get-the-app) above — right-click → Open the first time.
+**macOS says the app is "damaged" or from an "unidentified developer."**
+Expected — see [Get the app](#2-get-the-app) above for the right-click →
+Open workaround.
 
 **Notifications never show up.** This almost always means the manual
 System Settings grant above hasn't been done — macOS doesn't prompt for
