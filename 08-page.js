@@ -479,10 +479,21 @@ ${content.join('\n')}
   // just never appears here at all, which reads as "this class doesn't
   // exist" rather than "this class has nothing going on". Adds a 0 entry
   // for every known class (from all three platforms) not already present.
+  //
+  // EXCLUDED CLASSES ARE THE ONE CASE THIS WASN'T MEANT FOR. This
+  // setting means "still being read, currently has nothing due" — an
+  // excluded class isn't being read at all, so a permanent 0 next to it
+  // here doesn't mean that, it just looks like the setting isn't
+  // working. allKnownClasses() deliberately still contains excluded
+  // classes (see resolveClasses()'s own comment — that's what lets
+  // exclusionsField() below still list them as checkboxes, so they can
+  // be turned back on), so this needs its own check rather than relying
+  // on that list being pre-filtered.
   if (readSettings().showEmptyClasses) {
     const present = new Set(classCounts.map(([name]) => name));
+    const excluded = new Set(readSettings().exclusions);
     for (const name of allKnownClasses()) {
-      if (!present.has(name)) classCounts.push([name, 0]);
+      if (!present.has(name) && !excluded.has(name)) classCounts.push([name, 0]);
     }
     classCounts = classCounts.sort((a, b) => a[0].localeCompare(b[0], 'ru'));
   }
