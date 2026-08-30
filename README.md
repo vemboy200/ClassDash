@@ -1,8 +1,8 @@
 # ClassDash
 
 One page with everything due, collected automatically from Google Classroom,
-Canvas and Edpuzzle. Runs on a schedule, costs nothing to run, and stays quiet
-unless something actually changed.
+Canvas and Edpuzzle. Checks itself on a schedule, costs nothing to run, and
+stays quiet unless something actually changed.
 
 Written by Claude under the supervision of someone who knows nothing about
 coding, for his own homework, then cleaned up enough to share.
@@ -19,286 +19,201 @@ Four different sites, each with its own idea of what "your assignments" means.
 Classroom shows a *"nothing due in the next 7 days"* widget while a summer
 assignment quietly sits 14 days out. Canvas hides unpublished courses. Edpuzzle
 has its own list. Checking all four every day is a chore, and the day you skip
-it is the day something was due.
+it is the day something was due. ClassDash checks all of them for you and
+puts everything on one page.
 
 ## What it does
 
-A plain Node script opens a real browser, reads your own assignment lists,
-compares them with last time, and writes a single HTML page. If nothing is new,
-it says nothing at all.
-
-- **No AI at runtime.** It is an ordinary program. No tokens, no API keys,
-  no cost per run.
-- **Runs itself.** `launchd` on macOS, every 10 minutes during the school day.
+- **No AI at runtime.** Once set up, it's an ordinary program. No tokens,
+  no API keys, no cost per run.
+- **Runs itself** on a schedule, every 10 minutes during the school day.
 - **Speaks up only when it matters** — a new assignment, a new teacher post,
-  or a twice-daily reminder of what is still burning.
-- **Native notification** that opens a native window, not a browser tab.
-- **Read-only.** It never submits, answers, or changes anything.
+  or a twice-daily reminder of what's still burning.
+- **A real desktop notification** that opens a real window, not a browser tab.
+- **Read-only.** It never submits, answers, or changes anything on your behalf.
 
-## What it is not
+## What it isn't
 
 - **Not an answer machine.** It can fetch a transcript of an Edpuzzle video so
-  you can read what was said — English is not the author's first language and
-  accents are a tax unrelated to the material. It will not pull the embedded
-  questions or their answers, and that boundary is deliberate.
-
-  Transcripts are built and tested end to end (7 minutes of speech recognised
-  in 13 seconds, locally, no network), but **not wired into the collector yet** —
-  there has not been a single Edpuzzle assignment to try them on. The summary
-  page has an empty section waiting for them.
-- **Not a scraper of other people's data.** Every request goes through your own
-  logged-in browser session and returns exactly what your own account can
-  already see.
-- **Not portable yet.** It was built against one school's setup. Canvas and
-  Edpuzzle talk to documented-enough APIs; Google Classroom has no student API,
-  so that part reads the rendered page and will break when Google changes it.
+  you can read what was said, but it will not pull the embedded questions or
+  their answers — that's a deliberate line, not a missing feature.
+- **Not a scraper of other people's data.** Every request goes through your
+  own logged-in browser session and returns exactly what your own account
+  can already see.
+- **Built for one school's setup, not every possible one.** Canvas and
+  Edpuzzle are read through real APIs; Google Classroom doesn't offer one to
+  students, so that part reads the actual page and can break if Google
+  changes it. (Classroom assignments do technically also show up through
+  the Google Calendar API — but that requires your school's Google
+  Workspace admin to have that API turned on for student accounts, which
+  most schools don't. Reading the page directly is the one approach that
+  keeps working no matter what a given school has locked down.)
 
 ---
 
-## Requirements
+## Get it
 
-- macOS (notifications, the summary window and the scheduler are macOS-specific)
-- Node.js 18+
-- A real Chromium-based browser: if you already have Google Chrome installed,
-  nothing else is needed — it's used automatically, with its own isolated
-  profile folder that never touches your everyday Chrome profile. If you
-  don't have Chrome, `npm run setup-browser` installs a dedicated, isolated
-  copy of Brave instead.
-- Optional, for video transcripts: `ffmpeg`, `whisper-cpp`, and a Whisper model
+Two things go on your computer, and both are needed: the **project
+folder** (does the actual work — reading your assignments, writing the
+summary page) and **ClassDash.app** (a window that shows that summary and
+sends you notifications, instead of you having to open a file by hand).
 
-## Setup
+### 1. Set up the project folder
+
+**Requirements:**
+- macOS (the notification popup, the summary window, and the scheduler
+  are all macOS-specific — the rest of this runs on Linux/Windows too)
+- [Node.js](https://nodejs.org) 18 or newer
+
+Open Terminal (Spotlight → "Terminal") and run:
 
 ```bash
+git clone https://github.com/vemboy200/ClassDash.git
+cd ClassDash
 npm install
 npm run setup-browser
-cp settings.example.json settings.json    # then edit it
+cp settings.example.json settings.json
 ```
 
-`setup-browser` first checks whether Google Chrome is already installed — if
-so, it prints a note and does nothing else, since Chrome already works
-safely (see below). Only if Chrome is missing does it download a copy of
-Brave (open source, Chromium-based) into `.browser/` inside this project —
-not a system install, not your everyday browser, nothing outside this
-folder.
+(No `git`? Download the ZIP from the green "Code" button on
+[the GitHub page](https://github.com/vemboy200/ClassDash) instead, unzip
+it, and `cd` into that folder.)
 
-Why any of this is needed at all: Google's login flow blocks plain automated
-Chromium as "not secure," so a real, recognized browser has to be launched
-instead of Playwright's bundled one. That's normally safe, because
-`--user-data-dir` (an isolated profile folder inside this project) keeps the
-automated session completely separate from whatever profile you actually use
-day-to-day — real Chrome and Brave both respect that flag correctly. It
-*isn't* safe with every Chromium-based browser, though: one fork (Arc) turned
-out to ignore its assigned profile folder entirely and write into the real
-one instead, and the account-isolation flags Playwright launches with
-corrupted that profile's saved logins and extensions on the next normal
-launch. That's the specific failure this whole setup avoids — by using only
-Chrome or a dedicated Brave copy, never a browser confirmed to ignore its
-profile folder.
+`setup-browser` checks whether Google Chrome is already installed — if
+so, nothing else happens, since Chrome already works safely for this.
+Only if Chrome is missing does it download its own separate, isolated
+copy of Brave, kept entirely inside this project folder — never your
+everyday browser.
 
-Filenames and code comments were originally Russian, and have since been
-translated to English so contributors who don't read Russian can follow the
-code. The bilingual interface on the summary page itself (`ru`/`en`) is
-unrelated to that and still works exactly the same — only the *source code*
-changed language, not the app's own UI.
+Now open `settings.json` in any text editor and fill in your school email
+and (if your school uses it) your Canvas address. Every other setting has
+a default and can be left alone — they're all adjustable later from
+inside the app itself.
 
-Settings live in `settings.json`:
-
-| key | meaning |
-|---|---|
-| `email` | your school email — goes into assignment links as `?authuser=` |
-| `canvas` | your school's Canvas address; leave empty to skip Canvas |
-| `language` | `ru` or `en` |
-| `summaryHours` | hours for the full daily reminder, e.g. `[8, 18]` |
-| `exclusions` | class names to skip — applies to both Classroom and Edpuzzle |
-| `account` | Google multi-login index inside the browser profile; usually `0` |
-| `apiPort` | port for the home API, default `8734` |
-| `apiEnabled` | `false` (default) — starts or stops the home API itself when toggled from the settings panel (or set here directly). The access key and certificate fingerprint show up in the panel once it's on — see [Home API](#home-api) |
-| `classTimeoutMs` | how long to wait for a class page, ms |
-| `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms |
-| `passLimitMs` | a pass longer than this is treated as hung and killed, ms |
-| `browserPath` | advanced override for which browser binary to automate; leave empty (see `setup-browser` above) |
-| `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
-| `skipStaleClasses` | `true` (default) — a class with no assignment or announcement in `staleMonths` gets treated as done and stops being checked, on Classroom and Canvas as well as Edpuzzle. Edpuzzle has a real `updatedAt` per class to check directly; Classroom and Canvas don't, so staleness there is judged from this project's own memory of what it's ever seen for that class instead (see `22-class-activity.js`) |
-| `staleMonths` | `3` (default), 1–12 — how long a class can go quiet before `skipStaleClasses` treats it as stale. Has its own slider in the settings panel |
-| `hideInactiveClasses` | `false` (default) — a class this project has **never once** recorded an assignment or announcement for still gets listed by `showEmptyClasses` as just another empty one; this hides those specifically, leaving classes that are merely quiet for now still listed. Display only — doesn't change what gets fetched, unlike `skipStaleClasses` |
-| `showEmptyClasses` | `false` (default) — the class filter only lists classes with something currently due/overdue/removed; `true` always lists every known class (Classroom, Canvas, Edpuzzle) with a 0 next to the empty ones instead of them disappearing |
-
-Settings can also be edited from the summary page itself — the gear button next
-to the reload arrow — or from the command line:
-
-```bash
-npm run config                                    # show current settings
-node 19-settings.js --set language en             # change one
-```
-
-Sign in once — a real browser window opens and you log in by hand:
+Sign in once — a real browser window opens and you log in by hand, the
+same as logging into any site:
 
 ```bash
 npm run login
 ```
 
-Cookies land in `./browser-profile` and last for weeks. When Google eventually
-signs you out, the script says so with a notification instead of silently
-showing yesterday's data.
+That session is saved and lasts for weeks. When it eventually expires,
+ClassDash tells you with a notification instead of silently showing
+stale data.
 
-Build the app:
+### 2. Get the app
 
-```bash
-npm run build
-```
+**Easiest: download it.** Go to the
+[Releases page](https://github.com/vemboy200/ClassDash/releases), download
+the latest `.dmg`, open it, and drag **ClassDash** into your
+**Applications** folder, same as installing any other Mac app.
 
-This builds one native window app, ClassDash, that does
-everything: shows the summary instead of a browser tab, shows the actual
-desktop notification popup, and makes the page's buttons (`hide`,
-`not urgent`, `settings`, long-press reload) work. Buttons reach it two
-ways — directly, through a bridge, when the page is open in this window;
-through a `napominalka://` link, same as always, when it's a plain browser
-tab instead (see the note below). `npm run build` registers that link type
-with macOS, so it works immediately, not just after the app happens to be
-opened once.
+> **First launch will show a warning** — "Apple could not verify this app
+> is free of malware" or similar. That's expected: this project isn't
+> signed with a paid Apple Developer certificate. **Right-click the app
+> → Open**, then confirm in the dialog that appears. You only need to do
+> this once; after that it opens normally.
 
-This used to be two separate apps — a visible window and an invisible
-notifier running alongside it. They're one app now: less to sign, less to
-grant permissions to, and one less place a `napominalka://` registration
-could point at the wrong thing.
+**Building it yourself** is the other option, if you'd rather not run a
+downloaded binary or want to modify the code — see
+[CONTRIBUTING.md](CONTRIBUTING.md#building-from-source).
 
-**A full check or a save may prompt for an App Management / Data Access
-permission the first time** — either one means launching the browser to
-actually read Classroom/Canvas, and macOS wants to confirm that's allowed.
-Grant it in System Settings → Privacy & Security. **Notifications need a
-separate, manual grant of their own**, the first time one would show:
-System Settings → Notifications → ClassDash → Allow
-Notifications. No system prompt appears for this one in practice — it
-silently defaults to off, so this is worth doing right after the first
-build rather than waiting to notice notifications never arrive.
+**On Linux or Windows**, or if you'd simply rather not install an app at
+all: the collector, the summary page, and the home API are plain Node and
+run fine without ClassDash.app — open `summary.html` in any browser to
+view it. Be aware this is view-only, though: buttons like "hide" and
+saving settings from the page rely on a URL scheme that only
+`ClassDash.app` (macOS-only) registers, so without it those clicks won't
+actually do anything. Full interactivity currently needs macOS and the
+app built or downloaded.
 
-By default this rebuilds with a fresh ad-hoc signature every time
-`npm run build` runs, which means macOS treats every rebuild as a brand
-new app — so that permission grant stops applying the moment you rebuild
-again. To make a grant stick across rebuilds, create a stable local
-code-signing certificate once:
+### 3. Launch it
 
-1. Open **Keychain Access** (Spotlight → "Keychain Access")
-2. Menu bar: **Keychain Access → Certificate Assistant → Create a Certificate…**
-3. Name it exactly `SHREK School Software Local`, set **Identity Type** to
-   *Self Signed Root*, and **Certificate Type** to *Code Signing*
-4. Click Create, then Done
-5. Find it under **My Certificates** in Keychain Access, double-click it,
-   expand **Trust**, and set **Code Signing** to *Always Trust*
-   (enter your password to confirm)
+Open **ClassDash** from Applications (or Spotlight). **The very first
+launch may ask you to locate the project folder** — the one from step 1,
+the one with `settings.json` in it. Pick it once; ClassDash remembers
+the choice from then on. (This only happens for a downloaded `.dmg`
+build; building it yourself skips this entirely.)
 
-`npm run build` automatically detects and uses that certificate from then
-on — no other changes needed.
+Two permissions to grant, both in **System Settings → Privacy & Security**:
 
-Then run it:
+- **App Management / Data Access** — needed to actually read Classroom
+  and Canvas. macOS will prompt for this the first time it's needed.
+- **Notifications** — go to **System Settings → Notifications →
+  ClassDash → Allow Notifications** yourself. macOS does *not* prompt
+  for this one on its own; without doing it manually, notifications will
+  just silently never arrive.
 
-```bash
-npm start
-```
+### 4. Keep it running automatically
 
-> **Note.** Skip `npm run build` and the collector, the page, the transcripts,
-> and the home API all still work — you just get a plain browser tab instead
-> of a native window, and a generic system notification (from "Script
-> Editor", not "ClassDash") instead of the buttons actually doing
-> anything. On Linux or Windows the same is true: the collector and the page
-> are plain Node, the app is macOS-only.
-
-To run on a schedule, point `launchd` (macOS) or `cron` (Linux) at
-`npm start` in this folder. There is no `.plist` in the repo — it contains
-absolute paths, so write your own.
-
-## Home API
-
-A small read-only HTTPS server, in case you want the data somewhere else —
-a phone, a second machine, a home dashboard, a Home Assistant integration.
-
-**Easiest path:** the gear icon on the summary page has an "Enable home
-API" toggle. Turning it on and saving starts the server in the
-background (still localhost-only — see below for opening it to the
-network) and shows an **access key** and a **certificate fingerprint**
-right there in the panel, each with a Copy button. The key can be
-revealed (it's masked by default) and **rolled** — generates a brand new
-one and cuts the old one off immediately, for when a key might have
-leaked or a client config got shared somewhere it shouldn't have.
-
-**Manual path**, for running it outside the app or scripting around it:
-
-```bash
-npm run api                    # localhost only
-node 17-api.js --network       # visible to your home network
-```
-
-Either way, first run generates `api-cert.pem`, `api-key.pem` and
-`api-token.txt` next to `17-api.js` (gitignored, unique to your install).
-Every request needs `Authorization: Bearer <token>`; a client should pin
-the certificate's fingerprint rather than trust it blindly, since it's
-self-signed — there's no real CA for a private home address to get one
-from. Neither file changes on its own; rolling the key from the panel (or
-deleting `api-token.txt` by hand) is the only way it changes, and any
-client already configured with the old one will need updating.
-
-Endpoints: `/api/status` `/api/due-soon` `/api/ahead` `/api/overdue`
-`/api/assignments` `/api/announcements` `/api/removed` `/api/classes`, plus
-`/api/stream` — a Server-Sent Events feed of everything above bundled
-together, pushed once on connect and again only when a collection pass
-actually changes something.
-
-**Localhost is the default on purpose.** `--network` makes your
-assignments and your teachers' posts reachable — encrypted and
-token-gated, but reachable — by anything on the network.
+Right now, ClassDash checks on its own schedule only while it's told to.
+The simplest way: leave the app open, and use `launchd` (macOS's
+built-in scheduler) to run a check periodically even when it's closed.
+There's no ready-made schedule file in this repo — it needs your own
+computer's absolute file paths baked in, so this part's covered in
+[CONTRIBUTING.md](CONTRIBUTING.md) rather than here. In the meantime,
+opening the app and clicking the reload button (or holding it down for a
+full check) works fine on its own.
 
 ---
 
-## How it is put together
+## Using it
 
-| file | what it does |
-|---|---|
-| `05-playwright-draft.js` | the collector: reads sources, diffs against memory, notifies |
-| `08-page.js` | builds `summary.html` — plain code, no model involved |
-| `10-canvas.js` | Canvas through its API; courses are discovered, not hardcoded |
-| `11-edpuzzle.js` | Edpuzzle through its API; needs a visible window |
-| `12-feed.js` | teacher announcements from the Classroom stream |
-| `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
-| `14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
-| `16-summary.swift` | the app — the summary window, the `napominalka://` bridge and its browser-tab fallback, and notifications, all in one |
-| `17-api.js` | the home API |
-| `18-language.js` | Russian and English wording |
-| `19-settings.js` | settings: read, write, validate |
-| `20-browser.js` | downloads and installs the project's own isolated Brave |
-| `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly, not a separate app |
-| `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
-| `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
-| `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
+- **Hide** an overdue assignment once it's handled (already turned in,
+  no longer relevant) — the small "hide" link on its card. It can be
+  brought back with the button at the bottom of that section.
+- **Not urgent** on an assignment with no real due date moves it out of
+  "due soon" without hiding it entirely.
+- The **gear icon** opens settings: your email/Canvas address, which
+  classes to skip, language, and toggles for most of the behavior
+  described above. Changes take effect right after saving — most are
+  instant, a couple (like changing which classes get read) trigger a
+  quick real check in the background.
+- Clicking the reload arrow refreshes the page from what's already been
+  collected; holding it down runs a full check right away instead of
+  waiting for the next scheduled one.
 
-The code comments are fairly heavy. Those comments are not decoration: nearly
-every one of them records a failure that already happened and explains why
-the obvious approach does not work. (A few `.txt` files the collector reads
-and writes are still named in their original Russian — internal state
-nobody but this code ever sees, so there was no real reason to touch them.
-There used to be a *second app* here too — first `Напоминалка.app`, briefly
-`SHREK Notifier.app` — whose name showed up in Privacy & Security prompts
-and notification banners, which read as alarming to anyone who didn't know
-this project. It's one app now, ClassDash, doing both jobs.)
+## Home API
 
-## A few things learned the hard way
+Turning on **Enable home API** in settings starts a small, read-only
+HTTPS server on your own computer — useful if you want the data
+somewhere else, like a Home Assistant dashboard. The panel shows an
+**access key** (masked, with Copy and Roll buttons — Roll generates a
+brand new one and immediately cuts off the old one, for if a key ever
+leaks) and a **certificate fingerprint**, both needed to configure
+whatever's going to read from it.
 
-- **Silence is the worst failure.** A pass that reads nothing looks exactly like
-  a pass that found nothing. Several fixes here exist only to make failures
-  loud.
-- **Check what was printed, not what printed it.** A generator can be
-  syntactically perfect and still emit broken output. Once, a single escaped
-  character killed every script on the page for a week and nobody noticed.
-- **A source that was not read is not a source that is empty.** Assignments
-  from a source that failed are carried over from memory, or they come back
-  tomorrow pretending to be new.
-- **Things that disappear are marked, not deleted.** A list that silently gets
-  shorter is worse than one that admits what happened.
+It's off, and localhost-only, by default — turning it on to your whole
+home network is available (see [CONTRIBUTING.md](CONTRIBUTING.md#home-api--technical-detail)
+for the flag), but that's a deliberate, separate choice, since even
+read-only this is real information about your school and teachers.
+
+---
+
+## Troubleshooting
+
+**"Apple could not verify this app is free of malware."** Expected, see
+[Get the app](#2-get-the-app) above — right-click → Open the first time.
+
+**Notifications never show up.** This almost always means the manual
+System Settings grant above hasn't been done — macOS doesn't prompt for
+it on its own.
+
+**A full check or a save is stuck / did nothing.** The first one after
+install may be waiting on the App Management permission prompt — check
+System Settings → Privacy & Security.
+
+**Something in the code itself is misbehaving**, or you want to
+understand *why* something works the way it does — that detail lives in
+[CONTRIBUTING.md](CONTRIBUTING.md), not here.
+
+---
 
 ## License
 
 GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
-    School Digest — collects school assignments into one page
+    ClassDash — collects school assignments into one page
     Copyright (C) 2026 Artem
 
     This program is free software: you can redistribute it and/or modify
@@ -313,4 +228,3 @@ GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
 In plain terms: use it, change it, share it. If you distribute a modified
 version, that version has to stay open too.
-
