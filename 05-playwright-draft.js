@@ -109,28 +109,32 @@ const path = require('path');
 const PROFILE_DIR = path.join(__dirname, 'browser-profile');
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 
-// The notifier app. Sits next to the script.
-// Built with:
-//   osacompile -o "SHREK Notifier.app" 07-notifier.applescript
-// (see build.sh — it also writes the Info.plist and registers the
-// napominalka:// scheme). Its icon is changed by replacing the
-// Contents/Resources/applet.icns file.
+// THERE USED TO BE A SEPARATE NOTIFIER APP HERE.
+//
+// Напоминалка.app, then briefly SHREK Notifier.app, launched fresh for
+// every notification and every page-button click alike. Both jobs now
+// live in 16-summary.swift itself: page-button actions go through its
+// WKScriptMessageHandler bridge or its napominalka:// Apple Event
+// handler, and notifications go through the two paths notify() picks
+// between below. One app, one thing to build, one thing to sign.
 //
 // NAMED IN ENGLISH ON PURPOSE, UNLIKE NOTIFY_FILE/QUIET_FILE/HIDDEN_FILE
-// BELOW. This constant used to be Напоминалка.app, back when the
-// notifier's own source lived outside this repo and this was a live
-// contract with something this project didn't control — renaming it
-// here would have silently broken notifications until that other app
-// was updated to match.
-//
-// That's no longer true: 07-notifier.applescript and
-// 21-notifier-actions.js are this project's own code now, so both ends
-// of the contract move together. The other three constants stay
-// Cyrillic regardless — not because they still can't change, but
-// because there's no real reason to: nobody sees a data filename, only
-// an app's own name in Privacy & Security prompts and notification
-// banners, which is what made THIS one worth fixing.
-const NOTIFIER_APP = path.join(__dirname, 'SHREK Notifier.app');
+// BELOW — nobody sees a data filename, but an app's own name shows up
+// in Privacy & Security prompts and notification banners, which is
+// exactly what made "Напоминалка" worth fixing and is why this points
+// at English from the start.
+// /Applications, NOT next to this script. build.sh always installs
+// there (Quick Actions and Spotlight only see it from that location —
+// see build.sh's own comment on why), and that's the ONE copy the user
+// actually launches and leaves running. Pointing this at the local
+// project-directory build instead (there usually is one — build.sh
+// makes both) would silently defeat isSummaryAppRunning() below: it
+// would never recognize the /Applications copy as "already running",
+// since they're different file paths, and would launch a second,
+// separate process from the local copy instead of reaching the real
+// one. That's not hypothetical — it's exactly what happened testing
+// this the first time.
+const SUMMARY_APP = '/Applications/SHREK School Software.app';
 
 // The script hands the popup text to the app through this file.
 // First line is the title, the rest is the body. The app deletes
@@ -975,29 +979,43 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 function notify(title, subtitle, message) {
   const { execFileSync } = require('child_process');
 
-  // Main path: our SHREK Notifier.app.
-  //
-  // Launches the EXECUTABLE FILE inside the app directly.
-  // Three approaches were tried, only this one works:
-  //
-  //   osascript SHREK Notifier.app  — the popup arrives from
-  //                                   "Script Editor", not from us
-  //   open -a SHREK Notifier.app    — opens Finder instead of launching
-  //                                   the app on this machine
-  //   Contents/MacOS/applet         — works: name and icon are ours
-  //
-  // The text goes into a file next to it, not into arguments: this way it
-  // reaches the applet guaranteed, and quotes in assignment titles
-  // (there are some, like "Neighborhood Ecology") break nothing.
-  const binary = path.join(NOTIFIER_APP, 'Contents', 'MacOS', 'applet');
-  if (fs.existsSync(binary)) {
+  if (fs.existsSync(SUMMARY_APP)) {
     try {
-      // Three lines: title, subtitle, message.
+      // Three lines: title, subtitle, message. Written before either
+      // path below, since both read the same file — see
+      // postPendingNotification() in 16-summary.swift.
       fs.writeFileSync(NOTIFY_FILE, `${title}\n${subtitle}\n${message}`);
-      execFileSync(binary);
+
+      // TWO PATHS, BECAUSE macOS TREATS "RUNNING" AND "NOT RUNNING"
+      // COMPLETELY DIFFERENTLY FOR A SINGLE-INSTANCE APP.
+      //
+      // Confirmed directly, the hard way: `open -a SHREK School
+      // Software --args --notify` against an ALREADY-RUNNING instance
+      // does nothing at all — no error, no new process, the file just
+      // sits there unread. macOS doesn't hand a running single-instance
+      // app a fresh set of command-line arguments; --args is only
+      // honored on the launch that actually starts the process.
+      //
+      // Every other action on the page reaches an already-running
+      // instance fine, through the SAME napominalka:// scheme, because
+      // that's delivered as an Apple Event, not as argv — and Apple
+      // Events DO reach a process that's already up. So notifications
+      // reuse that exact path when the app is already running, and
+      // fall back to a fresh --notify launch only when it isn't.
+      if (isSummaryAppRunning()) {
+        // -g: don't bring the app to the foreground. Confirmed live
+        // that without it, `open` activating the app is enough on its
+        // own to trigger applicationDidBecomeActive -> a page reload —
+        // exactly the disruption this whole branch exists to avoid.
+        // The Apple Event still reaches handleGetURL either way; -g
+        // only changes whether opening it also steals focus.
+        execFileSync('open', ['-g', 'napominalka://notify']);
+      } else {
+        execFileSync('open', ['-a', SUMMARY_APP, '--args', '--notify']);
+      }
       return;
     } catch (e) {
-      console.warn('SHREK Notifier.app failed:', e.message);
+      console.warn('SHREK School Software notification failed:', e.message);
     }
   }
 
@@ -1010,6 +1028,24 @@ function notify(title, subtitle, message) {
       `display notification "${esc(message)}" with title "${esc(title)}" sound name "Glass"`]);
   } catch (e) {
     console.warn('failed to show a notification:', e.message);
+  }
+}
+
+/** Whether the summary app already has a process running — determines
+ *  which of notify()'s two delivery paths actually reaches it.
+ *  execFileSync, not a shell string: the path has spaces in it
+ *  ("SHREK School Software.app"), and this way there's no shell quoting
+ *  to get right at all. */
+function isSummaryAppRunning() {
+  const { execFileSync } = require('child_process');
+  try {
+    execFileSync('pgrep', ['-f', path.join(SUMMARY_APP, 'Contents', 'MacOS') + '/'],
+      { stdio: 'ignore' });
+    return true;
+  } catch {
+    // pgrep exits non-zero when nothing matches — that's "not running",
+    // not a failure worth reporting.
+    return false;
   }
 }
 

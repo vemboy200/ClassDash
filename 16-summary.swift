@@ -24,6 +24,7 @@
 
 import Cocoa
 import WebKit
+import UserNotifications
 
 // THE PROJECT PATH ISN'T HARDCODED.
 //
@@ -83,6 +84,111 @@ func logWindow(_ text: String) {
     }
 }
 
+// ── Notifications ──
+//
+// This used to be a SEPARATE app's job (SHREK Notifier.app, briefly,
+// and Напоминалка.app before that), launched fresh every time something
+// needed to appear. Now it's this app, one of two ways depending on
+// whether this app is already running -- see notify() in
+// 05-playwright-draft.js for why there have to be two:
+//
+//   - NOT running: launched fresh as `SHREK School Software --notify`
+//     (see the bottom of this file), which sets .accessory and calls
+//     runNotifyMode() below before any window gets created.
+//   - ALREADY running (the window is open): reached via a
+//     napominalka://notify open, the same Apple-Event path everything
+//     else in the browser-tab fallback uses -- see handleGetURL. macOS
+//     does NOT deliver a fresh set of command-line arguments to an
+//     already-running single-instance app (confirmed directly: `open -a
+//     ... --args --notify` against an already-running instance did
+//     nothing at all, silently -- the file was never even read), so
+//     --notify alone would make every notification fail exactly when
+//     the summary window is left open, which is common. An Apple Event
+//     reaches the existing process instead of trying to start a new one.
+//
+// Both paths call the same postPendingNotification() below -- reads
+// уведомление.txt (three lines: title/subtitle/message), posts it, and
+// deletes the file right after, same contract as always. Only what
+// happens once it's done differs: --notify mode exits the process;
+// already-running mode just lets the app carry on exactly as it was.
+func postPendingNotification(onDone: @escaping () -> Void) {
+    let notifyPath = projectDir + "/уведомление.txt"
+    let content = (try? String(contentsOfFile: notifyPath, encoding: .utf8)) ?? ""
+    // Deleted right away, same as before -- see the comment on
+    // NOTIFY_FILE in 05-playwright-draft.js: leaving it around risks
+    // the same text getting shown twice.
+    try? FileManager.default.removeItem(atPath: notifyPath)
+
+    guard !content.isEmpty else {
+        // Nothing waiting to be shown -- not an error, the collector
+        // calls this speculatively and there's often nothing to say.
+        onDone()
+        return
+    }
+    let lines = content.components(separatedBy: "\n")
+    let title = lines[0]
+    let subtitle = lines.count > 1 ? lines[1] : ""
+    let body = lines.count > 2 ? lines[2] : ""
+
+    let center = UNUserNotificationCenter.current()
+
+    func post() {
+        let notification = UNMutableNotificationContent()
+        notification.title = title
+        if !subtitle.isEmpty { notification.subtitle = subtitle }
+        notification.body = body
+        notification.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString,
+                                             content: notification, trigger: nil)
+        center.add(request) { _ in onDone() }
+    }
+
+    // ASKS FOR PERMISSION THE FIRST TIME, RATHER THAN ASSUMING IT AND
+    // POSTING INTO THE VOID.
+    //
+    // `display notification` (the old AppleScript path) never checked
+    // at all -- it silently defaulted to "off" the moment the app got
+    // renamed, with no indication anything had failed. requestAuthorization
+    // is the correct call to make here regardless, but confirmed live:
+    // it did NOT surface a visible system prompt in testing -- the
+    // first real notification here still needed a manual "Allow
+    // notifications" toggle in System Settings -> Notifications, same
+    // as before. Whatever the reason (a background-launched, windowless
+    // process may not be a context macOS shows that prompt in), that's
+    // the honest state of this today: still a manual first grant, not a
+    // solved problem, just no longer routed through an app whose PATH
+    // silently swallowed the request that got this far in the first
+    // place.
+    center.getNotificationSettings { settings in
+        switch settings.authorizationStatus {
+        case .authorized, .provisional:
+            post()
+        case .notDetermined:
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                if granted { post() } else { onDone() }
+            }
+        default:
+            // Denied, or some other non-postable state -- nothing to
+            // show, and not this process's job to explain why; System
+            // Settings already does that if the user goes looking.
+            onDone()
+        }
+    }
+}
+
+// The --notify entry point: window-less, one-shot, exits itself once
+// postPendingNotification's async work actually finishes.
+func runNotifyMode() -> Never {
+    postPendingNotification { exit(0) }
+    // postPendingNotification is entirely asynchronous, and this
+    // function has to return Never -- so the run loop keeps this
+    // process alive long enough for its completion handler to actually
+    // fire and exit() itself. Without this the process would just quit
+    // immediately, before a notification was ever scheduled.
+    RunLoop.current.run()
+    exit(0) // unreachable in practice; satisfies the Never return type
+}
+
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
@@ -108,6 +214,82 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptM
     // page is opened as a plain browser tab instead of in this window.
     // Those really do send focus elsewhere, so the guard stays.
     var lastHandoff: Date?
+
+    // REGISTERED IN willFinishLaunching, NOT didFinishLaunching.
+    //
+    // A napominalka:// open (someone clicked hide/quiet/save from the
+    // page loaded in a plain browser tab, with no window of this app
+    // already up) can arrive as part of the SAME launch that's starting
+    // right now -- macOS queues the "open URL" Apple Event for delivery
+    // once the app is ready. Registering the handler here, before
+    // launch actually finishes, is what makes sure it's ready in time
+    // to catch that queued event instead of missing it.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURL(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL))
+    }
+
+    // THE REPLACEMENT FOR 07-notifier.applescript'S on open location.
+    //
+    // Used only when this page is opened as a plain browser tab instead
+    // of in this window -- inside the window, dispatchAction() in
+    // 08-page.js always prefers the bridge above instead. When it DOES
+    // fire, this simply lets the launch become a normal one: the window
+    // opens (or comes forward, if it was already open) AND the action
+    // runs, via the exact same runAction() the bridge itself uses below.
+    //
+    // No attempt is made here to suppress the window for this case, on
+    // purpose. That would mean answering "is this Apple Event about to
+    // arrive as part of the CURRENT launch, or is it something else" —
+    // and that's not knowable reliably: this event is delivered
+    // asynchronously, on macOS's own schedule, and there is no safe
+    // ordering guarantee against applicationDidFinishLaunching already
+    // having built the window by the time this runs. Racing against
+    // that would trade a working feature for an intermittent one to
+    // save a window popping up in what's already an unusual, secondary
+    // way to use this page.
+    //
+    // PARSED FROM THE RAW STRING, NOT A URL(string:). Mirrors
+    // 07-notifier.applescript's dispatch() exactly, deliberately: ids
+    // arrive percent-encoded and must reach 21-notifier-actions.js
+    // exactly as sent, not decoded and re-encoded by a URL parser that
+    // was never asked to do that.
+    @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
+        guard let raw = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let schemeRange = raw.range(of: "://") else {
+            logWindow("handleGetURL: no usable URL in the event")
+            return
+        }
+        let afterScheme = String(raw[schemeRange.upperBound...])
+        let parts = afterScheme.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = parts.first, !first.isEmpty else {
+            logWindow("handleGetURL: could not parse an action from \(raw)")
+            return
+        }
+        let action = String(first)
+        let arg = parts.count > 1 ? String(parts[1]) : ""
+
+        // "notify" ISN'T A PAGE ACTION — it's how notify() in
+        // 05-playwright-draft.js reaches an ALREADY-RUNNING instance
+        // (see the comment on postPendingNotification above for why
+        // that needs its own path). Handled directly here rather than
+        // through runAction()/21-notifier-actions.js: there's no
+        // settings file to touch and nothing node needs to do, only a
+        // notification to post from inside this already-running process.
+        if action == "notify" {
+            logWindow("napominalka://notify (already-running instance)")
+            postPendingNotification {}
+            return
+        }
+
+        logWindow("napominalka:// (browser-tab fallback): \(action) \(arg)")
+        runAction(action, arg) { resultJSON in
+            logWindow("  fallback dispatch result: \(resultJSON)")
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(
@@ -392,6 +574,18 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptM
 }
 
 let application = NSApplication.shared
+
+// CHECKED BEFORE ANYTHING ELSE ABOUT NORMAL LAUNCH RUNS.
+//
+// .accessory has to be set before the notify path does anything else:
+// it's what keeps this invocation out of the Dock and Cmd-Tab. A normal
+// double-click launch never passes --notify, so it always falls through
+// to the ordinary .regular / windowed path below, unchanged.
+if CommandLine.arguments.contains("--notify") {
+    application.setActivationPolicy(.accessory)
+    runNotifyMode()
+}
+
 let delegate = Delegate()
 application.delegate = delegate
 application.setActivationPolicy(.regular)
