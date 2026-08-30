@@ -83,30 +83,30 @@ func logWindow(_ text: String) {
     }
 }
 
-class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
 
-    // WHEN THE LAST napominalka:// HANDOFF HAPPENED.
+    // WHEN THE LAST OUTGOING LINK WAS HANDED TO macOS.
     //
-    // Handing a URL to the system launches the notifier, which means THIS
-    // app stops being the active one for a moment. When the notifier
-    // finishes (a fraction of a second later) and quits, this app becomes
-    // active again — and applicationDidBecomeActive used to reload the
-    // page right then, unconditionally.
+    // Handing a URL to NSWorkspace launches whatever app owns it, which
+    // means THIS app stops being the active one for a moment; when the
+    // other app quits or the user comes back, this one becomes active
+    // again — and applicationDidBecomeActive used to reload the page
+    // right then, unconditionally.
     //
-    // That reload was silently eating every settings save. The page sets
-    // "Saved. Checking now…" and starts a 30-second timer to refresh
-    // itself once the collection has actually finished — and the reload
-    // destroyed both, about a fifth of a second later. What was left was
-    // the OLD summary.html (the new collection needs ~17 seconds to
-    // produce a new one), with no message and no pending refresh. From
-    // the outside that looks exactly like the button doing nothing at
-    // all, which is precisely how it was reported, three times.
+    // That used to eat every settings save: the page would set "Saved.
+    // Checking now…" and start a 30-second timer to refresh itself once
+    // the collection finished, and the reload destroyed both a fraction
+    // of a second later, before the collection was anywhere near done.
+    // Save, hide, and check no longer go through NSWorkspace at all —
+    // they go straight through the bridge below, which never moves focus
+    // away, so that race can't happen for them anymore.
     //
-    // This never showed up when the same clicks were driven
-    // programmatically for testing: that path didn't move focus away, so
-    // the reload never fired and the save looked fine every time.
+    // What's left needing this guard is only genuine outgoing links —
+    // "open in Classroom", and the napominalka:// fallback used when this
+    // page is opened as a plain browser tab instead of in this window.
+    // Those really do send focus elsewhere, so the guard stays.
     var lastHandoff: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -130,7 +130,31 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         //
         // There it's just a regular link-button with location.reload() —
         // the window doesn't need to do anything for that to work.
-        web = WKWebView(frame: window.contentView!.bounds)
+        // THE BRIDGE, REPLACING THE napominalka:// CHAIN FOR THIS WINDOW.
+        //
+        // The old path for every button on the page was: page sets
+        // location.href to a napominalka:// URL -> macOS Launch Services
+        // finds the app that registered that scheme -> a SEPARATE
+        // AppleScript app launches -> it runs `do shell script` -> which
+        // finally runs node. Four handoffs to write one settings file,
+        // and the second-to-last one (`do shell script`'s own stripped
+        // PATH not containing Homebrew's node) silently broke every
+        // single button in this app for an entire evening, because
+        // nothing along that chain had any way to report a failure back.
+        //
+        // A WKScriptMessageHandler lets the page hand an action straight
+        // to THIS process instead — one hop, no separate app, no Launch
+        // Services round trip, and this process controls its own PATH
+        // directly rather than inheriting whatever launched it. See
+        // userContentController(_:didReceive:) below for the receiving
+        // end, and 08-page.js's dispatchAction() for the sending end.
+        //
+        // Must be registered on the configuration BEFORE the WKWebView is
+        // created — adding it afterward doesn't work.
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "shrek")
+
+        web = WKWebView(frame: window.contentView!.bounds, configuration: config)
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
 
@@ -192,12 +216,138 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         return true
     }
 
+    // MARK: - Bridge
+
+    // RECEIVES ONE ACTION FROM THE PAGE, RUNS IT, AND ANSWERS BACK.
+    //
+    // The message body is {id, action, arg} — see dispatchAction() in
+    // 08-page.js. `id` only ever means something to the page itself (it's
+    // how the page matches this reply back to the JS callback that asked
+    // for it); this process just carries it there and back unread.
+    func userContentController(_ userContentController: WKUserContentController,
+                                didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let requestId = body["id"] as? String,
+              let action = body["action"] as? String else {
+            logWindow("bridge: message with an unexpected shape, ignored")
+            return
+        }
+        let arg = (body["arg"] as? String) ?? ""
+        logWindow("bridge: \(action) \(arg)")
+
+        runAction(action, arg) { [weak self] resultJSON in
+            self?.deliver(requestId: requestId, resultJSON: resultJSON)
+        }
+    }
+
+    // Runs 21-notifier-actions.js exactly the way the AppleScript
+    // notifier always has — same script, same arguments — the only
+    // difference is WHO is running it and WHAT environment it gets.
+    private func runAction(_ action: String, _ arg: String,
+                            completion: @escaping (String) -> Void) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["node", projectDir + "/21-notifier-actions.js", action, arg]
+
+        // THE SAME FIX AS THE APPLESCRIPT ONE, DONE THE WAY THIS PROCESS
+        // ACTUALLY SUPPORTS.
+        //
+        // A launched-by-Finder/Dock app gets a minimal PATH too — the
+        // AppleScript notifier's whole bug, rediscovered here would be
+        // just as invisible. The difference is this process sets its
+        // OWN child's environment directly; there's no separate app in
+        // between to inherit a stripped one from.
+        var env = ProcessInfo.processInfo.environment
+        let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+        process.environment = env
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        process.terminationHandler = { proc in
+            // Runs on an arbitrary queue, not necessarily main — reading
+            // the pipes here is fine (no UI touched yet), but deliver()
+            // hops back to main before it touches the web view.
+            let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let out = String(data: outData, encoding: .utf8) ?? ""
+            let err = String(data: errData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            // 21-notifier-actions.js's contract: one JSON object as the
+            // LAST line of stdout, always, success or failure — see its
+            // own CLI entry point for why. Anything else (empty stdout,
+            // a nonzero exit) is a failure this process didn't cause and
+            // can't parse its way around, so it's reported as one
+            // instead of guessed at.
+            let lastLine = out.split(separator: "\n", omittingEmptySubsequences: true)
+                .last.map(String.init)
+
+            if proc.terminationStatus == 0, let line = lastLine, !line.isEmpty {
+                completion(line)
+            } else {
+                let why = err.isEmpty
+                    ? "node exited with status \(proc.terminationStatus) and no output"
+                    : err
+                logWindow("  bridge action '\(action)' FAILED: \(why)")
+                completion(Delegate.failureJSON(why))
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            let why = "could not launch node: \(error.localizedDescription)"
+            logWindow("  bridge action '\(action)' FAILED: \(why)")
+            completion(Delegate.failureJSON(why))
+        }
+    }
+
+    // Hands the result back to the exact page that asked for it, as a
+    // real JS object — not a string the page has to parse itself.
+    private func deliver(requestId: String, resultJSON: String) {
+        let idLiteral = Delegate.jsStringLiteral(requestId)
+        let script = "window.shrekBridgeResult && window.shrekBridgeResult(\(idLiteral), \(resultJSON));"
+        DispatchQueue.main.async {
+            self.web.evaluateJavaScript(script, completionHandler: nil)
+        }
+    }
+
+    private static func failureJSON(_ why: String) -> String {
+        let obj: [String: Any] = ["ok": false, "why": why]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{\"ok\":false}"
+        }
+        return text
+    }
+
+    // Turns a plain Swift string into a safe JS string literal. Only
+    // ever used for the request id, which the page generated itself
+    // (see 08-page.js) as a simple token like "r7" — escaped properly
+    // anyway rather than assumed safe.
+    private static func jsStringLiteral(_ s: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [s]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        return String(text.dropFirst().dropLast())
+    }
+
     // OUTGOING LINKS ARE HANDED TO THE SYSTEM, NOT OPENED INSIDE.
     //
-    // Two reasons. A Classroom assignment needs a school account — the
-    // user has one in Chrome, and this window has no sign-in at all.
-    // And the "not urgent" and "hide" buttons are napominalka:// links,
-    // which the notifier has to catch, not the window.
+    // A Classroom assignment needs a school account — the user has one
+    // in Chrome, and this window has no sign-in at all — so those always
+    // need to leave. napominalka:// links are different: the page's own
+    // dispatchAction() now prefers the bridge above and shouldn't be
+    // producing these anymore for save/hide/quiet/check. This branch
+    // stays as a fallback for the one case it wasn't written for — a
+    // cached older page, or the bridge failing to register for some
+    // reason — so a napominalka:// URL still does something instead of
+    // just failing differently.
     func webView(_ web: WKWebView,
                  decidePolicyFor action: WKNavigationAction,
                  decisionHandler decision: @escaping (WKNavigationActionPolicy) -> Void) {
