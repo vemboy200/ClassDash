@@ -189,7 +189,7 @@ func runNotifyMode() -> Never {
     exit(0) // unreachable in practice; satisfies the Never return type
 }
 
-class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
+class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
 
@@ -339,6 +339,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptM
         web = WKWebView(frame: window.contentView!.bounds, configuration: config)
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
+        web.uiDelegate = self
 
         // THE PAGE'S OWN ERRORS ARE INVISIBLE IN HERE.
         //
@@ -517,6 +518,45 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptM
             return "\"\""
         }
         return String(text.dropFirst().dropLast())
+    }
+
+    // MARK: - JS confirm()
+
+    // A BARE WKWebView DOESN'T IMPLEMENT confirm() AT ALL.
+    //
+    // alert()/confirm()/prompt() only work in WebKit when something
+    // adopts WKUIDelegate and answers these calls itself — otherwise
+    // the page's call to confirm() has nothing on the other end, and
+    // WebKit just resolves it as "cancelled" without ever showing
+    // anything. That's exactly what "hide" on an overdue assignment
+    // looked like from outside: the page's own hideOverdueItem() (see
+    // 08-page.js) treats a cancelled confirm() as a reason to do
+    // nothing at all, so the button appeared to just not work — no
+    // error, no dialog, nothing, because nothing had ever asked this
+    // window to show one.
+    //
+    // The completion handler is called asynchronously (a sheet, not
+    // NSAlert.runModal()) because this method itself must return before
+    // the sheet closes — WebKit is waiting on completionHandler, not on
+    // this function returning.
+    func webView(_ webView: WKWebView,
+                 runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        let cancel = alert.addButton(withTitle: "Cancel")
+        cancel.keyEquivalent = "\u{1b}"
+
+        guard let window = self.window else {
+            completionHandler(alert.runModal() == .alertFirstButtonReturn)
+            return
+        }
+        alert.beginSheetModal(for: window) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
     }
 
     // OUTGOING LINKS ARE HANDED TO THE SYSTEM, NOT OPENED INSIDE.
