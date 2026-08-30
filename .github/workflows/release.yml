@@ -1,0 +1,77 @@
+# Builds ClassDash.app, packages it into a .dmg, and attaches it to a
+# GitHub Release — triggered by pushing a tag, not by every commit.
+#
+# ── Why a tag, not every push to main ──
+#
+# A release is a deliberate "this is a version someone should be able to
+# download" moment, not something that should happen on every commit —
+# most commits aren't meant to be installable milestones. Tagging is the
+# existing, standard way to mark that moment; nothing new to learn here.
+#
+#   git tag v1.0.0
+#   git push fork v1.0.0
+#
+# ── Why ad-hoc signing, no notarization ──
+#
+# Notarization needs a paid Apple Developer Program membership and its
+# credentials stored as repository secrets — not something this project
+# has. Ad-hoc (build.sh's own fallback when it doesn't find the
+# "SHREK School Software Local" certificate, which a fresh CI runner
+# obviously never will) is what ships instead. That means Gatekeeper
+# shows the "unidentified developer" warning on first launch — expected,
+# not a bug, and the README documents the right-click-to-open workaround.
+#
+# ── Why hdiutil, not a third-party dmg tool ──
+#
+# hdiutil is already part of macOS (20-browser.js already shells out to
+# it, extracting Brave's own .dmg) — no new dependency to install or trust
+# just to build one.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds ClassDash.app (ad-hoc signed, see above), installs a copy
+      # to /Applications, and registers the napominalka:// scheme — all
+      # harmless on a throwaway CI runner. No `npm install` needed first:
+      # building the app is pure swiftc + codesign, nothing here touches
+      # Playwright or any other Node dependency.
+      - name: Build the app
+        run: ./build.sh
+
+      # Staged in its own folder, not zipped straight from the repo
+      # checkout: a .dmg with just the .app floating in it means dragging
+      # the .app to /Applications by hand, easy to get wrong. The symlink
+      # makes it the standard drag-app-onto-Applications-icon install
+      # every other macOS .dmg uses.
+      - name: Stage the disk image contents
+        run: |
+          mkdir -p dmg-staging
+          cp -R "ClassDash.app" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+      - name: Build the .dmg
+        run: |
+          hdiutil create -volname "ClassDash" -srcfolder dmg-staging \
+            -ov -format UDZO "ClassDash-${GITHUB_REF_NAME}.dmg"
+
+      # --generate-notes: auto-built from commits since the last tag —
+      # good enough by default, no changelog file to hand-maintain here.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "ClassDash-${GITHUB_REF_NAME}.dmg" \
+            --title "ClassDash ${GITHUB_REF_NAME}" \
+            --generate-notes

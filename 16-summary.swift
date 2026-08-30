@@ -36,27 +36,51 @@ import UserNotifications
 // `build.sh`), and only read here. The source keeps no trace of anyone's
 // home folder or username -- the project can be published as-is.
 //
-// Three attempts in order, from precise to desperate.
-let projectDir: String = {
+// FOUR ATTEMPTS NOW, NOT THREE -- A RELEASE BUILD BREAKS THE FIRST TWO.
+//
+// A build done locally (`npm run build`) bakes in the machine's own real
+// path, and that's still the fast path for anyone building from source.
+// But a build done on a GitHub Actions runner (see
+// .github/workflows/release.yml) bakes in THAT runner's throwaway path --
+// meaningless on the machine that eventually downloads it -- and "next to
+// the app" only helps if the app was never moved into /Applications,
+// which is exactly where every downloader is expected to put it. Neither
+// passive check can work for that case; there's nothing on disk yet that
+// says where the project actually lives. So a fourth source, a path
+// chosen once and remembered, closes the gap -- see
+// promptForProjectFolder() below, and applicationDidFinishLaunching's own
+// call to it, for where that actually gets asked.
+let projectPathDefaultsKey = "ProjectFolderPath"
+
+func resolveProjectDir() -> (path: String, valid: Bool) {
     // 1. Whatever the build script wrote in.
     if let fromPlist = Bundle.main.object(forInfoDictionaryKey: "ProjectPath") as? String,
        !fromPlist.isEmpty,
        FileManager.default.fileExists(atPath: fromPlist + "/summary.html") {
-        return fromPlist
+        return (fromPlist, true)
     }
 
     // 2. Next to the app itself -- in case it wasn't copied to /Applications.
     let nextToApp = Bundle.main.bundleURL.deletingLastPathComponent().path
     if FileManager.default.fileExists(atPath: nextToApp + "/summary.html") {
-        return nextToApp
+        return (nextToApp, true)
     }
 
-    // 3. Not found. Falls back to "next to the app" -- the window will
-    //    show a blank page, and that's more honest than opening someone
-    //    else's summary from a guessed path.
-    return nextToApp
-}()
-let pagePath = projectDir + "/summary.html"
+    // 3. Chosen once, in a previous launch, via promptForProjectFolder().
+    if let saved = UserDefaults.standard.string(forKey: projectPathDefaultsKey),
+       FileManager.default.fileExists(atPath: saved + "/summary.html") {
+        return (saved, true)
+    }
+
+    // 4. Not found by any of the above. Falls back to "next to the app" --
+    //    the window will show a blank page unless applicationDidFinishLaunching's
+    //    prompt fixes that first, and a blank page is more honest than
+    //    opening someone else's summary from a guessed path.
+    return (nextToApp, false)
+}
+
+var (projectDir, hasValidProjectDir) = resolveProjectDir()
+var pagePath: String { projectDir + "/summary.html" }
 
 /// Records what the window did with a link, next to the notifier's own log.
 ///
@@ -189,6 +213,43 @@ func runNotifyMode() -> Never {
     exit(0) // unreachable in practice; satisfies the Never return type
 }
 
+// Asked for ONLY when resolveProjectDir() found nothing on its own --
+// see that function's own comment for the release-build case this
+// exists to cover. NEVER called from runNotifyMode(): a background
+// notification attempt that can't find its data should just quietly do
+// nothing, the same as it already does when уведомление.txt itself is
+// missing, not surface a dialog nobody asked for in that moment.
+//
+// Declines gracefully: if the person cancels, or picks a folder that
+// doesn't actually have summary.html in it, this returns nil and the
+// caller proceeds exactly as it always did without one -- a blank
+// window, not a forced retry loop. It'll ask again next launch.
+func promptForProjectFolder() -> String? {
+    let panel = NSOpenPanel()
+    panel.title = "Locate the ClassDash project folder"
+    panel.message = "Choose the folder that has summary.html in it -- " +
+        "the one \"npm install\" and \"npm start\" were run inside."
+    panel.prompt = "Choose"
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+
+    guard panel.runModal() == .OK, let chosen = panel.url?.path else { return nil }
+
+    guard FileManager.default.fileExists(atPath: chosen + "/summary.html") else {
+        let alert = NSAlert()
+        alert.messageText = "That doesn't look like the right folder"
+        alert.informativeText = "No summary.html in there. Run \"npm start\" " +
+            "at least once in the actual project folder, then try again."
+        alert.runModal()
+        return nil
+    }
+
+    UserDefaults.standard.set(chosen, forKey: projectPathDefaultsKey)
+    return chosen
+}
+
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
@@ -292,6 +353,18 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // See resolveProjectDir()'s own comment: this is the case a
+        // release build downloaded from GitHub and dropped in
+        // /Applications, like any normal Mac app, hits on its very
+        // first launch. Asked here, not any earlier -- NSOpenPanel
+        // needs a running app with a real activation policy behind it,
+        // which doesn't exist yet at the top of this file where
+        // resolveProjectDir() itself runs.
+        if !hasValidProjectDir, let chosen = promptForProjectFolder() {
+            projectDir = chosen
+            hasValidProjectDir = true
+        }
+
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
