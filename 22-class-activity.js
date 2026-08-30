@@ -20,65 +20,77 @@
  * any of this. Classroom and Canvas don't hand back anything like it:
  * a course listing is just a name and an id, nothing about when it was
  * last actually active. So staleness there has to be judged from this
- * project's OWN memory of what it's ever seen for that class instead —
- * the most recent announcement, or the most recent assignment/material.
+ * project's OWN memory of what it's ever seen for that class instead.
+ *
+ * ── Why its own file, not last-collection.json / messages.json ──
+ *
+ * The first version of this read the shared assignment/announcement
+ * memory directly — reasonable-looking, since that memory already
+ * knows the most recent thing seen per class. It was wrong: that
+ * memory is also where the exclusions purge lives (an excluded class's
+ * entries get deleted outright — see diffWithPrevious's own comment on
+ * EXCLUDED CLASSES) and where the "3 misses = removed" decay lives.
+ * Neither of those was written with staleness in mind, but both write
+ * to the exact data staleness was reading — so excluding a class would
+ * silently reset ITS staleness signal to "no data" too, as a side
+ * effect nobody intended. It happened to still behave sensibly today,
+ * but only by coincidence: any future change to purging or decay could
+ * just as easily have broken staleness detection along with it,
+ * without anyone touching this file at all.
+ *
+ * This file keeps its OWN record instead — updated in exactly one
+ * place (recordActivity, called from 05-playwright-draft.js right
+ * after a class is actually read) and never touched by exclusions,
+ * hide/quiet, or decay. A class that stops being fetched (excluded, or
+ * already stale) simply stops getting new entries, which is exactly
+ * the right behavior — its last-known activity stays frozen at
+ * whatever it truly was, undisturbed by anything else in the system.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const STREAM_FILE = path.join(__dirname, 'messages.json');
-const STATE_FILE = path.join(__dirname, 'last-collection.json');
+const ACTIVITY_FILE = path.join(__dirname, 'class-activity.json');
+
+function readActivity() {
+  if (!fs.existsSync(ACTIVITY_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(ACTIVITY_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
 
 /**
- * The most recent moment this project has ever recorded ANY activity —
- * an announcement or an assignment/material — for a given class.
- *
- * Returns null when there's no dated signal at all: a class that's
- * brand new, or one whose only activity so far is a kind this can't
- * date (Classroom's own `posted` is almost always null — the site
- * doesn't reliably expose when an assignment was created, only when
- * it's due, and a due date says nothing about whether the CLASS is
- * still active). null is deliberately treated as "not stale" by
- * isClassStale below: no signal should never be read as "definitely
- * gone quiet".
+ * Records that these classes were just seen active, right now. Called
+ * once per collection pass, from 05-playwright-draft.js, with every
+ * class name that actually turned up in this pass's results — never
+ * called for a class that wasn't read (an excluded one, or one already
+ * skipped as stale), which is exactly what keeps a stale class's
+ * timestamp frozen instead of drifting.
+ */
+function recordActivity(classNames, when = Date.now()) {
+  if (!classNames || !classNames.length) return;
+  const activity = readActivity();
+  for (const name of classNames) {
+    if (name) activity[name] = when;
+  }
+  try {
+    fs.writeFileSync(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
+  } catch { /* not fatal — staleness just won't have moved this pass */ }
+}
+
+/**
+ * The most recent moment this project has ever recorded a class as
+ * active. Returns null when there's no entry at all: a class that's
+ * brand new, or one this file has simply never been told about yet.
+ * null is deliberately treated as "not stale" by isClassStale below —
+ * no signal should never be read as "definitely gone quiet".
  */
 function classLastActivity(className) {
-  let latest = null;
-
-  if (fs.existsSync(STREAM_FILE)) {
-    try {
-      const messages = JSON.parse(fs.readFileSync(STREAM_FILE, 'utf8'));
-      for (const m of messages) {
-        // sortTime is a real, already-resolved timestamp (ms since
-        // epoch) computed ONCE when the post was first seen — see the
-        // comment where it's set in 05-playwright-draft.js for why it
-        // must not be recomputed here from the post's own raw date
-        // text. A post whose date text was relative ("Yesterday", a
-        // bare time) would otherwise look freshly posted no matter how
-        // old it actually is.
-        if (m.class === className && typeof m.sortTime === 'number' && m.sortTime > 0) {
-          if (latest === null || m.sortTime > latest) latest = m.sortTime;
-        }
-      }
-    } catch { /* no memory yet, or it's unreadable — no signal from here */ }
-  }
-
-  if (fs.existsSync(STATE_FILE)) {
-    try {
-      const items = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-      for (const x of items) {
-        // Canvas's `posted` is a.created_at, a real ISO timestamp from
-        // Canvas's own API — always safe to parse directly, unlike
-        // Classroom's scraped announcement text.
-        if (x.class !== className || !x.posted) continue;
-        const t = Date.parse(x.posted);
-        if (!Number.isNaN(t) && (latest === null || t > latest)) latest = t;
-      }
-    } catch { /* no memory yet, or it's unreadable — no signal from here */ }
-  }
-
-  return latest;
+  const activity = readActivity();
+  const t = activity[className];
+  return typeof t === 'number' ? t : null;
 }
 
 /**
@@ -98,4 +110,4 @@ function isClassStale(className) {
   return latest < staleBefore;
 }
 
-module.exports = { classLastActivity, isClassStale };
+module.exports = { classLastActivity, isClassStale, recordActivity };

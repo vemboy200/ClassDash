@@ -194,7 +194,7 @@ const SETTINGS = require('./19-settings.js').read();
 //   3. channel: 'chrome' — if neither of those exist.
 // Details, and why this matters at all, are in 20-browser.js.
 const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-browser.js');
-const { isClassStale } = require('./22-class-activity.js');
+const { isClassStale, recordActivity } = require('./22-class-activity.js');
 const BROWSER = SETTINGS.browserPath
   ? { executablePath: path.resolve(__dirname, SETTINGS.browserPath) }
   : ownBrowserInstalled()
@@ -1683,6 +1683,21 @@ if (require.main !== module) return;
       PAGE_FILE,
     );
   }, nonEmptyClasses, withEdpuzzle);
+
+  // EVERY CLASS THAT ACTUALLY TURNED UP HERE WAS JUST SEEN ACTIVE.
+  //
+  // `collected` and `announcements` are collect()'s own return values —
+  // freshly fetched THIS pass, not carried over from memory and not
+  // from a broken/unread source. That's exactly the signal
+  // recordActivity() needs, and the ONLY place it's ever called: a
+  // class that's excluded, or already skipped as stale, never appears
+  // in either array, so its recorded timestamp simply stays frozen at
+  // whatever it truly was — see recordActivity()'s own comment in
+  // 22-class-activity.js for why that matters.
+  recordActivity([...new Set([
+    ...collected.map(x => x.class),
+    ...announcements.map(p => p.class),
+  ])]);
 
   // A SOURCE THAT WASN'T READ BEHAVES LIKE A BROKEN ONE: its assignments
   // are pulled from memory and don't count as new.
