@@ -927,8 +927,8 @@ ${warning}
 ${settingsPanel()}
 ${filtersPanel(allItems, now)}
 ${emptyBanner}
-${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
 ${overdueSection(overdue, now)}
+${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
 ${section(t('ahead'), later, now, freshIds)}
 ${section(t('newMaterials'), newMaterials, now, freshIds, t('materialsCaption'))}
 ${section(t('mutedSection'), deferred, now, freshIds, t('mutedCaption'))}
