@@ -1515,7 +1515,17 @@ function saveSettings() {
         return;
       }
       if (result) result.textContent = WORDS.saved;
-      setTimeout(function () { location.reload(); }, 30000);
+      // 21-notifier-actions.js only runs the slow, browser-launching
+      // quick collection when a setting that actually changes what gets
+      // FETCHED was touched (exclusions, canvas) — see its own comment
+      // on NEEDS_REAL_FETCH. Everything else (treatUndatedAsUrgent,
+      // showEmptyClasses, language, ...) only needed a redraw, which
+      // finishes in well under a second, and previously still made the
+      // page wait out the full 30-second quick-collection margin for
+      // no reason — the exact same "looks like it's doing nothing"
+      // shape as the original bug, just for a different set of settings.
+      var wait = res.mode === 'redraw' ? 1500 : 30000;
+      setTimeout(function () { location.reload(); }, wait);
     });
     return;
   }

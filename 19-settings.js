@@ -240,17 +240,30 @@ function applyBatch(chunk) {
   }
 
   const accepted = [];
+  const changed = [];
   const rejected = [];
   const current = read();
 
   for (const [key, value] of Object.entries(parsed)) {
     const v = validate(key, value);
-    if (v.ok) { current[key] = v.value; accepted.push(key); }
-    else rejected.push(`${key}: ${v.why}`);
+    if (!v.ok) { rejected.push(`${key}: ${v.why}`); continue; }
+    accepted.push(key);
+    // THE PAGE SENDS A FULL SNAPSHOT, NOT A DIFF.
+    //
+    // Every save includes every field on the settings panel, whether
+    // the user touched it or not — so `accepted` alone can't tell
+    // "this was written" apart from "this was already exactly this and
+    // got written again". A caller that needs to know what actually
+    // changed (21-notifier-actions.js decides whether a browser needs
+    // launching based on it) needs THIS instead. Compared as JSON, not
+    // ===, because these can be arrays (exclusions) where two separate
+    // instances with the same contents are never === in JS.
+    if (JSON.stringify(current[key]) !== JSON.stringify(v.value)) changed.push(key);
+    current[key] = v.value;
   }
 
   if (accepted.length) fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
-  return { ok: accepted.length > 0, accepted, rejected };
+  return { ok: accepted.length > 0, accepted, changed, rejected };
 }
 
 module.exports = { read, write, validate, writeExample, applyBatch,

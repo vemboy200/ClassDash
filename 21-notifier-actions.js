@@ -125,9 +125,42 @@ function main(action, arg) {
       }
       logAction(`  applied: ${result.accepted.join(', ')}` +
         (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
-      quickCheck();
-      logAction('  quick collection started');
-      return { ok: true, action, accepted: result.accepted, rejected: result.rejected };
+
+      // NOT EVERY SAVED SETTING NEEDS A REAL FETCH TO TAKE EFFECT.
+      //
+      // Most of what's on the settings panel only changes how ALREADY-
+      // COLLECTED data gets displayed — treatUndatedAsUrgent is a
+      // bucket a redraw already re-sorts existing items into,
+      // showEmptyClasses is a rendering choice about the class list,
+      // language has worked this way since redraw() was first written.
+      // None of that needs Classroom or Canvas read again, so none of
+      // it needs a browser launched — which is also the ONLY reason
+      // saving settings needs the App Management permission at all.
+      //
+      // Only two settings actually change what gets FETCHED: exclusions
+      // (a class has to stop being read, and its old data purged — see
+      // the diffWithPrevious comment on EXCLUDED CLASSES for why that
+      // specifically needs a real pass) and canvas (a different data
+      // source entirely). Only those two get the slow path.
+      // result.changed, NOT result.accepted: the page sends every field
+      // on every save, whether the user touched it or not, so
+      // "exclusions was accepted" is true on essentially every save —
+      // changed is specifically "this value is actually different from
+      // what settings.json already had" (see applyBatch's own comment).
+      const NEEDS_REAL_FETCH = ['exclusions', 'canvas'];
+      const needsFetch = result.changed.some(key => NEEDS_REAL_FETCH.includes(key));
+
+      if (needsFetch) {
+        quickCheck();
+        logAction('  quick collection started (fetch-affecting setting changed)');
+      } else {
+        redraw();
+        logAction('  redrawn only (no fetch-affecting setting changed)');
+      }
+      return {
+        ok: true, action, accepted: result.accepted, rejected: result.rejected,
+        mode: needsFetch ? 'quick' : 'redraw',
+      };
     }
     case 'quiet':
       appendLine(QUIET_FILE, arg);
