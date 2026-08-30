@@ -366,6 +366,8 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             hasValidProjectDir = true
         }
 
+        buildMainMenu()
+
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -443,6 +445,72 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     }
 
     // MARK: - Menu bar
+
+    // THE ACTUAL APPLICATION MENU BAR — THE BOLD APP-NAME MENU AT THE
+    // TOP LEFT, NOT THE STATUS ITEM ON THE RIGHT BELOW.
+    //
+    // This app never had one at all: no NSMenu was ever assigned to
+    // NSApp.mainMenu, since nothing here was ever built from a NIB/
+    // storyboard, which is what normally wires this up for free. The
+    // status item added alongside this is a genuinely separate thing —
+    // a small icon for background access — and doesn't substitute for
+    // the standard menu every real Mac app has (About/Hide/Quit under
+    // its own name, Edit, Window). Built by hand here since there's no
+    // NIB to hold it.
+    func buildMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "About ClassDash",
+                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        let servicesMenu = NSMenu()
+        NSApp.servicesMenu = servicesMenu
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Hide ClassDash", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others",
+                                          action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit ClassDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // Not for documents — there aren't any — just so Cmd-C/Cmd-V/
+        // Cmd-A actually work in the settings panel's text fields.
+        // WKWebView answers these selectors itself; a menu item pointing
+        // at the standard cut:/copy:/paste:/selectAll: is what makes the
+        // shortcut route there at all, regardless of what ends up
+        // handling it in the responder chain.
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        // macOS fills in the actual open-window list here on its own,
+        // once a Window menu exists and is registered below — nothing
+        // here has to maintain that list by hand.
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(NSMenuItem.separator())
+        windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+        NSApp.windowsMenu = windowMenu
+
+        NSApp.mainMenu = mainMenu
+    }
 
     // A STATUS ITEM, SO THE APP IS STILL REACHABLE WITH THE WINDOW CLOSED.
     //
