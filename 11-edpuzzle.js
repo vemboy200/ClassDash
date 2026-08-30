@@ -61,12 +61,13 @@ const CLASSES_FILE = path.join(__dirname, 'edpuzzle-classes.json');
 // class either way, just fetched through a different platform.
 const EXCLUSIONS = require('./19-settings.js').read().exclusions;
 
-// See the comment on skipStaleEdpuzzleClasses in 19-settings.js for why
-// this exists at all. Fixed at 3 months rather than a separate setting:
-// this is a safety net for archived classes Edpuzzle doesn't know are
-// archived, not something that needs fine-tuning.
-const SKIP_STALE = require('./19-settings.js').read().skipStaleEdpuzzleClasses;
-const STALE_MONTHS = 3;
+// See the comment on skipStaleClasses in 19-settings.js for why this
+// exists at all. Edpuzzle gets the easy version: it hands back a real
+// updatedAt per classroom directly, so there's no need for the
+// memory-based classLastActivity() fallback Classroom and Canvas use in
+// 05-playwright-draft.js.
+const { skipStaleClasses: SKIP_STALE, staleMonths: STALE_MONTHS } =
+  require('./19-settings.js').read();
 
 /** The first non-empty value out of several possible field names. */
 function field(obj, ...names) {

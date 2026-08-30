@@ -194,6 +194,7 @@ const SETTINGS = require('./19-settings.js').read();
 //   3. channel: 'chrome' — if neither of those exist.
 // Details, and why this matters at all, are in 20-browser.js.
 const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-browser.js');
+const { isClassStale } = require('./22-class-activity.js');
 const BROWSER = SETTINGS.browserPath
   ? { executablePath: path.resolve(__dirname, SETTINGS.browserPath) }
   : ownBrowserInstalled()
@@ -622,18 +623,23 @@ async function resolveClasses(page) {
   if (!found.length) {
     const previous = classesFromMemory();
     console.log(`Classes: ${previous.length} (from memory, the list page didn't respond)`);
-    return previous.filter(c => !EXCLUSIONS.includes(c.name));
+    return previous.filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
   }
 
   // Remembered BEFORE subtracting exclusions: an exclusion is a decision
   // to "not read this", not "this class doesn't exist". It gets filtered
   // out of the list below — so the class comes back the moment the
-  // exclusion line is removed.
+  // exclusion line is removed. Same reasoning applies to a stale class:
+  // it comes back on its own the moment it has real activity again,
+  // since classLastActivity() only ever looks forward from whatever it
+  // reads in memory.
   fs.writeFileSync(CLASSES_FILE, JSON.stringify(found, null, 2));
 
-  const selected = found.filter(c => !EXCLUSIONS.includes(c.name));
+  const stale = found.filter(c => !EXCLUSIONS.includes(c.name) && isClassStale(c.name));
+  const selected = found.filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
   console.log(`Classes: ${selected.length}` +
-    (EXCLUSIONS.length ? ` (skipping by the exclusion list: ${EXCLUSIONS.join(', ')})` : ''));
+    (EXCLUSIONS.length ? ` (skipping by the exclusion list: ${EXCLUSIONS.join(', ')})` : '') +
+    (stale.length ? ` (skipping stale: ${stale.map(c => c.name).join(', ')})` : ''));
   return selected;
 }
 
@@ -770,7 +776,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // the browser close, and Chrome with a locked profile folder would
   // take down EVERY following run.
   let multiplier = 1;
-  let classes = classesFromMemory().filter(c => !EXCLUSIONS.includes(c.name));
+  let classes = classesFromMemory().filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
   try {
     const probePage = await ctx.newPage();
     await probePage.goto('https://classroom.google.com/', { waitUntil: 'domcontentloaded' })
@@ -1739,6 +1745,22 @@ if (require.main !== module) return;
   // parseDue used for assignment due dates: it knows to pick the closest
   // year in either direction, so January posts don't fly off into the future.
   for (const post of allAnnouncements) {
+    // COMPUTED ONCE, WHEN A POST IS FIRST SEEN — NOT RECOMPUTED EVERY RUN.
+    //
+    // This used to run for every post, every pass, including ones
+    // already in memory from long ago. Harmless for an absolute date
+    // like "Aug 8" (it resolves to the same real day no matter when
+    // it's parsed), but Classroom also writes RELATIVE text for recent
+    // posts — "Yesterday", a bare time like "10:43 AM" — and that text
+    // never changes once stored. Re-parsing "10:43 AM" against a `now`
+    // months later reads as "posted at 10:43 AM today", every single
+    // time: a months-old post captured while it still said a bare time
+    // would sort as freshest on the page forever, and (once this same
+    // sortTime becomes the signal skipStaleClasses reads to judge a
+    // class's last activity) would make that class look permanently
+    // active no matter how long it's actually been quiet.
+    if (post.sortTime !== undefined) continue;
+
     const { at } = parseDue(post.date, now);
 
     // AN IMPORTANT CORRECTION to the general date-parsing rule.

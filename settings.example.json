@@ -14,5 +14,8 @@
   "apiPort": 8734,
   "browserPath": "",
   "treatUndatedAsUrgent": true,
-  "skipStaleEdpuzzleClasses": true
+  "skipStaleClasses": true,
+  "staleMonths": 3,
+  "hideInactiveClasses": false,
+  "showEmptyClasses": false
 }

@@ -85,13 +85,34 @@ const DEFAULTS = {
   // never marked as due soon.
   treatUndatedAsUrgent: true,
 
-  // Edpuzzle has no concept of "archived" the way Google Classroom does:
-  // archiving a course on the Classroom side does nothing to Edpuzzle's
-  // own class list, which keeps reporting it as active indefinitely.
-  // Confirmed live: an actually-archived class's updatedAt sat untouched
-  // for 11+ months while a real one updated same-day. When this is on,
-  // 11-edpuzzle.js skips any classroom that hasn't updated in 3 months.
-  skipStaleEdpuzzleClasses: true,
+  // A class with no announcement and no assignment/material in
+  // staleMonths, across ANY platform, gets treated as stale and skipped
+  // going forward — the same idea Edpuzzle's own updatedAt check
+  // started as (archiving a course on Classroom's side does nothing to
+  // Edpuzzle's own class list, which keeps reporting it active
+  // indefinitely — confirmed live, an actually-archived class's
+  // updatedAt sat untouched for 11+ months while a real one updated
+  // same-day), generalized: Classroom and Canvas classes go quiet for
+  // the same real-world reason (the class ended, or was never really
+  // active), they just don't have Edpuzzle's own native updatedAt field
+  // to check, so staleness there is judged from this project's own
+  // memory of what it's ever seen for that class instead — see
+  // classLastActivity() in 05-playwright-draft.js.
+  skipStaleClasses: true,
+
+  // How long a class can go quiet before skipStaleClasses treats it as
+  // stale. 1–12 months; the settings panel's slider enforces that range,
+  // this default (3) matches what was previously hardcoded.
+  staleMonths: 3,
+
+  // Off by default: a class this project has NEVER recorded a single
+  // announcement or assignment/material for (not "quiet for a while" —
+  // genuinely nothing, ever) still gets listed by showEmptyClasses,
+  // which can't tell "always been empty" apart from "quiet for now".
+  // This is purely about what showEmptyClasses's fill-in shows — it
+  // doesn't skip fetching the class the way skipStaleClasses does,
+  // since a class with zero history yet might just be brand new.
+  hideInactiveClasses: false,
 
   // Off by default: the class filter only ever lists classes that
   // currently have something due, overdue, or removed — a class with
@@ -104,8 +125,9 @@ const DEFAULTS = {
 const TYPES = {
   email: 'string', canvas: 'string', language: 'language',
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
-  treatUndatedAsUrgent: 'boolean', skipStaleEdpuzzleClasses: 'boolean',
-  showEmptyClasses: 'boolean',
+  treatUndatedAsUrgent: 'boolean', skipStaleClasses: 'boolean',
+  showEmptyClasses: 'boolean', hideInactiveClasses: 'boolean',
+  staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
@@ -135,6 +157,16 @@ function validate(key, raw) {
   if (!(key in DEFAULTS)) return { ok: false, why: `no such setting: ${key}` };
   const kind = TYPES[key];
 
+  if (kind === 'staleMonths') {
+    // A whole number of months, 1–12 — matching the settings panel's
+    // own slider exactly, so nothing outside what the UI can even
+    // produce gets silently accepted from some other caller.
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n) || n < 1 || n > 12) {
+      return { ok: false, why: 'needs to be a whole number of months, 1 to 12' };
+    }
+    return { ok: true, value: n };
+  }
   if (kind === 'number') {
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) return { ok: false, why: 'needs to be a number' };

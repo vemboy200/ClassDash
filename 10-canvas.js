@@ -32,6 +32,7 @@ const path = require('path');
 
 // The school's Canvas address comes from settings: every school has its own.
 const SITE = require('./19-settings.js').read().canvas;
+const { isClassStale } = require('./22-class-activity.js');
 
 // The last successfully read list of active courses. Written here, not
 // just returned, so the settings page can list every known Canvas course
@@ -172,9 +173,22 @@ async function collectCanvasOnce(page) {
     return end !== null && end < now;
   };
 
-  const active = all.filter(c => c.workflow_state === 'available' && !hasEnded(c));
+  const availableNow = all.filter(c => c.workflow_state === 'available' && !hasEnded(c));
+
+  // isClassStale() reads THIS PROJECT'S OWN memory (the most recent
+  // assignment/announcement it's ever recorded for the class) rather
+  // than anything Canvas hands back directly — Canvas has no per-course
+  // "last activity" of its own to check the way Edpuzzle's updatedAt
+  // does. See 22-class-activity.js for the full reasoning, shared with
+  // Classroom's own resolveClasses().
+  const stale = availableNow.filter(c => isClassStale(c.name)).map(c => c.name);
+  const active = availableNow.filter(c => !isClassStale(c.name));
   const lastYear = all.filter(c => c.workflow_state === 'available' && hasEnded(c))
     .map(c => c.name);
+
+  if (stale.length) {
+    console.log(`  Canvas: skipping stale courses: ${stale.join(', ')}`);
+  }
 
   // Unpublished courses. There are plenty: the school sets up the whole
   // school year at once, and teachers often never open them, working
@@ -223,7 +237,13 @@ async function collectCanvasOnce(page) {
 
   const courses = active.map(c => c.name);
   try {
-    fs.writeFileSync(CLASSES_FILE, JSON.stringify(courses.map(name => ({ name })), null, 2));
+    // availableNow, NOT active/courses: remembered before subtracting
+    // staleness, same reasoning as Classroom's own CLASSES_FILE write —
+    // a stale course is a decision to stop reading it, not proof it
+    // doesn't exist, and it needs to keep showing up in the exclusions
+    // picker so it's still something a person can see and act on.
+    fs.writeFileSync(CLASSES_FILE,
+      JSON.stringify(availableNow.map(c => ({ name: c.name })), null, 2));
   } catch { /* couldn't write it — the exclusions/filter UI just won't list Canvas courses this time */ }
 
   return { items, courses, pending };
