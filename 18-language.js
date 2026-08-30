@@ -120,6 +120,20 @@ const DICTIONARIES = {
     settingsTreatUndatedHint: 'выключи, чтобы такие задания просто показывались один раз, как материалы',
     settingsShowEmpty: 'Показывать классы без заданий',
     settingsShowEmptyHint: 'иначе класс, где сейчас ничего не горит, просто пропадает из списка',
+    settingsHideInactive: 'Скрывать классы без истории',
+    settingsHideInactiveHint: 'класс, где никогда не было ни заданий, ни объявлений — не «сейчас тихо», а вообще ничего не было',
+    settingsSkipStale: 'Пропускать неактивные классы',
+    settingsSkipStaleHint: 'класс без заданий и объявлений дольше срока ниже — считается закрытым и больше не проверяется',
+    settingsStaleMonths: 'Срок неактивности',
+    settingsStaleMonthsHint: 'сколько классу можно молчать, прежде чем его пометят неактивным',
+    // "мес." — an abbreviation, not "месяц/месяца/месяцев" — sidesteps
+    // Russian's three plural forms entirely, same trick lateByDays
+    // already uses below with "дн." instead of "день/дня/дней". Plain
+    // strings, not a function like lateByDays: this exact label also
+    // has to be built client-side, live, as the slider moves — see
+    // WORDS.monthWord/monthsWord in 08-page.js.
+    monthWord: 'мес.',
+    monthsWord: 'мес.',
 
     // States
     emptyState: 'Ничего не горит и ничего нового. Можно выдохнуть.',
@@ -234,6 +248,14 @@ const DICTIONARIES = {
     settingsTreatUndatedHint: 'turn off to show these once instead, like materials',
     settingsShowEmpty: 'Show classes with nothing due',
     settingsShowEmptyHint: 'otherwise a class with nothing going on right now just disappears from the list',
+    settingsHideInactive: 'Hide classes with no history',
+    settingsHideInactiveHint: "a class with no assignment and no announcement ever — not just quiet right now, genuinely nothing recorded",
+    settingsSkipStale: 'Skip inactive classes',
+    settingsSkipStaleHint: "a class with no assignment or announcement longer than the setting below is treated as done, and stops being checked",
+    settingsStaleMonths: 'How long counts as inactive',
+    settingsStaleMonthsHint: 'how long a class can go quiet before it gets marked inactive',
+    monthWord: 'month',
+    monthsWord: 'months',
 
     emptyState: 'Nothing due and nothing new. You can relax.',
     stillReading: 'Still reading:',

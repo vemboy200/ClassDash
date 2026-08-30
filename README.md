@@ -119,7 +119,9 @@ Settings live in `settings.json`:
 | `passLimitMs` | a pass longer than this is treated as hung and killed, ms |
 | `browserPath` | advanced override for which browser binary to automate; leave empty (see `setup-browser` above) |
 | `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
-| `skipStaleEdpuzzleClasses` | `true` (default) skips any Edpuzzle class that hasn't updated in 3 months — Edpuzzle has no concept of "archived" the way Classroom does, so an archived Classroom course can keep showing up on the Edpuzzle side indefinitely otherwise |
+| `skipStaleClasses` | `true` (default) — a class with no assignment or announcement in `staleMonths` gets treated as done and stops being checked, on Classroom and Canvas as well as Edpuzzle. Edpuzzle has a real `updatedAt` per class to check directly; Classroom and Canvas don't, so staleness there is judged from this project's own memory of what it's ever seen for that class instead (see `22-class-activity.js`) |
+| `staleMonths` | `3` (default), 1–12 — how long a class can go quiet before `skipStaleClasses` treats it as stale. Has its own slider in the settings panel |
+| `hideInactiveClasses` | `false` (default) — a class this project has **never once** recorded an assignment or announcement for still gets listed by `showEmptyClasses` as just another empty one; this hides those specifically, leaving classes that are merely quiet for now still listed. Display only — doesn't change what gets fetched, unlike `skipStaleClasses` |
 | `showEmptyClasses` | `false` (default) — the class filter only lists classes with something currently due/overdue/removed; `true` always lists every known class (Classroom, Canvas, Edpuzzle) with a 0 next to the empty ones instead of them disappearing |
 
 Settings can also be edited from the summary page itself — the gear button next
@@ -241,6 +243,7 @@ your teachers' posts to anything on the network, with no password.
 | `19-settings.js` | settings: read, write, validate |
 | `20-browser.js` | downloads and installs the project's own isolated Brave |
 | `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly, not a separate app |
+| `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
 | `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 
 The code comments are fairly heavy. Those comments are not decoration: nearly

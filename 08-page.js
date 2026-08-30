@@ -416,6 +416,25 @@ ${exclusionsField(s.exclusions)}
         <input type="checkbox" class="toggle" data-bool-key="showEmptyClasses"${s.showEmptyClasses ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsShowEmptyHint'))}</span>
       </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsHideInactive'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="hideInactiveClasses"${s.hideInactiveClasses ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsHideInactiveHint'))}</span>
+      </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsSkipStale'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="skipStaleClasses"${s.skipStaleClasses ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsSkipStaleHint'))}</span>
+      </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsStaleMonths'))}</span>
+        <span class="field-with-value">
+          <input type="range" data-key="staleMonths" min="1" max="12" step="1"
+                 value="${s.staleMonths}" oninput="updateStaleMonthsLabel(this)">
+          <span class="slider-value">${s.staleMonths} ${escapeHtml(s.staleMonths == 1 ? t('monthWord') : t('monthsWord'))}</span>
+        </span>
+        <span class="field-hint">${escapeHtml(t('settingsStaleMonthsHint'))}</span>
+      </label>
       <div class="settings-actions">
         <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
         <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
@@ -431,7 +450,7 @@ ${exclusionsField(s.exclusions)}
  * page, not from a list known ahead of time: classes now come from the
  * site itself, and a hardcoded list would go stale by September.
  */
-function filtersPanel(allItems, now) {
+function filtersPanel(allItems, announcements, now) {
   // Counts how many cards each checkbox would match. The number next to
   // it immediately shows whether there's anything there — like the Steam
   // library the user referenced.
@@ -493,11 +512,30 @@ ${content.join('\n')}
   // exclusionsField() below still list them as checkboxes, so they can
   // be turned back on), so this needs its own check rather than relying
   // on that list being pre-filtered.
-  if (readSettings().showEmptyClasses) {
+  const filterSettings = readSettings();
+  if (filterSettings.showEmptyClasses) {
     const present = new Set(classCounts.map(([name]) => name));
-    const excluded = new Set(readSettings().exclusions);
+    const excluded = new Set(filterSettings.exclusions);
+
+    // HIDEINACTIVECLASSES IS A NARROWER CUT OF THE SAME LIST.
+    //
+    // showEmptyClasses can't tell "quiet right now" apart from "this
+    // project has never once recorded anything for this class" — both
+    // look like a bare 0. everHadClasswork/everHadAnnouncement answer
+    // that from data already on hand: allItems already includes
+    // everything ever collected for a class, removed items included
+    // (see the comment where allItems itself is built), and
+    // announcements is the same full historical merge, not just this
+    // pass's new ones. A class in neither set has no history at all,
+    // as opposed to one that simply has nothing due RIGHT NOW.
+    const hideInactive = filterSettings.hideInactiveClasses;
+    const everHadClasswork = hideInactive ? new Set(allItems.map(x => x.class)) : null;
+    const everHadAnnouncement = hideInactive ? new Set(announcements.map(p => p.class)) : null;
+
     for (const name of allKnownClasses()) {
-      if (!present.has(name) && !excluded.has(name)) classCounts.push([name, 0]);
+      if (present.has(name) || excluded.has(name)) continue;
+      if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
+      classCounts.push([name, 0]);
     }
     classCounts = classCounts.sort((a, b) => a[0].localeCompare(b[0], 'ru'));
   }
@@ -836,6 +874,11 @@ function writePage(data, outputPath) {
      field's own show/hide toggle. */
   .field-with-toggle { position: relative; }
   .field-with-toggle input { padding-right: 30px; }
+  .field-with-value { display: flex; align-items: center; gap: 10px; }
+  .field-with-value input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--new); }
+  .field-with-value .slider-value {
+    flex: 0 0 auto; color: var(--dim); font-size: 12px; min-width: 52px;
+  }
   .reveal-btn {
     position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
     background: none; border: none; cursor: pointer; font-size: 14px;
@@ -925,7 +968,7 @@ ${warning}
   <div class="columns">
   <div>
 ${settingsPanel()}
-${filtersPanel(allItems, now)}
+${filtersPanel(allItems, announcements, now)}
 ${emptyBanner}
 ${overdueSection(overdue, now)}
 ${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
@@ -1001,6 +1044,8 @@ const WORDS = ${JSON.stringify({
   saveFailed: t('settingsSaveFailed'),
   saved: t('settingsSaved'),
   restored: t('restoredBadge'),
+  monthWord: t('monthWord'),
+  monthsWord: t('monthsWord'),
 })};
 
 // ── Reaching outside the page ──
@@ -1448,6 +1493,18 @@ function toggleReveal(button) {
   var input = button.previousElementSibling;
   if (!input) return;
   input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// Live label for the "how long counts as inactive" slider, as it's
+// dragged. WORDS.monthWord/monthsWord are set to the same "мес." for
+// both singular and plural in Russian on purpose (see the comment on
+// them in 18-language.js) — this stays a plain singular/plural check
+// either way, it just happens to pick the identical string in Russian.
+function updateStaleMonthsLabel(slider) {
+  var label = slider.nextElementSibling;
+  if (!label) return;
+  var n = slider.value;
+  label.textContent = n + ' ' + (n == 1 ? WORDS.monthWord : WORDS.monthsWord);
 }
 
 // Text -> base64url. Not encryption: just a way to carry an email address
