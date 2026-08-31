@@ -187,9 +187,10 @@ full check) works fine on its own.
 
 ## Home API
 
-Turning on **Enable home API** in settings starts a small, read-only
-HTTPS server on your own computer — useful if you want the data
-somewhere else, like a Home Assistant dashboard. The panel shows an
+Turning on **Enable home API** in settings starts a small HTTPS server
+on your own computer — useful if you want the data somewhere else, like
+a Home Assistant dashboard, or want to hide an assignment or trigger a
+check from somewhere other than this window. The panel shows an
 **Allow LAN access** toggle (on by default — see below), an
 **access key** (masked, with Copy and Roll buttons — Roll generates a
 brand new one and immediately cuts off the old one, for if a key ever
@@ -205,6 +206,16 @@ point at it. The actual protection is the encryption and the access
 key, not which network interface it's listening on — turn off
 **Allow LAN access** if you'd rather it only ever answer this same
 computer.
+
+Most of it is read-only — the same data this window shows. A few
+handles change something instead: hiding or un-hiding an assignment,
+marking one not urgent and back, changing a display setting, or
+starting a check (a quick one or a full one). Every one of those needs
+`POST` instead of a plain request, and does exactly what the matching
+button on this page does — nothing a client with the access key
+couldn't already do by hand from here. The full list of handles, and
+what to send each one, is in
+[CONTRIBUTING.md](CONTRIBUTING.md#home-api--technical-detail).
 
 ---
 

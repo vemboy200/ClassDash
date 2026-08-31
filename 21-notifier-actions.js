@@ -291,6 +291,16 @@ function main(action, arg) {
     case 'check':
       fullCheck();
       return { ok: true, action };
+    // The quick pass (Classroom + Canvas, ~17s, no Edpuzzle window) —
+    // 'config' above already starts one internally when a fetch-
+    // affecting setting changes, but wasn't reachable as its own
+    // action. Added for the home API's /api/reload, which needs the
+    // same "lighter than a full check" option 'check' already gives it
+    // for a real full one. Same "started, not finished" contract as
+    // 'check': this returns immediately, the pass runs detached.
+    case 'reload':
+      quickCheck();
+      return { ok: true, action };
     case 'rollApiToken':
       // No restart needed: 17-api.js's isAuthorized() reads the token
       // file fresh on every single request rather than caching it at

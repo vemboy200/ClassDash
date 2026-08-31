@@ -9,11 +9,19 @@
  * read them. The API opens them up for ANYTHING: a phone, a watch, a
  * second computer, someone else's program, a smart home setup.
  *
- * No collecting happens here. The server only reads files the main script
+ * No collecting happens IN THIS FILE. It only reads files the main script
  * already collected, and sorts them with the same `sortIntoBuckets()`
  * function the summary page uses. The logic is deliberately not
  * duplicated: it would drift apart on the first edit, and "due soon" is
  * the single most important word in the whole thing.
+ *
+ * It's not read-only overall, though — HANDLERS above are, but
+ * WRITE_HANDLERS below can hide/unhide an assignment, mark one not
+ * urgent and back, change a display setting, or start a collection pass
+ * (quick or full). Every one of those calls straight into
+ * 21-notifier-actions.js's main() — the exact same dispatcher
+ * 16-summary.swift's own bridge calls for a click on the actual page, not
+ * a second implementation that could drift from it.
  *
  * ── Running it ──
  *
@@ -38,7 +46,10 @@
  * The --network flag lifts that restriction, and then homework, teacher
  * announcements, and email-bearing links become reachable — encrypted and
  * token-gated, but reachable — by any device on the network, including a
- * school wifi if the laptop ever ends up there.
+ * school wifi if the laptop ever ends up there. That now includes
+ * WRITE_HANDLERS below too: anyone with the token can hide an
+ * assignment, change a display setting, or start a check — the same
+ * things the token already lets them read out.
  *
  * That's why localhost is the default and not the other way around:
  * opening it wider should be a deliberate choice, and accidentally
@@ -67,6 +78,12 @@ const {
   ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized,
   writePid, clearPid,
 } = require('./23-api-security.js');
+// The exact same dispatcher 16-summary.swift's bridge calls for a click
+// on the page itself — hiding an assignment from here and hiding it from
+// the actual window run through identical code, not two implementations
+// that could drift. See the WRITE_HANDLERS comment below for the one
+// case (apiEnabled/apiNetwork) that's deliberately NOT reachable this way.
+const notifierActions = require('./21-notifier-actions.js');
 
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
@@ -171,13 +188,135 @@ const HANDLERS = {
   '/api/classes': () => readJson(CLASSES_FILE),
 };
 
+/** Reads and parses a POST body as JSON. Capped well above anything a
+ *  real write handle here needs (an id, a settings object) — a client
+ *  that's careless or hostile shouldn't be able to hold a connection
+ *  open streaming megabytes at a handle that only ever reads a few
+ *  hundred bytes. An empty body resolves to {}: /api/reload and
+ *  /api/check don't need one at all. */
+function readJsonBody(req, maxBytes = 65536) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (!chunks.length) return resolve({});
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch (e) {
+        reject(new Error('invalid JSON body: ' + e.message));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/** Turns a plain settings object into the same base64url-encoded-JSON
+ *  shape 08-page.js's own toBase64Url() builds client-side for the
+ *  settings panel's save button. applyBatch() (19-settings.js) only
+ *  understands that one shape — reusing it here, rather than writing a
+ *  second whitelist/validation path just for the API, means the two
+ *  can't quietly drift apart the next time either one changes. */
+function toConfigChunk(obj) {
+  return Buffer.from(JSON.stringify(obj), 'utf8').toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+/**
+ * Write handles. Everything in HANDLERS above only reads; every one of
+ * these changes something, and every one of them is the exact same code
+ * a click on the actual page runs — see notifierActions above.
+ *
+ * POST only, enforced in start() below: a GET that changes something is
+ * the kind of thing that fires by accident (a browser prefetch, a link
+ * preview, a stray bookmark), so none of these are reachable that way.
+ *
+ * /api/hide and /api/unhide both encodeURIComponent the id before
+ * handing it to 'hide'/'unhide' — matches what 08-page.js's own hide
+ * link does before that same id reaches скрытые.txt, so an id hidden
+ * from here and one hidden from the actual window end up stored
+ * identically. /api/mute and /api/unmute deliberately DON'T encode —
+ * the page's own "not urgent" link doesn't either (see 08-page.js), so
+ * this matches THAT convention instead.
+ */
+const WRITE_HANDLERS = {
+  '/api/hide': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('hide', encodeURIComponent(body.id)) };
+  },
+  '/api/unhide': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('unhide', encodeURIComponent(body.id)) };
+  },
+  '/api/mute': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('quiet', body.id) };
+  },
+  '/api/unmute': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('unquiet', body.id) };
+  },
+  '/api/settings': (body) => {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return { status: 400, body: { error: 'expected a JSON object of settings' } };
+    }
+    // NOT reachable through here, on purpose. Changing apiEnabled or
+    // apiNetwork stops and restarts THIS SAME PROCESS — safe from the
+    // settings panel, where a separate, short-lived CLI process does
+    // the stopping while the long-running app just redraws once it's
+    // back. Unsafe from inside this server's own request handler: it
+    // would be asked to signal itself mid-response. Traced through
+    // stopApiServer()'s wait loop to confirm — it polls its OWN pid
+    // with process.kill(pid, 0), which trivially keeps succeeding
+    // because the process answering that check is the same one still
+    // synchronously running this very request, so it can never observe
+    // itself as gone. It stalls out the full 2-second deadline and then
+    // SIGKILLs itself, before this response could ever go out.
+    if ('apiEnabled' in body || 'apiNetwork' in body) {
+      return {
+        status: 400,
+        body: { error: 'apiEnabled and apiNetwork can\'t be changed through the API — use the settings panel in the app' },
+      };
+    }
+    const result = notifierActions.main('config', toConfigChunk(body));
+    return { status: result.ok ? 200 : 400, body: result };
+  },
+  // Same two-tier fetch the app itself offers: reload is the quick pass
+  // (Classroom + Canvas, ~17s), check is the full one (~1 minute,
+  // Edpuzzle included). Both just START the pass and answer right away
+  // — neither waits for it to finish. /api/status's collectedAt and
+  // minutesAgo are how a client finds out when it actually has.
+  '/api/reload': () => ({ status: 200, body: notifierActions.main('reload', '') }),
+  '/api/check': () => ({ status: 200, body: notifierActions.main('check', '') }),
+};
+
 /** Root: a list of handles, so no one has to dig through the source for addresses. */
 function index() {
   return {
     what: 'School digest home API',
     handles: [...Object.keys(HANDLERS), '/api/stream'],
-    note: 'Read-only. Collection runs separately, every 10 minutes. ' +
-      'Every request needs "Authorization: Bearer <token>" — see api-token.txt.',
+    writes: Object.keys(WRITE_HANDLERS),
+    note: 'The handles above are read-only. Everything under "writes" ' +
+      'changes something and needs POST with a JSON body and ' +
+      '"Content-Type: application/json" — see CONTRIBUTING.md. Every ' +
+      'request, either way, needs "Authorization: Bearer <token>" — ' +
+      'see api-token.txt.',
   };
 }
 
@@ -259,6 +398,39 @@ function watchForChanges() {
   }
 }
 
+// ── Heartbeat, separate from broadcastIfChanged() above ──
+//
+// broadcastIfChanged() only pushes when something actually differs — on
+// purpose, so the common case (checked, found nothing new) doesn't push
+// every ten minutes. Correct for the data itself, but it leaves a
+// push-only client (see CONTRIBUTING.md's Home API section — that's the
+// whole design of the Home Assistant integration this was built for) no
+// way to tell "still checking, genuinely nothing new" apart from
+// "stopped running an hour ago". Both look identical to a client that
+// only ever hears about real changes.
+//
+// A heartbeat closes that gap without giving push-only up. Its own
+// event name, its own timer, sent regardless of whether a collection
+// pass changed anything — a client tells it apart from a real update by
+// the SSE event name alone (`event: heartbeat` vs `event: update`), and
+// treats it as a freshness signal, not new data. Carries only
+// /api/status — the counts and timestamps, not a repeat of everything
+// the real update event already sends.
+const HEARTBEAT_INTERVAL_MS = 60000; // 1 minute
+
+function sendHeartbeat() {
+  if (!sseClients.length) return; // no one listening — nothing to compute
+  let status;
+  try {
+    status = HANDLERS['/api/status'](gather());
+  } catch (e) {
+    console.error('heartbeat: could not gather status, skipping this one:', e.message);
+    return;
+  }
+  const payload = JSON.stringify(status);
+  for (const res of sseClients) res.write(`event: heartbeat\ndata: ${payload}\n\n`);
+}
+
 function start() {
   const args = process.argv;
   const onNetwork = args.includes('--network');
@@ -304,11 +476,47 @@ function start() {
       res.writeHead(status).end(JSON.stringify(body, null, 2));
     };
 
+    // A browser's own CORS preflight for a POST write handle — answered
+    // BEFORE the token check, not after. A preflight OPTIONS deliberately
+    // never carries the Authorization header (that's the whole point of
+    // it — the browser is asking permission before it sends anything real),
+    // so checking it here would fail every single preflight and the real
+    // POST behind it would never even get sent.
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.writeHead(204).end();
+      return;
+    }
+
     // EVERY route needs the token, root included — this API only exists
-    // to read out personal data (school, teachers, assignment text), so
-    // there's no handle worth leaving open just for discoverability.
+    // to read out (and now write) personal data, so there's no handle
+    // worth leaving open just for discoverability.
     if (!isAuthorized(req)) {
       return respond(401, { error: 'missing or wrong bearer token' });
+    }
+
+    const writeHandler = WRITE_HANDLERS[urlPath];
+    if (writeHandler) {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return respond(405, { error: 'this handle changes something — POST only' });
+      }
+      readJsonBody(req)
+        .then((body) => {
+          const result = writeHandler(body);
+          respond(result.status, result.body);
+        })
+        .catch((e) => respond(400, { error: e.message }));
+      return;
+    }
+
+    // Everything past here only reads — reject anything but GET the same
+    // way the write handles above reject anything but POST, rather than
+    // silently treating a POST to a read handle as if it meant something.
+    if (req.method !== 'GET') {
+      res.setHeader('Allow', 'GET');
+      return respond(405, { error: 'this handle only reads — GET only' });
     }
 
     if (urlPath === '/') return respond(200, index());
@@ -330,7 +538,11 @@ function start() {
 
     const handler = HANDLERS[urlPath];
     if (!handler) {
-      return respond(404, { error: 'no such handle', handles: Object.keys(HANDLERS) });
+      return respond(404, {
+        error: 'no such handle',
+        handles: Object.keys(HANDLERS),
+        writes: Object.keys(WRITE_HANDLERS),
+      });
     }
 
     try {
@@ -377,7 +589,11 @@ function start() {
       console.log('This computer only. For the home network: --network');
     }
     console.log(`Handles: ${Object.keys(HANDLERS).join(' ')} /api/stream`);
+    console.log(`Writes (POST): ${Object.keys(WRITE_HANDLERS).join(' ')}`);
     watchForChanges();
+    // .unref() — this timer alone shouldn't be what keeps the process
+    // alive; the HTTPS server already does that on its own.
+    setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
   });
 
   // The settings-panel toggle stops this process with SIGTERM (see
@@ -391,5 +607,5 @@ function start() {
   }
 }
 
-module.exports = { HANDLERS, gather, toPublic, snapshot };
+module.exports = { HANDLERS, WRITE_HANDLERS, gather, toPublic, snapshot };
 if (require.main === module) start();

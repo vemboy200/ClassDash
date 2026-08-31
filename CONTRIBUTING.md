@@ -152,17 +152,62 @@ integration, a script, a phone shortcut).
   `crypto.timingSafeEqual`. The token is read fresh from disk on every
   request, not cached, so rolling it from the settings panel takes effect
   on the very next request with no server restart.
-- **REST:** `/api/status` `/api/due-soon` `/api/ahead` `/api/overdue`
-  `/api/assignments` `/api/announcements` `/api/removed` `/api/classes`.
-- **Push:** `/api/stream` — Server-Sent Events, not WebSocket, since the
-  API is one-directional/read-only. Sends `event: update\ndata: <json>\n\n`
-  immediately on connect (every REST handle's output bundled into one
-  object, keyed by name with `/api/` stripped), then again only when a
-  collection pass actually changes something — detected by watching
-  `last-collection.json`/`messages.json` and comparing snapshots with
-  `status.collectedAt`/`minutesAgo` zeroed out specifically, since those
-  drift on their own every single collection pass even when nothing real
-  changed.
+- **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
+  `/api/overdue` `/api/assignments` `/api/announcements` `/api/removed`
+  `/api/classes`.
+- **Push:** `/api/stream` — Server-Sent Events, not WebSocket, since
+  push here only ever needs to go server → client. Two event names on
+  the same connection:
+  - `event: update` — sent immediately on connect (every REST handle's
+    output bundled into one object, keyed by name with `/api/`
+    stripped), then again only when a collection pass actually changes
+    something — detected by watching
+    `last-collection.json`/`messages.json` and comparing snapshots with
+    `status.collectedAt`/`minutesAgo` zeroed out specifically, since
+    those drift on their own every single collection pass even when
+    nothing real changed. A client should treat this as real new data.
+  - `event: heartbeat` — sent on a fixed 1-minute timer regardless of
+    whether anything changed, payload is just `/api/status` (not a full
+    snapshot). Exists because a push-only client — this was built for
+    exactly one, the [ha-classdash](https://github.com/vemboy200/ha-classdash)
+    Home Assistant integration, which deliberately stayed `local_push`
+    with no periodic REST fallback — has no way to tell "checked,
+    genuinely nothing new" apart from "stopped running an hour ago"
+    without it: both look identical to a client that only ever hears
+    about real changes. A client should treat this as a freshness
+    signal only, distinguished purely by the SSE event name — never
+    merge it in as if it were new assignment/announcement data.
+- **Writes (POST):** `/api/hide` `/api/unhide` `/api/mute` `/api/unmute`
+  — body `{"id": "..."}`, the same id `/api/due-soon` etc. hand out.
+  `/api/settings` — body is any subset of the settings table below (a
+  partial update, not a full snapshot); `apiEnabled` and `apiNetwork` are
+  refused with a 400 specifically (see below). `/api/reload` and
+  `/api/check` take no body — `reload` is the quick pass (Classroom +
+  Canvas, ~17s), `check` is the full one (~1 min, Edpuzzle included).
+  Both only START the pass and answer right away; `/api/status`'s
+  `collectedAt`/`minutesAgo` is how a client finds out when it's
+  actually done. Every one of these calls straight into
+  `21-notifier-actions.js`'s `main()` — the exact same function
+  `16-summary.swift`'s bridge calls for a click on the actual page, so
+  there's one implementation of "what hiding an assignment does," not
+  two that could drift apart. A non-`POST` request to any of these gets
+  405; a `GET`-only handle gets 405 back for anything but `GET`, the
+  same way. `OPTIONS` is answered before the token check (with CORS
+  headers, no auth) so a browser's own preflight for a `POST` succeeds —
+  a preflight deliberately never carries `Authorization`.
+- **Why `apiEnabled`/`apiNetwork` are refused through `/api/settings`:**
+  changing either one stops and restarts the API process itself. From
+  the settings panel that's safe — a separate, short-lived CLI process
+  (`node 21-notifier-actions.js config ...`) does the stopping while the
+  long-running server just gets replaced. From inside the *server's own*
+  request handler it isn't: it would be asked to signal itself mid-
+  response. Traced through `stopApiServer()`'s wait loop to confirm —
+  it polls its own pid with `process.kill(pid, 0)`, which trivially
+  keeps succeeding because the process doing the checking is the same
+  one still synchronously running this very request, so it can never
+  observe itself as gone. It stalls out the full 2-second deadline and
+  then `SIGKILL`s itself, before a response could ever go out. Refusing
+  the two keys up front avoids that outright rather than working around it.
 - Cert/token generation, the pid file, and the auth check itself live in
   `23-api-security.js`, shared between `17-api.js` and
   `21-notifier-actions.js` — the latter needs the exact same logic to
