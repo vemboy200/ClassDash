@@ -1,5 +1,4 @@
-# ClassDash
-
+<img width="1920" alt="classdashlogo" src="https://github.com/user-attachments/assets/c8efe024-41ef-43de-9389-30289d888905" />
 One page with everything due, collected automatically from Google Classroom,
 Canvas and Edpuzzle. Checks itself on a schedule, costs nothing to run, and
 stays quiet unless something actually changed.
