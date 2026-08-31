@@ -21,6 +21,17 @@ const path = require('path');
 // comment on why it exists separately from 17-api.js.
 const { currentToken, certFingerprint, isServerRunning } = require('./23-api-security.js');
 
+// Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
+// characters — nothing in Unicode reads as "thorough sync" the way this
+// needs to, so this one's a real small image instead: a render of the
+// SF Symbol arrow.trianglehead.2.clockwise.rotate.90, exported once via
+// a throwaway AppKit script (NSImage(systemSymbolName:) + a template
+// render), committed as freshcheck-icon.png next to AppIcon.icns. Read
+// once at module load, not per page render — it's a static asset, not
+// something that changes between redraws.
+const FRESHCHECK_ICON_B64 =
+  fs.readFileSync(path.join(__dirname, 'freshcheck-icon.png')).toString('base64');
+
 // Substituted when an assignment has no platform of its own — that's how
 // Classroom assignments arrive. Canvas and Edpuzzle have their own field.
 const DEFAULT_PLATFORM = 'Google Classroom';
@@ -491,6 +502,9 @@ ${exclusionsField(s.exclusions)}
           <span class="field-hint">${escapeHtml(t('settingsApiFingerprintHint'))}</span>
         </label>
       </div>` },
+    { id: 'fetching', label: t('settingsSectionFetching'), body: `
+${field('freshCheckAwakeMinutes', t('settingsFreshCheckAwake'), String(s.freshCheckAwakeMinutes), t('settingsFreshCheckAwakeHint'))}
+${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.freshCheckAsleepMinutes), t('settingsFreshCheckAsleepHint'))}` },
     { id: 'advanced', label: t('settingsAdvanced'), body: `
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
@@ -768,23 +782,54 @@ function writePage(data, outputPath) {
   header { margin-bottom: 24px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   .when { color: var(--dim); font-size: 13px; }
-  /* Reload button — like a browser's, but on the page itself: the digest
-     window has no browser chrome at all. Just rereads the file, doesn't
-     trigger a check (that's what "Check now" is for). */
+  /* Reload/fresh-check/settings buttons — like a browser's, but on the
+     page itself: the digest window has no browser chrome at all.
+     Refresh just rereads the file; Fresh check triggers a real
+     collection pass (see the two separate click handlers below) —
+     used to be one button (click vs. hold), split into two so each one
+     can say what it actually does instead of relying on a tooltip. */
   .reload {
     width: 26px; height: 26px; padding: 0; margin-left: 8px;
     vertical-align: middle; cursor: pointer;
     border: 1px solid var(--line); border-radius: 7px;
     background: var(--card); color: var(--dim);
     font-size: 15px; line-height: 1;
-    transition: transform .3s ease, color .15s, border-color .15s;
+    transition: color .15s, border-color .15s;
+  }
+  /* .named — Refresh and Fresh check specifically: icon plus a visible
+     label, not just an icon with a tooltip. Auto width instead of the
+     plain icon button's fixed 26px square. */
+  .reload.named {
+    width: auto; height: auto; padding: 5px 10px; gap: 6px;
+    display: inline-flex; align-items: center;
+    font-size: 12px; font-family: inherit;
+  }
+  .reload-icon { font-size: 14px; display: inline-block; }
+  /* Fresh check's icon isn't a text character — it's a CSS mask driven
+     by a real (tiny) image, so it can still inherit color exactly like
+     the text glyphs do: dim by default, blue on hover, blue while
+     spinning, dark or light mode, all for free from currentColor. A
+     plain img element couldn't do that without a separate asset per
+     color/theme/state. */
+  .freshcheck-icon {
+    width: 14px; height: 14px; vertical-align: -2px;
+    background-color: currentColor;
+    -webkit-mask-image: url("data:image/png;base64,${FRESHCHECK_ICON_B64}");
+    -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-image: url("data:image/png;base64,${FRESHCHECK_ICON_B64}");
+    mask-size: contain; mask-repeat: no-repeat; mask-position: center;
   }
   .reload:hover { color: var(--new); border-color: var(--new); }
-  /* Spins while a long-press-triggered check is running. No :active
-     rotation of its own on purpose — it would fight this one. */
-  .reload.spinning {
-    animation: spin 1.1s linear infinite;
+  /* Spins while a check is running. Only the ICON spins, not the whole
+     button — with a text label sitting next to it now, spinning the
+     whole button would spin the label too. No :active rotation of its
+     own on purpose — it would fight this one. */
+  .reload.spinning .reload-icon, .reload.spinning {
     color: var(--new); border-color: var(--new);
+  }
+  .reload.spinning .reload-icon {
+    animation: spin 1.1s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   /* Announcement filters — their own strip, in their own column. Separate
@@ -1071,9 +1116,11 @@ function writePage(data, outputPath) {
 <main>
   <header>
     <h1>${escapeHtml(t('title'))}</h1>
-    <div class="when">${escapeHtml(t('updated'))} ${escapeHtml(time)}<button class="reload"
-         id="reload-button"
-         title="${escapeHtml(t('reloadHint'))}">&#8635;</button><button class="reload"
+    <div class="when">${escapeHtml(t('updated'))} ${escapeHtml(time)}<button class="reload named"
+         id="refresh-button"
+         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon">&#8635;</span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named"
+         id="freshcheck-button"
+         title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon freshcheck-icon"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
          title="${escapeHtml(t('settingsTitle'))}">&#9881;</button></div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
@@ -1859,56 +1906,45 @@ function filterAnnouncements() {
   if (counter) counter.textContent = visible;
 }
 
-// ── The "reload" button ──
+// ── Refresh and Fresh check — two buttons, not one with a gesture ──
 //
-// A short press rereads the file. A long one (a second) triggers a real
-// check — a full one, like "Check now".
+// Used to be a single button: a short press reread the file, holding it
+// for a second triggered a real check. Split into two so each one says
+// what it does instead of relying on a tooltip nobody reads before
+// clicking — Refresh just rereads the page, Fresh check actually
+// fetches. No hold-timer/long-press-swallows-the-click dance needed
+// anymore now that they're separate elements.
 //
-// The page can't launch the program itself, the browser won't allow it.
-// dispatchAction sends it through the native bridge when there is one,
-// or the old napominalka:// link when there isn't — the same as every
-// other action on this page.
+// dispatchAction sends the fresh-check request through the native
+// bridge when there is one, or the old napominalka:// link when there
+// isn't — the same as every other action on this page.
 (function () {
-  var button = document.getElementById('reload-button');
-  if (!button) return;
-
-  var timer = null;
-  var wasLongPress = false;
-
-  function onPress() {
-    wasLongPress = false;
-    timer = setTimeout(function () {
-      wasLongPress = true;
-      button.classList.add('spinning');
-      button.title = WORDS.checking;
-
-      // onResult here only ever confirms the request was DISPATCHED — a
-      // full check runs detached, in the background, and takes about a
-      // minute, so nothing can report back when it's actually DONE. What
-      // it catches instead is the request never having gone anywhere at
-      // all, which used to look identical to a check quietly running.
-      dispatchAction('check', '', function (res) {
-        if (res && res.ok) return;
-        button.classList.remove('spinning');
-        button.title = (res && res.why) ? res.why : WORDS.checkFailed;
-      });
-
-      // A full check takes about a minute. The page redraws after every
-      // source it reads, so reloading it is safe: you'll see at least
-      // part of it, not nothing.
-      setTimeout(function () { location.reload(); }, 45000);
-    }, 700);
+  var refreshButton = document.getElementById('refresh-button');
+  if (refreshButton) {
+    refreshButton.addEventListener('click', function () { location.reload(); });
   }
-  function onRelease() { clearTimeout(timer); }
 
-  button.addEventListener('mousedown', onPress);
-  button.addEventListener('mouseup', onRelease);
-  button.addEventListener('mouseleave', onRelease);
-  button.addEventListener('click', function () {
-    // After a long press, a normal click follows right behind — swallow
-    // it, otherwise the page reloads immediately and clobbers "spinning".
-    if (wasLongPress) { wasLongPress = false; return; }
-    location.reload();
+  var freshCheckButton = document.getElementById('freshcheck-button');
+  if (!freshCheckButton) return;
+  freshCheckButton.addEventListener('click', function () {
+    freshCheckButton.classList.add('spinning');
+    freshCheckButton.title = WORDS.checking;
+
+    // onResult here only ever confirms the request was DISPATCHED — a
+    // full check runs detached, in the background, and takes about a
+    // minute, so nothing can report back when it's actually DONE. What
+    // it catches instead is the request never having gone anywhere at
+    // all, which used to look identical to a check quietly running.
+    dispatchAction('check', '', function (res) {
+      if (res && res.ok) return;
+      freshCheckButton.classList.remove('spinning');
+      freshCheckButton.title = (res && res.why) ? res.why : WORDS.checkFailed;
+    });
+
+    // A full check takes about a minute. The page redraws after every
+    // source it reads, so reloading it is safe: you'll see at least
+    // part of it, not nothing.
+    setTimeout(function () { location.reload(); }, 45000);
   });
 })();
 

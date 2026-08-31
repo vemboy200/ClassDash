@@ -19,5 +19,7 @@
   "skipStaleClasses": true,
   "staleMonths": 3,
   "hideInactiveClasses": false,
-  "showEmptyClasses": false
+  "showEmptyClasses": false,
+  "freshCheckAwakeMinutes": 0,
+  "freshCheckAsleepMinutes": 0
 }

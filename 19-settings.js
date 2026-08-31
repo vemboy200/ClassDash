@@ -151,6 +151,24 @@ const DEFAULTS = {
   // every known class (Classroom, Canvas, and Edpuzzle) with a 0 next to
   // the ones with nothing going on, instead of them disappearing.
   showEmptyClasses: false,
+
+  // Automatic fresh checks — the app's own scheduler (see
+  // setupAutoFreshCheck() in 16-summary.swift), NOT the collector's own
+  // every-10-minutes cron. 0 disables auto-fresh-checking for that
+  // state entirely. Both off by default: a fresh check opens a visible
+  // Edpuzzle browser window and takes about a minute, so this is
+  // opt-in, not something that starts popping up windows the moment
+  // someone updates.
+  //
+  // Two separate numbers because a fresh check firing on its own has a
+  // real cost only while someone might actually be at the machine —
+  // freshCheckAwakeMinutes (display on) can stay conservative or off,
+  // freshCheckAsleepMinutes (display asleep — nobody there to
+  // interrupt) can be much shorter without it mattering. "Asleep" here
+  // means the DISPLAY specifically, not full system sleep — see that
+  // function's own comment for why.
+  freshCheckAwakeMinutes: 0,
+  freshCheckAsleepMinutes: 0,
 };
 
 const TYPES = {
@@ -161,6 +179,7 @@ const TYPES = {
   apiEnabled: 'boolean', apiNetwork: 'boolean',
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
+  freshCheckAwakeMinutes: 'number', freshCheckAsleepMinutes: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
 

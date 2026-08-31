@@ -254,6 +254,15 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     var window: NSWindow!
     var web: WKWebView!
 
+    // Whether the DISPLAY is currently asleep — not whether the whole
+    // Mac is. Full system sleep freezes this process entirely,
+    // including any timer; nothing here could run during it anyway, so
+    // there's nothing useful to track. Display-asleep is the state that
+    // actually matters: screen off, nobody at the machine, system still
+    // fully running. See setupAutoFreshCheck() below.
+    var isDisplayAsleep = false
+    var autoFreshCheckTimer: Timer?
+
     // WHEN THE LAST OUTGOING LINK WAS HANDED TO macOS.
     //
     // Handing a URL to NSWorkspace launches whatever app owns it, which
@@ -449,6 +458,8 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        setupAutoFreshCheck()
     }
 
     // MARK: - Menu bar
@@ -713,6 +724,103 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             return "\"\""
         }
         return String(text.dropFirst().dropLast())
+    }
+
+    // MARK: - Automatic fresh checks
+
+    // NOTHING SCHEDULES A CHECK ON ITS OWN UNLESS SOMETHING TELLS IT TO.
+    //
+    // Fresh check (the "check" action above, same as this window's own
+    // button) opens a visible Edpuzzle browser window and takes about a
+    // minute — fine to trigger by hand, but running it on a timer
+    // without regard for whether anyone's actually sitting at the
+    // machine would mean it popping up mid-workflow. This is why there
+    // are two separate intervals in settings instead of one:
+    // freshCheckAwakeMinutes (display on, someone might be using this
+    // Mac right now) and freshCheckAsleepMinutes (display off, nobody's
+    // there to be interrupted — free to run more often). Either can be
+    // 0 to disable auto-fresh-checking in that state entirely.
+    //
+    // "Asleep" here means the DISPLAY, not the whole system. Full
+    // system sleep freezes this entire process, this timer included —
+    // there'd be nothing left running to notice or act on that state.
+    // Display sleep is the one a desktop Mac (no lid to close, often
+    // never fully sleeping at all) can actually sit in for hours while
+    // genuinely idle, which is exactly the case this exists for.
+    func setupAutoFreshCheck() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(self, selector: #selector(displayDidSleep),
+                            name: NSWorkspace.screensDidSleepNotification, object: nil)
+        center.addObserver(self, selector: #selector(displayDidWake),
+                            name: NSWorkspace.screensDidWakeNotification, object: nil)
+
+        // A single repeating timer that just checks "is it time yet?"
+        // once a minute, rather than one whose own interval gets torn
+        // down and rebuilt every time the display sleeps/wakes or a
+        // setting changes. Settings and sleep state are both read fresh
+        // on every tick, so neither can go stale. It also means system
+        // sleep — which pauses this timer along with everything else —
+        // doesn't need special handling: the next tick after waking
+        // just sees a bigger elapsed-time number and reacts normally.
+        autoFreshCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.maybeRunAutoFreshCheck()
+        }
+    }
+
+    @objc private func displayDidSleep() { isDisplayAsleep = true }
+    @objc private func displayDidWake() { isDisplayAsleep = false }
+
+    private func maybeRunAutoFreshCheck() {
+        let (awakeMinutes, asleepMinutes) = readFreshCheckMinutes()
+        let intervalMinutes = isDisplayAsleep ? asleepMinutes : awakeMinutes
+        guard intervalMinutes > 0 else { return } // 0 — disabled for this state
+
+        // last-collection.json's own mtime — the exact same signal
+        // /api/status calls collectedAt/minutesAgo. Using it instead of
+        // this timer's own memory of "when did I last fire" means a
+        // manual fresh check (the button, or another client hitting
+        // /api/check) also resets the clock, so this doesn't pile a
+        // redundant one on top of a check that just happened for some
+        // other reason. Missing entirely (nothing's ever been
+        // collected) counts as infinitely stale, so it fires as soon
+        // as an interval is configured rather than waiting a full
+        // interval past a launch with no data at all.
+        let elapsedMinutes = minutesSinceLastCollection() ?? .greatestFiniteMagnitude
+        guard elapsedMinutes >= Double(intervalMinutes) else { return }
+
+        logWindow("auto fresh check: \(Int(elapsedMinutes))m since last collection, " +
+                  "\(intervalMinutes)m interval (\(isDisplayAsleep ? "asleep" : "awake")) — running one")
+        runAction("check", "") { _ in }
+    }
+
+    // Reads settings.json directly rather than shelling out to node
+    // 19-settings.js for two numbers — it's a plain file already
+    // sitting on disk, and this needs an answer every 60 seconds, not
+    // a whole node process spun up that often just to ask it. Missing
+    // key or missing file both mean 0 (disabled) — NOT the defaults
+    // 19-settings.js would apply, since there's no equivalent
+    // merge-with-defaults happening on this side. A freshly-created
+    // settings.json from before this feature existed simply doesn't
+    // have these keys yet, and the safe reading of that is "off", not
+    // "guess at what the default should have been".
+    private func readFreshCheckMinutes() -> (awake: Int, asleep: Int) {
+        let path = projectDir + "/settings.json"
+        guard let data = FileManager.default.contents(atPath: path),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (0, 0)
+        }
+        let awake = (obj["freshCheckAwakeMinutes"] as? Int) ?? 0
+        let asleep = (obj["freshCheckAsleepMinutes"] as? Int) ?? 0
+        return (awake, asleep)
+    }
+
+    private func minutesSinceLastCollection() -> Double? {
+        let path = projectDir + "/last-collection.json"
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let modDate = attrs[.modificationDate] as? Date else {
+            return nil
+        }
+        return Date().timeIntervalSince(modDate) / 60
     }
 
     // MARK: - JS confirm()
