@@ -1191,7 +1191,7 @@ function deadline(item, now = new Date()) {
  * during collection (to redraw the page after each class) and at the end.
  */
 function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()) {
-  const burning = [], later = [], undated = [], deferred = [];
+  const burning = [], later = [], undated = [], deferred = [], done = [];
   // Overdue items are no longer just counted, they're collected into a list.
   //
   // They used to silently drop out: past++ and that's it. Tolerable for
@@ -1214,21 +1214,25 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
     // anymore, only a trace that it once did.
     if (x.removed) { gone.push(x); continue; }
 
-    // TURNED-IN WORK ISN'T SHOWN AT ALL.
+    // TURNED-IN WORK DOESN'T GO IN A DUE-DATE BUCKET.
     //
     // Once turned in, Classroom changes the first line to "Completed
     // Assignment" or "Completed Question". The check below
     // (/assignment|quiz/) says "yes" to that string too, so turned-in
-    // work kept showing up as due soon right alongside what wasn't
-    // turned in. On live data on August 24th there were five of these:
-    // four "Completed Assignment" and one "Completed Question".
-    //
-    // They aren't dropped from memory — they keep arriving from
-    // Classroom, they just don't land in any bucket. Otherwise the
-    // "three misses in a row" rule would decide they'd disappeared, and
-    // they'd flicker as "new" if a teacher ever returned the work for
-    // revision.
-    if (/^completed\b/i.test(x.type || '')) continue;
+    // work used to keep showing up as due soon right alongside what
+    // wasn't turned in — that's still wrong, so it still doesn't reach
+    // burning/later/overdue. It USED to be dropped from every bucket
+    // entirely, on the reasoning that it's "handled" — but that also
+    // made it invisible to a client asking "what's the full picture for
+    // this class", API included, with no way to tell "done" apart from
+    // "ClassDash just never saw this" from outside. Tagged and kept
+    // instead: due_at comes straight from deadline(), not run through
+    // the undated/urgency logic below (mutating it to "tomorrow" etc.)
+    // — none of that is about anything once it's already turned in.
+    if (/^completed\b/i.test(x.type || '')) {
+      done.push({ ...x, done: true, due_at: deadline(x, now) });
+      continue;
+    }
 
     // Classroom labels the type itself on the first line: Assignment,
     // Quiz assignment, or Material. A material is something to read, an
@@ -1286,7 +1290,7 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   // today, that's more relevant than something removed a month ago.
   gone.sort((a, b) => String(b.removedAt || '').localeCompare(String(a.removedAt || '')));
 
-  return { burning, later, undated, deferred, overdue, gone, past };
+  return { burning, later, undated, deferred, overdue, gone, done, past };
 }
 
 /** Assignments the user removed from the overdue list. */

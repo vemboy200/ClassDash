@@ -119,7 +119,7 @@ function gather() {
   const announcements = readJson(STREAM_FILE);
   const now = new Date();
 
-  const { burning, later, undated, deferred, overdue, gone } =
+  const { burning, later, undated, deferred, overdue, gone, done } =
     sortIntoBuckets(items, now, readMutedIds(), readHiddenIds());
 
   // The last-collection timestamp comes from the file's own mtime, not
@@ -130,11 +130,28 @@ function gather() {
     : null;
 
   return { items, announcements, burning, later, undated, deferred,
-           overdue, gone, now, collectedAt };
+           overdue, gone, done, now, collectedAt };
 }
 
-/** An assignment, outward-facing: no internal fields, plus days-until-due. */
+/**
+ * An assignment, outward-facing: no internal fields, plus days-until-due
+ * and a `tags` array.
+ *
+ * hidden/muted/done/removed all used to mean "leave this out of the
+ * response" (hidden and done outright, one via a filter on the way out,
+ * the other by never entering a bucket at all) or "no way to tell from
+ * outside" (muted was never exposed through the API at all). That's the
+ * server deciding what a client is and isn't allowed to know about its
+ * own data. Now everything goes out; `tags` is how a client tells them
+ * apart instead — filter, display differently, or ignore, its call, not
+ * this server's.
+ */
 function toPublic(x, now) {
+  const tags = [];
+  if (x.hidden) tags.push('hidden');
+  if (x.muted) tags.push('muted');
+  if (x.done) tags.push('done');
+  if (x.removed) tags.push('removed');
   return {
     id: x.id,
     title: x.title,
@@ -146,6 +163,7 @@ function toPublic(x, now) {
     daysUntilDue: x.due_at ? daysUntil(now, x.due_at) : null,
     // note is stored as a key ("noDueDateNote"), given out as text.
     note: x.note ? t(x.note) : null,
+    tags,
   };
 }
 
@@ -231,17 +249,32 @@ const HANDLERS = {
     classes: allKnownClasses().length,
     total: d.items.length,
     dueSoon: d.burning.length,
+    // Still the actionable count, not the raw bucket size: a hidden
+    // overdue item was dismissed on purpose, so it shouldn't move a
+    // number a client might badge/notify on. /api/overdue the LIST,
+    // right below, is a different question — "what's actually there,
+    // tagged" — and answers it without this filter.
     overdue: d.overdue.filter(x => !x.hidden).length,
     ahead: d.later.length,
     announcements: d.announcements.length,
     removed: d.gone.length,
+    done: d.done.length,
     language: currentLanguage(),
   }),
 
   '/api/due-soon': (d) => d.burning.map(x => toPublic(x, d.now)),
   '/api/ahead': (d) => d.later.map(x => toPublic(x, d.now)),
-  '/api/overdue': (d) =>
-    d.overdue.filter(x => !x.hidden).map(x => toPublic(x, d.now)),
+  // No longer filters hidden ones out — tagged instead (see toPublic's
+  // own comment). A client that wants the old behavior filters on
+  // tags.includes('hidden') itself; one that doesn't now actually gets
+  // to see what it's asking for.
+  '/api/overdue': (d) => d.overdue.map(x => toPublic(x, d.now)),
+
+  // Turned-in work, its own handle — same reasoning as /api/removed
+  // just below: it's not "what needs doing", so it doesn't belong mixed
+  // into /api/assignments, but it's real data and deserves a real
+  // handle instead of just vanishing.
+  '/api/done': (d) => d.done.map(x => toPublic(x, d.now)),
 
   '/api/assignments': (d) => [...d.burning, ...d.later, ...d.overdue]
     .map(x => toPublic(x, d.now)),

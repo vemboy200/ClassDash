@@ -153,8 +153,33 @@ integration, a script, a phone shortcut).
   request, not cached, so rolling it from the settings panel takes effect
   on the very next request with no server restart.
 - **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
-  `/api/overdue` `/api/assignments` `/api/announcements` `/api/removed`
-  `/api/classes`.
+  `/api/overdue` `/api/done` `/api/assignments` `/api/announcements`
+  `/api/removed` `/api/classes`.
+- **Tags:** every assignment object (from any of the handles above that
+  return one) carries a `tags` array — `"hidden"`, `"muted"`, `"done"`,
+  `"removed"`, any combination, or empty. This replaced the API
+  silently deciding what a client does and doesn't get to see:
+  - `/api/overdue` used to filter hidden items out entirely; now they're
+    in the list, tagged `"hidden"`, same as `/api/assignments` (which
+    was already including them, just without any way to tell).
+    `/api/status`'s `overdue` COUNT is still the filtered, actionable
+    number — that distinction is deliberate, see its own comment in
+    `17-api.js`.
+  - `/api/done` is new — turned-in work ("Completed Assignment" /
+    "Completed Question" in Classroom's own type field) used to be
+    dropped from `sortIntoBuckets()` entirely, invisible everywhere,
+    API included. Now it lands in its own bucket, tagged `"done"`, with
+    its own handle — same reasoning as `/api/removed` already being
+    separate from `/api/assignments`: it's not "what needs doing", so
+    it doesn't belong mixed in there, but it's real data and deserves a
+    real handle instead of just vanishing. `/api/status` gained a
+    matching `done` count.
+  - `/api/removed` items get `tags: ["removed"]` for free — `x.removed`
+    is the same field that already routed them there.
+  - An item that's BOTH removed and completed (the teacher took down
+    something already turned in) goes to `/api/removed`, not
+    `/api/done` — `sortIntoBuckets()` checks `removed` first, unchanged
+    from before this.
 - **`/api/classes`, specifically:** the full class roster, merged across
   Classroom/Canvas/Edpuzzle (`allKnownClasses()` in `08-page.js`, not
   just Classroom's own `classes.json` — that was the old shape).
