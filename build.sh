@@ -95,12 +95,23 @@ APP_NAME="ClassDash"
 if command -v swiftc >/dev/null; then
   echo "→ $APP_NAME"
   mkdir -p "$APP_NAME.app/Contents/MacOS"
+  mkdir -p "$APP_NAME.app/Contents/Resources"
+  # AppIcon.icns is committed to the repo, not generated at build time —
+  # keeps build.sh dependency-free (no image library needed just to
+  # copy a file that changes maybe once a year). icon-source.png, the
+  # original 32x32 pixel-art export, is kept alongside it for whenever
+  # the icon actually needs regenerating — every size in the .icns was
+  # produced from that with nearest-neighbor scaling, not smooth
+  # resampling, specifically to keep the pixel art crisp instead of
+  # blurring it at the larger sizes macOS actually needs (up to 1024x1024).
+  cp AppIcon.icns "$APP_NAME.app/Contents/Resources/AppIcon.icns"
   cat > "$APP_NAME.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>$APP_NAME</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>com.artem.svodka</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
