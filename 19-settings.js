@@ -80,6 +80,28 @@ const DEFAULTS = {
   // WOULD run if launched by hand.
   apiEnabled: false,
 
+  // TRUE by default — unlike apiEnabled itself, which stays off until
+  // someone deliberately turns the whole API on. This is the actual
+  // --network flag, deciding whether 17-api.js binds 127.0.0.1 (this
+  // computer only) or 0.0.0.0 (reachable from anything on the LAN — a
+  // phone, a Home Assistant box on a different device). Localhost-only
+  // as the default here would make apiEnabled mostly pointless for its
+  // main real use case: something like Home Assistant runs on a
+  // DIFFERENT device almost by definition, and a 127.0.0.1-bound server
+  // refuses every connection that doesn't originate on the same
+  // machine, no matter what address the client tries. The actual
+  // security boundary here is TLS + the bearer token (see
+  // 23-api-security.js), not which interface the socket happens to be
+  // bound to — so defaulting this closed wouldn't really be protecting
+  // anything, just making the one thing people turn this on FOR not
+  // work out of the box. Previously there was no toggle for this at
+  // all: the settings-panel apiEnabled switch never passed --network no
+  // matter what, and reaching it from another device required running
+  // `node 17-api.js --network` by hand, outside the app entirely.
+  // Confirmed live: a Home Assistant integration pointed at this
+  // computer's LAN address got nothing back until this was set.
+  apiNetwork: true,
+
   // Path to the browser executable — override only. Empty (default) —
   // uses this project's own Brave from .browser/ if it's installed
   // (npm run setup-browser), otherwise the system's Google Chrome.
@@ -136,7 +158,7 @@ const TYPES = {
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
   treatUndatedAsUrgent: 'boolean', skipStaleClasses: 'boolean',
   showEmptyClasses: 'boolean', hideInactiveClasses: 'boolean',
-  apiEnabled: 'boolean',
+  apiEnabled: 'boolean', apiNetwork: 'boolean',
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',

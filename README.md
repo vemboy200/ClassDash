@@ -190,15 +190,21 @@ full check) works fine on its own.
 Turning on **Enable home API** in settings starts a small, read-only
 HTTPS server on your own computer — useful if you want the data
 somewhere else, like a Home Assistant dashboard. The panel shows an
+**Allow LAN access** toggle (on by default — see below), an
 **access key** (masked, with Copy and Roll buttons — Roll generates a
 brand new one and immediately cuts off the old one, for if a key ever
-leaks) and a **certificate fingerprint**, both needed to configure
-whatever's going to read from it.
+leaks), and a **certificate fingerprint**, the last two both needed to
+configure whatever's going to read from it.
 
-It's off, and localhost-only, by default — turning it on to your whole
-home network is available (see [CONTRIBUTING.md](CONTRIBUTING.md#home-api--technical-detail)
-for the flag), but that's a deliberate, separate choice, since even
-read-only this is real information about your school and teachers.
+The API itself is off by default — nothing starts until you turn it on.
+Once it's on, **LAN access is on by default too**, not localhost-only:
+the main reason to enable this at all is usually something like Home
+Assistant, running on a different device, and a server that only
+answers its own machine can't do that regardless of what address you
+point at it. The actual protection is the encryption and the access
+key, not which network interface it's listening on — turn off
+**Allow LAN access** if you'd rather it only ever answer this same
+computer.
 
 ---
 

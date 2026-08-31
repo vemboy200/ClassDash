@@ -13,6 +13,7 @@
   "passLimitMs": 300000,
   "apiPort": 8734,
   "apiEnabled": false,
+  "apiNetwork": true,
   "browserPath": "",
   "treatUndatedAsUrgent": true,
   "skipStaleClasses": true,

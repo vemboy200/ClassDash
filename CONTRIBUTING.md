@@ -116,6 +116,7 @@ icon on the summary page) — this table exists for anyone editing
 | `hideInactiveClasses` | `false` (default) — a class this project has **never once** recorded an assignment or announcement for still gets listed by `showEmptyClasses` as just another empty one; this hides those specifically, leaving classes that are merely quiet for now still listed. Display only — doesn't change what gets fetched, unlike `skipStaleClasses` |
 | `showEmptyClasses` | `false` (default) — the class filter only lists classes with something currently due/overdue/removed; `true` always lists every known class with a 0 next to the empty ones instead of them disappearing |
 | `apiEnabled` | `false` (default) — starts or stops the home API when toggled from the settings panel |
+| `apiNetwork` | `true` (default, only meaningful while `apiEnabled` is on) — binds `0.0.0.0` (LAN-visible) instead of `127.0.0.1` (this machine only). Defaults on because the main reason to enable the API at all is usually a client on a different device (Home Assistant); the actual protection is TLS + the bearer token, not which interface it's bound to. Changing this restarts the server — the bind address is only decided at its own startup |
 | `apiPort` | port for the home API, default `8734`. **CLI/config-file only, deliberately not in the settings panel** — a user-changeable port would mean any client integration (e.g. a Home Assistant component) has to discover or be told about a moving target instead of a fixed default |
 | `classTimeoutMs` | how long to wait for a class page, ms — panel's Advanced section |
 | `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms — Advanced |
@@ -137,6 +138,15 @@ integration, a script, a phone shortcut).
   own. A client should pin the certificate's SHA-256 fingerprint rather
   than doing normal CA validation — there's no real CA for a private home
   address.
+- **Network binding:** controlled by `apiNetwork` (default `true` while
+  `apiEnabled` is on) — `21-notifier-actions.js`'s `startApiServer()`
+  passes `--network` through to `17-api.js` when set, which is the same
+  flag `node 17-api.js --network` uses when run by hand. Binds `0.0.0.0`
+  instead of `127.0.0.1`. Decided once at the server's own startup, so
+  changing this setting stops and restarts the process rather than
+  reconfiguring a running one — see the `'config'` case in
+  `21-notifier-actions.js`, which does that whenever `apiNetwork` changes,
+  not only when `apiEnabled` itself does.
 - **Auth:** every route, root included, needs
   `Authorization: Bearer <token>` — 401 otherwise, checked with
   `crypto.timingSafeEqual`. The token is read fresh from disk on every

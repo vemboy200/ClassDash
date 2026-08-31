@@ -455,6 +455,11 @@ ${exclusionsField(s.exclusions)}
       </label>
       <div class="api-key-row"${s.apiEnabled ? '' : ' hidden'}>
         <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('settingsApiNetwork'))}</span>
+          <input type="checkbox" class="toggle" data-bool-key="apiNetwork"${s.apiNetwork ? ' checked' : ''}>
+          <span class="field-hint">${escapeHtml(t('settingsApiNetworkHint'))}</span>
+        </label>
+        <label class="setting-row">
           <span class="field-name">${escapeHtml(t('settingsApiToken'))}</span>
           <span class="field-with-value">
             <span class="field-with-toggle" style="flex:1 1 auto;min-width:0;">

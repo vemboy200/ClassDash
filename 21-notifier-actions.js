@@ -109,14 +109,23 @@ function quickCheck() {
  *  THIS process, rather than leaving it to the spawned server's own
  *  startup — see 23-api-security.js's own comment on why that avoids a
  *  real race against the redraw that follows right after, which reads
- *  those same files to show the token in the settings panel. */
-function startApiServer() {
+ *  those same files to show the token in the settings panel.
+ *
+ *  `network` passes --network through to 17-api.js, binding 0.0.0.0
+ *  instead of 127.0.0.1 — see apiNetwork's own comment in 19-settings.js
+ *  for why that's the default. Which interface it bound to is decided
+ *  once, at process startup; changing it later means actually restarting
+ *  the process, not just flipping a setting — see the 'config' case
+ *  below, which stops it first whenever apiNetwork changes too, not
+ *  only when apiEnabled itself does. */
+function startApiServer(network) {
   const security = require('./23-api-security.js');
   if (security.isServerRunning()) return;
   security.ensureCert();
   security.ensureToken();
-  const child = spawn(process.execPath,
-    [path.join(__dirname, '17-api.js')],
+  const args = [path.join(__dirname, '17-api.js')];
+  if (network) args.push('--network');
+  const child = spawn(process.execPath, args,
     { detached: true, stdio: 'ignore', cwd: __dirname });
   child.unref();
 }
@@ -227,16 +236,26 @@ function main(action, arg) {
       const NEEDS_REAL_FETCH = ['exclusions', 'canvas'];
       const needsFetch = result.changed.some(key => NEEDS_REAL_FETCH.includes(key));
 
-      // apiEnabled starts or stops a whole separate background process —
-      // orthogonal to needsFetch above (it doesn't touch Classroom/Canvas
-      // at all), so it's handled alongside that check, not instead of it.
-      if (result.changed.includes('apiEnabled')) {
-        const { apiEnabled } = require('./19-settings.js').read();
+      // apiEnabled/apiNetwork start, stop, or rebind a whole separate
+      // background process — orthogonal to needsFetch above (neither
+      // touches Classroom/Canvas at all), so it's handled alongside
+      // that check, not instead of it.
+      //
+      // BOTH keys trigger this, not just apiEnabled: which interface
+      // 17-api.js binds to is decided once, at its own startup, so
+      // apiNetwork changing while the server's already running does
+      // nothing on its own unless the process actually restarts. Always
+      // stopping first (harmless no-op if nothing's running — see
+      // stopApiServer()) then starting fresh handles every case the
+      // same way: freshly enabled, freshly disabled, or just switching
+      // between localhost-only and LAN-visible while already on.
+      if (result.changed.includes('apiEnabled') || result.changed.includes('apiNetwork')) {
+        const { apiEnabled, apiNetwork } = require('./19-settings.js').read();
+        stopApiServer();
         if (apiEnabled) {
-          startApiServer();
-          logAction('  home API server started');
+          startApiServer(apiNetwork);
+          logAction(`  home API server started (${apiNetwork ? 'network' : 'localhost-only'})`);
         } else {
-          stopApiServer();
           logAction('  home API server stopped');
         }
       }
