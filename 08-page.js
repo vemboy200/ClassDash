@@ -399,13 +399,17 @@ function settingsPanel() {
       </label>`;
   };
 
-  return `  <div class="settings-panel" id="settings-panel" hidden>
-      <div class="name">${escapeHtml(t('settingsTitle'))}</div>
+  // Four sections behind a sidebar instead of one long scroll — fine at
+  // 8 settings, unwieldy at 17. The sidebar only shows/hides
+  // <div data-section> blocks with plain JS (showSettingsSection, in the
+  // page's own <script>); it changes nothing about how saveSettings()
+  // collects values — that still walks every [data-key]/[data-bool-key]
+  // under #settings-panel, hidden section or not.
+  const sections = [
+    { id: 'account', label: t('settingsSectionAccount'), body: `
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
 ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
-${field('summaryHours', t('settingsHours'), s.summaryHours.join(', '), t('settingsHoursHint'))}
-${exclusionsField(s.exclusions)}
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
         <select data-key="language">
@@ -413,7 +417,10 @@ ${exclusionsField(s.exclusions)}
           <option value="en"${s.language === 'en' ? ' selected' : ''}>English</option>
         </select>
         <span class="field-hint"></span>
-      </label>
+      </label>` },
+    { id: 'display', label: t('settingsSectionDisplay'), body: `
+${field('summaryHours', t('settingsHours'), s.summaryHours.join(', '), t('settingsHoursHint'))}
+${exclusionsField(s.exclusions)}
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsTreatUndated'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="treatUndatedAsUrgent"${s.treatUndatedAsUrgent ? ' checked' : ''}>
@@ -442,7 +449,8 @@ ${exclusionsField(s.exclusions)}
           <span class="slider-value">${s.staleMonths} ${escapeHtml(s.staleMonths == 1 ? t('monthWord') : t('monthsWord'))}</span>
         </span>
         <span class="field-hint">${escapeHtml(t('settingsStaleMonthsHint'))}</span>
-      </label>
+      </label>` },
+    { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="apiEnabled"${s.apiEnabled ? ' checked' : ''}
@@ -482,14 +490,32 @@ ${exclusionsField(s.exclusions)}
           </span>
           <span class="field-hint">${escapeHtml(t('settingsApiFingerprintHint'))}</span>
         </label>
-      </div>
-      <details class="advanced-settings">
-        <summary>${escapeHtml(t('settingsAdvanced'))}</summary>
+      </div>` },
+    { id: 'advanced', label: t('settingsAdvanced'), body: `
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
 ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('settingsPassLimitHint'))}
-${field('browserPath', t('settingsBrowserPath'), s.browserPath, t('settingsBrowserPathHint'))}
-      </details>
+${field('browserPath', t('settingsBrowserPath'), s.browserPath, t('settingsBrowserPathHint'))}` },
+  ];
+
+  const sidebarButtons = sections.map((sec, i) =>
+    `        <button type="button" class="settings-nav-btn${i === 0 ? ' active' : ''}"` +
+    ` onclick="showSettingsSection('${sec.id}', this)">${escapeHtml(sec.label)}</button>`).join('\n');
+
+  const sectionBlocks = sections.map((sec, i) =>
+    `      <div class="settings-section" data-section="${sec.id}"${i === 0 ? '' : ' hidden'}>${sec.body}
+      </div>`).join('\n');
+
+  return `  <div class="settings-panel" id="settings-panel" hidden>
+      <div class="name">${escapeHtml(t('settingsTitle'))}</div>
+      <div class="settings-body">
+      <div class="settings-sidebar">
+${sidebarButtons}
+      </div>
+      <div class="settings-content">
+${sectionBlocks}
+      </div>
+      </div>
       <div class="settings-actions">
         <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
         <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
@@ -873,6 +899,32 @@ function writePage(data, outputPath) {
     padding: 14px 16px; margin-bottom: 20px; font-size: 13px;
   }
   .settings-panel[hidden] { display: none; }
+  /* Sidebar + content, replacing what used to be one long scrolling
+     list of every setting in a row. saveSettings() doesn't care —
+     it walks [data-key]/[data-bool-key] under #settings-panel
+     regardless of which .settings-section is currently hidden. */
+  .settings-body { display: flex; gap: 18px; align-items: flex-start; margin-top: 10px; }
+  .settings-sidebar {
+    display: flex; flex-direction: column; gap: 2px; flex: 0 0 150px;
+    border-right: 1px solid var(--line); padding-right: 12px;
+  }
+  .settings-nav-btn {
+    background: none; border: none; text-align: left; color: var(--dim);
+    font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 7px;
+    cursor: pointer;
+  }
+  .settings-nav-btn:hover { color: var(--text); background: var(--bg); }
+  .settings-nav-btn.active { color: var(--text); background: var(--bg); font-weight: 600; }
+  .settings-content { flex: 1 1 auto; min-width: 0; }
+  .settings-section[hidden] { display: none; }
+  @media (max-width: 700px) {
+    .settings-body { flex-direction: column; }
+    .settings-sidebar {
+      flex-direction: row; flex-wrap: wrap; border-right: none;
+      border-bottom: 1px solid var(--line); padding-right: 0;
+      padding-bottom: 8px; width: 100%;
+    }
+  }
   .setting-row {
     display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.1fr);
     gap: 10px; align-items: center; margin-bottom: 8px;
@@ -959,19 +1011,6 @@ function writePage(data, outputPath) {
   }
   .settings-actions button:hover { color: var(--text); border-color: var(--dim); }
   #settings-result { color: var(--dim); font-size: 12px; }
-  /* Timeouts and the browser-path override: real settings, but not ones
-     most people will ever need to touch, so they start collapsed rather
-     than crowding the panel everyone sees by default. */
-  .advanced-settings {
-    border: 1px solid var(--line); border-radius: 7px; background: var(--bg);
-    padding: 2px 8px; margin-bottom: 8px;
-  }
-  .advanced-settings summary {
-    cursor: pointer; padding: 6px 0; color: var(--dim); font-size: 13px;
-    user-select: none;
-  }
-  .advanced-settings summary:hover { color: var(--text); }
-  .advanced-settings[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
   /* Collapsible class list. */
   .class-picker {
     border: 1px solid var(--line); border-radius: 7px; background: var(--bg);
@@ -1563,6 +1602,21 @@ function toggleSettingsPanel() {
   if (!panel) return;
   panel.hidden = !panel.hidden;
   if (!panel.hidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Switches which settings section is visible. Sections that aren't
+// showing stay in the DOM, just hidden — saveSettings() walks every
+// [data-key]/[data-bool-key] under #settings-panel regardless, so a
+// value changed in a section you've since clicked away from still
+// gets saved.
+function showSettingsSection(name, btn) {
+  var sections = document.querySelectorAll('.settings-section');
+  for (var i = 0; i < sections.length; i++) {
+    sections[i].hidden = sections[i].getAttribute('data-section') !== name;
+  }
+  var buttons = document.querySelectorAll('.settings-nav-btn');
+  for (var j = 0; j < buttons.length; j++) buttons[j].classList.remove('active');
+  if (btn) btn.classList.add('active');
 }
 
 // Reveals a masked field (email, Canvas address) the same way a password

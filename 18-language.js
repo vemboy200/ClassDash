@@ -99,6 +99,11 @@ const DICTIONARIES = {
 
     // Settings (gear icon)
     settingsTitle: 'Настройки',
+    // Sidebar section labels — settingsAdvanced above doubles as the
+    // fourth one, it already said exactly this before the sidebar existed.
+    settingsSectionAccount: 'Аккаунт',
+    settingsSectionDisplay: 'Отображение',
+    settingsSectionApi: 'Домашний API',
     settingsReveal: 'Показать',
     settingsEmail: 'Школьная почта',
     settingsEmailHint: 'подставляется в ссылки на задания',
@@ -254,6 +259,9 @@ const DICTIONARIES = {
     filterShowingCount: 'showing:',
 
     settingsTitle: 'Settings',
+    settingsSectionAccount: 'Account',
+    settingsSectionDisplay: 'Display',
+    settingsSectionApi: 'Home API',
     settingsReveal: 'Show',
     settingsEmail: 'School email',
     settingsEmailHint: 'used in assignment links',
