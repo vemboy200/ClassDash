@@ -371,6 +371,16 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
+        // NSWindow defaults to isReleasedWhenClosed = true — AppKit frees
+        // the window itself the moment it's closed, fighting the strong
+        // reference held in `window` above and leaving it dangling. That
+        // was invisible as long as closing the window quit the app
+        // outright, but now that the last window closing doesn't quit
+        // (see applicationShouldTerminateAfterLastWindowClosed below),
+        // clicking the Dock icon to bring it back reused that dangling
+        // pointer in applicationShouldHandleReopen and crashed with
+        // EXC_BAD_ACCESS — confirmed from the actual crash report.
+        window.isReleasedWhenClosed = false
         window.title = "ClassDash"
         window.center()
         // Remembers the window's size and position between launches.
