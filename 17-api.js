@@ -67,8 +67,12 @@ const {
 } = require('./05-playwright-draft.js');
 const { t, currentLanguage } = require('./18-language.js');
 // The calendar-day counter lives in 08-page: no circular dependency,
-// 17 already pulls in 05, and 05 pulls in 08.
-const { daysUntil } = require('./08-page.js');
+// 17 already pulls in 05, and 05 pulls in 08. allKnownClasses is the
+// same merged-across-Classroom/Canvas/Edpuzzle class list the settings
+// panel's exclusions checklist uses — classRoster() below reuses it
+// rather than re-reading classes.json/canvas-classes.json/
+// edpuzzle-classes.json a second, possibly-inconsistent way.
+const { daysUntil, allKnownClasses } = require('./08-page.js');
 // Cert/token generation, the running-process pid file, and the auth
 // check itself all live in their own leaf module — 21-notifier-actions.js
 // needs the exact same logic (starting/stopping this server, rolling the
@@ -87,7 +91,6 @@ const notifierActions = require('./21-notifier-actions.js');
 
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
-const CLASSES_FILE = path.join(__dirname, 'classes.json');
 const CERT_FILE = path.join(__dirname, 'api-cert.pem');
 const KEY_FILE = path.join(__dirname, 'api-key.pem');
 
@@ -146,11 +149,86 @@ function toPublic(x, now) {
   };
 }
 
+/**
+ * Every known class — merged across Classroom, Canvas and Edpuzzle via
+ * allKnownClasses(), not just Classroom's own classes.json — with its
+ * current due-soon/ahead/overdue counts.
+ *
+ * A class with nothing currently due only appears here if
+ * `showEmptyClasses` is on — same setting, same meaning, as the "show
+ * classes with nothing due" toggle in the settings panel: without it, a
+ * class HA has never heard anything due for just isn't in this list at
+ * all, exactly like it wouldn't be in the page's own class filter.
+ * `hideInactiveClasses` narrows that further the same way it does
+ * there too — a class that's never once had an assignment or
+ * announcement recorded, at all, isn't "currently quiet", it's
+ * genuinely nothing, and stays out even with showEmptyClasses on. An
+ * excluded class is left out unconditionally either way: it isn't
+ * being read at all, so a permanent zero next to it would misrepresent
+ * "not tracked" as "currently quiet" — same carve-out the page's own
+ * filter makes, see its own comment in 08-page.js.
+ *
+ * This is deliberately NOT a re-implementation of that filter's exact
+ * counting (which folds in materials and removed/muted items too, for
+ * a different purpose — how many CARDS show on the page). The three
+ * counts here match exactly what a client would already get by asking
+ * /api/due-soon, /api/ahead and /api/overdue and grouping by class —
+ * this handle just saves it the trouble, and adds the classes those
+ * three would never mention at all.
+ */
+function classRoster(d) {
+  const countByClass = (list) => {
+    const counts = new Map();
+    for (const x of list) counts.set(x.class, (counts.get(x.class) || 0) + 1);
+    return counts;
+  };
+  const dueSoonByClass = countByClass(d.burning);
+  const aheadByClass = countByClass(d.later);
+  const overdueByClass = countByClass(d.overdue.filter(x => !x.hidden));
+
+  const present = new Set([
+    ...dueSoonByClass.keys(), ...aheadByClass.keys(), ...overdueByClass.keys(),
+  ]);
+  const roster = [...present].map(name => ({
+    name,
+    dueSoon: dueSoonByClass.get(name) || 0,
+    ahead: aheadByClass.get(name) || 0,
+    overdue: overdueByClass.get(name) || 0,
+  }));
+
+  const settings = require('./19-settings.js').read();
+  if (settings.showEmptyClasses) {
+    const excluded = new Set(settings.exclusions);
+    const hideInactive = settings.hideInactiveClasses;
+    // d.items/d.announcements are the FULL history (straight off
+    // last-collection.json/messages.json), not the page's own
+    // display-bucketed allItems — a stricter, more literal "has this
+    // class ever had anything at all" than that comment even asks for.
+    const everHadClasswork = hideInactive ? new Set(d.items.map(x => x.class)) : null;
+    const everHadAnnouncement = hideInactive ? new Set(d.announcements.map(p => p.class)) : null;
+
+    for (const name of allKnownClasses()) {
+      if (present.has(name) || excluded.has(name)) continue;
+      if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
+      roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0 });
+    }
+  }
+
+  return roster.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+}
+
 const HANDLERS = {
   '/api/status': (d) => ({
     collectedAt: d.collectedAt ? d.collectedAt.toISOString() : null,
     minutesAgo: d.collectedAt ? Math.round((d.now - d.collectedAt) / 60000) : null,
-    classes: readJson(CLASSES_FILE).length,
+    // allKnownClasses().length, not readJson(CLASSES_FILE).length: the
+    // old count was Classroom-only, same gap /api/classes itself had.
+    // Deliberately NOT classRoster(d).length — that count depends on
+    // showEmptyClasses, and this field means "how many classes does
+    // ClassDash know about, full stop", not "...that currently have
+    // something due", which would make an existing client's total
+    // silently shrink and grow with a setting it doesn't know about.
+    classes: allKnownClasses().length,
     total: d.items.length,
     dueSoon: d.burning.length,
     overdue: d.overdue.filter(x => !x.hidden).length,
@@ -185,7 +263,7 @@ const HANDLERS = {
     removedAt: x.removedAt || null,
   })),
 
-  '/api/classes': () => readJson(CLASSES_FILE),
+  '/api/classes': (d) => classRoster(d),
 };
 
 /** Reads and parses a POST body as JSON. Capped well above anything a

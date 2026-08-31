@@ -1924,4 +1924,9 @@ applyFilters();
   return outputPath;
 }
 
-module.exports = { writePage, daysUntil };
+// allKnownClasses is exported for 17-api.js's own /api/classes roster —
+// same reasoning as sortIntoBuckets being shared between this page and
+// the API instead of reimplemented: the merged-across-all-three-
+// platforms class list should mean exactly one thing everywhere it's
+// used, not two that could quietly drift apart.
+module.exports = { writePage, daysUntil, allKnownClasses };

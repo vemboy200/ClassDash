@@ -155,6 +155,20 @@ integration, a script, a phone shortcut).
 - **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
   `/api/overdue` `/api/assignments` `/api/announcements` `/api/removed`
   `/api/classes`.
+- **`/api/classes`, specifically:** the full class roster, merged across
+  Classroom/Canvas/Edpuzzle (`allKnownClasses()` in `08-page.js`, not
+  just Classroom's own `classes.json` — that was the old shape).
+  `[{"name": "...", "dueSoon": 0, "ahead": 0, "overdue": 0}, ...]`. A
+  class with all-zero counts only appears here when `showEmptyClasses`
+  is on — same setting, same meaning, as the "show classes with
+  nothing due" toggle in the settings panel; `hideInactiveClasses`
+  narrows it further the same way it does there (a class with zero
+  history, not just zero due right now, stays out either way); an
+  excluded class is left out unconditionally. `/api/status`'s own
+  `classes` count is NOT gated by any of this — it's
+  `allKnownClasses().length`, unconditionally, so an existing client's
+  "how many classes total" number doesn't start moving on its own the
+  moment someone flips a display setting it's never heard of.
 - **Push:** `/api/stream` — Server-Sent Events, not WebSocket, since
   push here only ever needs to go server → client. Two event names on
   the same connection:
