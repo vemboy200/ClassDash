@@ -729,7 +729,7 @@ function writePage(data, outputPath) {
     background: var(--bg); color: var(--text);
     font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
-  main { max-width: 1180px; margin: 0 auto; }
+  main { max-width: 1800px; margin: 0 auto; }
   /* Assignments on the left, announcements on the right. Stacked on narrow screens. */
   .columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; }
   @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }

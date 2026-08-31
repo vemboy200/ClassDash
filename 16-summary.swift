@@ -368,7 +368,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         buildMainMenu()
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1150, height: 850),
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 850),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         // NSWindow defaults to isReleasedWhenClosed = true — AppKit frees
