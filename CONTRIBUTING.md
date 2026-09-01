@@ -125,6 +125,41 @@ project folder.
 
 ---
 
+## Update check
+
+`build.sh` bakes the real version into `CFBundleShortVersionString` —
+`VERSION`, passed in explicitly by the release workflow (the tag, "v"
+stripped), or `git describe --tags --always --dirty` for a local build
+(honest about not being a tagged release, rather than a hardcoded "1.0"
+that was never actually true — see `build.sh`'s own comment for that
+history).
+
+`checkForUpdates()` in `16-summary.swift` runs on launch and every 24
+hours after (`setupUpdateCheck()`), plus on demand from **Check for
+Updates…** in the menu bar. It hits GitHub's `releases/latest` API
+directly (no auth — the public unauthenticated rate limit is nowhere
+close to what this needs), compares `tag_name` against the app's own
+`CFBundleShortVersionString` with a plain numeric per-component compare
+(`isNewer`), and writes the result to `update-status.json`:
+`{"currentVersion", "latestVersion", "url", "checkedAt",
+"updateAvailable", "dismissedVersion"}`. A manual check shows an
+`NSAlert` either way — "you're up to date" or (bringing the window
+forward and reloading it) the new banner; the automatic checks stay
+silent unless there's actually something to show.
+
+`dismissedVersion` is the one field Swift never writes — `08-page.js`
+reads the whole file to decide whether to show the banner (only when
+`updateAvailable` and `latestVersion !== dismissedVersion`, so
+dismissing v1.3.0 today doesn't swallow v1.4.0's banner later), and the
+dismiss button goes through the normal napominalka:// bridge
+(`dismissUpdate`, arg = the version being dismissed) to
+`26-update-check.js`, the same file-based handoff every other piece of
+state shared between the app and the collector already uses. Also
+surfaced as a read-only row in Settings → Advanced, regardless of
+whether the banner's been dismissed.
+
+---
+
 ## Settings reference
 
 Almost everything below now has a control in the settings panel (gear
@@ -356,6 +391,7 @@ integration, a script, a phone shortcut).
 | `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
 | `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
 | `25-check-status.js` | per-platform "did the last check work?" — ok/problem/unknown |
+| `26-update-check.js` | reads the update check 16-summary.swift already ran; writes the one field that's this side's to own (dismissedVersion) |
 | `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 | `.github/workflows/release.yml` | builds and publishes a `.dmg` release on a `v*` tag push |
 

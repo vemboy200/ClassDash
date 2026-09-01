@@ -47,8 +47,14 @@ jobs:
       # harmless on a throwaway CI runner. No `npm install` needed first:
       # building the app is pure swiftc + codesign, nothing here touches
       # Playwright or any other Node dependency.
+      # VERSION is passed explicitly here, not left to build.sh's own
+      # `git describe` fallback: a shallow checkout (actions/checkout's
+      # default) doesn't fetch tag history, so describe would only ever
+      # see the short hash, not the real tag. GITHUB_REF_NAME IS the
+      # tag on this trigger (see the `on: push: tags:` above) — the
+      # authoritative version for this exact release build, no guessing.
       - name: Build the app
-        run: ./build.sh
+        run: VERSION="${GITHUB_REF_NAME#v}" ./build.sh
 
       # Staged in its own folder, not zipped straight from the repo
       # checkout: a .dmg with just the .app floating in it means dragging

@@ -309,6 +309,16 @@ function main(action, arg) {
       require('./23-api-security.js').rollToken();
       redraw();
       return { ok: true, action };
+    // arg is the version being dismissed, plain text — a version
+    // string never needs the base64url-JSON treatment 'config' and the
+    // virtual-assignment actions below use for structured payloads. See
+    // 26-update-check.js's own header comment for why this writes
+    // dismissedVersion from here instead of 16-summary.swift's own
+    // update check doing it directly.
+    case 'dismissUpdate':
+      require('./26-update-check.js').dismissUpdate(arg);
+      redraw();
+      return { ok: true, action };
 
     // ── Virtual assignments — see 24-virtual-assignments.js's own
     // header comment for what these are and why they're not just

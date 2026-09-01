@@ -263,6 +263,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // fully running. See setupAutoFreshCheck() below.
     var isDisplayAsleep = false
     var autoFreshCheckTimer: Timer?
+    var updateCheckTimer: Timer?
 
     // WHEN THE LAST OUTGOING LINK WAS HANDED TO macOS.
     //
@@ -461,6 +462,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         NSApp.activate(ignoringOtherApps: true)
 
         setupAutoFreshCheck()
+        setupUpdateCheck()
     }
 
     // MARK: - Menu bar
@@ -483,6 +485,14 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About ClassDash",
                          action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        // Standard placement — right under About, in every app that has
+        // one (Sparkle-based or not). No key equivalent: nothing else in
+        // this app claims one, and it isn't a frequent-enough action to
+        // deserve a shortcut.
+        let updateItem = appMenu.addItem(withTitle: "Check for Updates…",
+                                          action: #selector(checkForUpdatesManually), keyEquivalent: "")
+        updateItem.target = self
         appMenu.addItem(NSMenuItem.separator())
         // Cmd-, — the standard shortcut every app with a settings/
         // preferences item binds, expected to work without having to be
@@ -857,6 +867,168 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             return state == kIOPSACPowerValue
         }
         return true
+    }
+
+    // MARK: - Update check
+
+    // "IS THERE A NEWER RELEASE?" — CHECKED HERE, NOT FROM NODE.
+    //
+    // The GitHub API call and the version comparison both happen in
+    // this process, not 05-playwright-draft.js: this is the one place
+    // with a long-running Timer already (see setupAutoFreshCheck right
+    // above) and a menu bar to hang a manual "Check for Updates…" item
+    // on — neither exists on the Node side. The result is written to
+    // update-status.json so 08-page.js can still show it on the
+    // summary page and in settings, the same file-based handoff every
+    // other piece of state shared between this app and the collector
+    // already uses (settings.json, last-collection.json, and the rest).
+    //
+    // Dismissing the banner is the one piece that goes the OTHER way —
+    // the page calls back through the normal napominalka:// bridge
+    // (dismissUpdate, in 21-notifier-actions.js) instead of this file
+    // touching update-status.json a second way. One writer for
+    // "did we check and what did we find" (this function), one writer
+    // for "has the user seen it" (the bridge) — no two code paths ever
+    // racing to write the same field.
+    func setupUpdateCheck() {
+        checkForUpdates(manual: false)
+        // No minute-by-minute "is it time yet?" tick like the fresh-
+        // check timer above — there's no awake/asleep distinction to
+        // make here, just "once a day while the app happens to be
+        // running", and the launch-time check right above already
+        // covers the common case of the app not staying open 24 hours
+        // straight.
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
+            self?.checkForUpdates(manual: false)
+        }
+    }
+
+    @objc private func checkForUpdatesManually() {
+        checkForUpdates(manual: true)
+    }
+
+    // The repo this app itself is built from — not configurable,
+    // there's only ever the one place this project's releases come from.
+    private static let updateAPIURL = URL(string:
+        "https://api.github.com/repos/vemboy200/ClassDash/releases/latest")!
+    private static let updateReleasesURL =
+        "https://github.com/vemboy200/ClassDash/releases/latest"
+
+    private func checkForUpdates(manual: Bool) {
+        let currentVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
+
+        var request = URLRequest(url: Self.updateAPIURL)
+        // No auth needed for a public repo's releases — GitHub's
+        // unauthenticated rate limit (60/hour per IP) is nowhere close
+        // to what a once-a-day-plus-occasional-manual-click check needs.
+        // The User-Agent header IS required though: GitHub's API 403s
+        // any request that doesn't send one at all.
+        request.setValue("ClassDash/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            if let error = error {
+                logWindow("update check failed: \(error.localizedDescription)")
+                if manual {
+                    let reason = error.localizedDescription
+                    DispatchQueue.main.async { self.showUpdateCheckFailedAlert(reason) }
+                }
+                return
+            }
+            guard let data = data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tagName = obj["tag_name"] as? String else {
+                logWindow("update check: couldn't parse GitHub's response")
+                if manual {
+                    DispatchQueue.main.async { self.showUpdateCheckFailedAlert("unexpected response from GitHub") }
+                }
+                return
+            }
+            let latestVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+            let releaseURL = (obj["html_url"] as? String) ?? Self.updateReleasesURL
+            let updateAvailable = Self.isNewer(latestVersion, than: currentVersion)
+
+            logWindow("update check: running \(currentVersion), latest is \(latestVersion)" +
+                            (updateAvailable ? " — update available" : ""))
+            self.writeUpdateStatus(currentVersion: currentVersion, latestVersion: latestVersion,
+                                    url: releaseURL, updateAvailable: updateAvailable)
+
+            if manual {
+                DispatchQueue.main.async {
+                    if updateAvailable {
+                        self.window.makeKeyAndOrderFront(nil)
+                        NSApp.activate(ignoringOtherApps: true)
+                        self.web.evaluateJavaScript("location.reload()", completionHandler: nil)
+                    } else {
+                        let alert = NSAlert()
+                        alert.messageText = "You're up to date"
+                        alert.informativeText = "ClassDash \(currentVersion) is the latest version."
+                        alert.runModal()
+                    }
+                }
+            }
+        }.resume()
+    }
+
+    @MainActor
+    private func showUpdateCheckFailedAlert(_ reason: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't check for updates"
+        alert.informativeText = reason
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+
+    // Written fresh on every check, EXCEPT dismissedVersion — that field
+    // belongs to the bridge-side writer (dismissUpdate in
+    // 21-notifier-actions.js), not this one, and has to survive being
+    // overwritten by the next automatic check or it would silently
+    // un-dismiss a banner the user already closed. Read the existing
+    // file first and carry that one field forward; every other field is
+    // this function's own to decide fresh each time.
+    private func writeUpdateStatus(currentVersion: String, latestVersion: String,
+                                    url: String, updateAvailable: Bool) {
+        let path = projectDir + "/update-status.json"
+        var dismissedVersion: String? = nil
+        if let existing = FileManager.default.contents(atPath: path),
+           let obj = try? JSONSerialization.jsonObject(with: existing) as? [String: Any] {
+            dismissedVersion = obj["dismissedVersion"] as? String
+        }
+
+        let formatter = ISO8601DateFormatter()
+        var status: [String: Any] = [
+            "currentVersion": currentVersion,
+            "latestVersion": latestVersion,
+            "url": url,
+            "checkedAt": formatter.string(from: Date()),
+            "updateAvailable": updateAvailable,
+        ]
+        if let dismissedVersion = dismissedVersion {
+            status["dismissedVersion"] = dismissedVersion
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
+    }
+
+    // Plain numeric version comparison — "1.10.0" is newer than "1.9.0",
+    // not older, which a naive string compare would get wrong. No
+    // pre-release/build-metadata handling (a real release tag is always
+    // clean X.Y.Z here — see build.sh's own VERSION comment for why a
+    // local dev build's messier `git describe` output is never what
+    // ships as a tagged release), and missing components pad with 0 so
+    // "1.2" vs "1.2.0" compares equal instead of erroring.
+    private static func isNewer(_ a: String, than b: String) -> Bool {
+        func parts(_ s: String) -> [Int] {
+            s.split(separator: ".").map { Int($0.prefix(while: { $0.isNumber })) ?? 0 }
+        }
+        let (pa, pb) = (parts(a), parts(b))
+        for i in 0..<max(pa.count, pb.count) {
+            let (x, y) = (i < pa.count ? pa[i] : 0, i < pb.count ? pb[i] : 0)
+            if x != y { return x > y }
+        }
+        return false
     }
 
     // MARK: - JS confirm()

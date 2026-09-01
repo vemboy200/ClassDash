@@ -23,6 +23,7 @@ const { currentToken, certFingerprint, isServerRunning } = require('./23-api-sec
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { isClassStale } = require('./22-class-activity.js');
 const { checkStatus } = require('./25-check-status.js');
+const { readUpdateStatus } = require('./26-update-check.js');
 
 // Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
 // characters — nothing in Unicode reads as "thorough sync" the way this
@@ -613,6 +614,33 @@ ${rows}
       </div>`;
 }
 
+/**
+ * Read-only version info row for the Advanced section — CFBundleShort-
+ * VersionString (see build.sh), plus whatever the last update check
+ * found. Never a data-key: saveSettings() walks [data-key]/
+ * [data-bool-key], and there's nothing here to save, just to read.
+ */
+function versionRow() {
+  const status = readUpdateStatus();
+  const current = status ? status.currentVersion : null;
+  const versionText = current ? `v${current}` : t('checkStatusNeverChecked');
+  const updateNote = status && status.updateAvailable
+    ? ` — ${t('updateAvailable')} <b>v${escapeHtml(status.latestVersion)}</b>` +
+      ` (<a href="${escapeHtml(status.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateViewRelease'))}</a>)`
+    : '';
+  // Empty middle span deliberately kept — .setting-row is a fixed
+  // 3-column grid (name / value / hint), and every other row has
+  // something in that middle slot (an input, a checkbox). Without it,
+  // grid auto-placement puts the hint in column 2 instead of 3,
+  // sitting right next to the name instead of where every other row's
+  // hint actually lands.
+  return `      <label class="setting-row">
+        <span class="field-name">ClassDash</span>
+        <span></span>
+        <span class="field-hint">${escapeHtml(versionText)}${updateNote}</span>
+      </label>`;
+}
+
 function settingsPanel() {
   const s = readSettings();
   const apiToken = currentToken();
@@ -737,6 +765,7 @@ ${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.fresh
         <span class="field-hint">${escapeHtml(t('settingsFreshCheckChargingHint'))}</span>
       </label>` },
     { id: 'advanced', label: t('settingsAdvanced'), body: `
+${versionRow()}
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
 ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('settingsPassLimitHint'))}
@@ -1058,6 +1087,24 @@ function writePage(data, outputPath) {
     ? `  <div class="empty">${escapeHtml(t('emptyState'))}</div>`
     : '';
 
+  // Dismissable per-VERSION, not per-session: dismissedVersion (see
+  // 26-update-check.js) only matches the exact version it was recorded
+  // against, so dismissing v1.3.0's banner today doesn't silently
+  // swallow v1.4.0's whenever that ships later — the comparison here is
+  // deliberately == the latest version, not "was dismissed at all".
+  const updateStatus = readUpdateStatus();
+  const updateBanner = (updateStatus && updateStatus.updateAvailable &&
+                         updateStatus.latestVersion !== updateStatus.dismissedVersion)
+    ? `  <div class="warn update-banner" id="update-banner">
+       <span>${escapeHtml(t('updateAvailable'))} <b>v${escapeHtml(updateStatus.latestVersion)}</b>
+       (${escapeHtml(t('updateCurrentlyRunning'))} v${escapeHtml(updateStatus.currentVersion)}).
+       <a href="${escapeHtml(updateStatus.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateViewRelease'))}</a></span>
+       <button type="button" class="update-dismiss" data-version="${escapeHtml(updateStatus.latestVersion)}"
+               onclick="dismissUpdateBanner(this)"
+               title="${escapeHtml(t('updateDismiss'))}">&times;</button>
+     </div>`
+    : '';
+
   const html = `<!doctype html>
 <html lang="ru">
 <head>
@@ -1261,6 +1308,14 @@ function writePage(data, outputPath) {
     background: var(--warnbg); color: var(--warn); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px;
   }
+  .update-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .update-banner a { color: inherit; text-decoration: underline; }
+  .update-dismiss {
+    background: none; border: none; color: inherit; opacity: .6;
+    font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
+    flex-shrink: 0;
+  }
+  .update-dismiss:hover { opacity: 1; }
   .live {
     background: var(--card); border: 1px solid var(--line); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px; color: var(--dim);
@@ -1541,6 +1596,7 @@ function writePage(data, outputPath) {
 ${checkStatusPanel()}
   </header>
 ${inProgress}
+${updateBanner}
 ${warning}
   <div class="columns">
   <div>
@@ -2196,6 +2252,17 @@ function toggleCheckStatusDetail() {
   var panel = document.getElementById('check-status-panel');
   if (!panel) return;
   panel.hidden = !panel.hidden;
+}
+
+// Hides right away, doesn't wait on the round trip — same optimistic-
+// update pattern as hiding an overdue card. Worst case (the write
+// somehow fails) the banner just comes back on the next real redraw,
+// no worse than not dismissing it at all.
+function dismissUpdateBanner(btn) {
+  var version = btn.getAttribute('data-version');
+  dispatchAction('dismissUpdate', version);
+  var banner = document.getElementById('update-banner');
+  if (banner) banner.hidden = true;
 }
 
 // Switches which settings section is visible. Sections that aren't

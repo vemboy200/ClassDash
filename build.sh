@@ -31,7 +31,28 @@ cd "$PROJ"
 TMPDIR_="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_"' EXIT
 
+# ── Version ───────────────────────────────────────────────────────
+#
+# Baked into Info.plist below so the app can actually tell "check for
+# updates" what it's running. Used to be a hardcoded "1.0" that never
+# changed no matter what tag a release actually shipped under — silently
+# disconnected from the real version the whole time, and nothing this
+# project does with the app's version (this check included) worked
+# right until that stopped being true.
+#
+# The release workflow passes VERSION explicitly (the tag, "v" stripped —
+# see .github/workflows/release.yml). A local build has no tag to go by,
+# so it falls back to `git describe`: the nearest tag plus a commit
+# count/hash if HEAD isn't exactly on one, which is at least honest about
+# "not a real release build" instead of quietly claiming to be v1.0.
+# `--always` covers a repo with no tags at all yet, falling back to just
+# the short hash; the final `|| echo` covers no git history at all
+# (a zip download, not a clone).
+VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")}"
+VERSION="${VERSION#v}"
+
 echo "Project: $PROJ"
+echo "Version: $VERSION"
 echo
 
 # ── Code-signing identity ────────────────────────────────────────
@@ -115,7 +136,7 @@ if command -v swiftc >/dev/null; then
     <key>CFBundleIdentifier</key><string>com.artem.svodka</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>ProjectPath</key><string>$PROJ</string>
     <!-- Claims napominalka:// -- the fallback path for when the page is
