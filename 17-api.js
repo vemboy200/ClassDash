@@ -73,6 +73,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
 const { daysUntil, allKnownClasses } = require('./08-page.js');
+const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
 // check itself all live in their own leaf module — 21-notifier-actions.js
 // needs the exact same logic (starting/stopping this server, rolling the
@@ -225,10 +226,19 @@ function classRoster(d) {
     // class ever had anything at all" than that comment even asks for.
     const everHadClasswork = hideInactive ? new Set(d.items.map(x => x.class)) : null;
     const everHadAnnouncement = hideInactive ? new Set(d.announcements.map(p => p.class)) : null;
+    // Same carve-out as the page's own filter (see filtersPanel's own
+    // comment in 08-page.js): skipStaleClasses means "skip it", not
+    // "keep listing it with a permanent zero" — separate from
+    // hideInactiveClasses, since a stale class usually DID have real
+    // history once, it's just gone quiet since. Same isClassStale() the
+    // fetch-skip decision itself uses, so this list and what's actually
+    // being fetched can never disagree.
+    const skipStale = settings.skipStaleClasses;
 
     for (const name of allKnownClasses()) {
       if (present.has(name) || excluded.has(name)) continue;
       if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
+      if (skipStale && isClassStale(name)) continue;
       roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0 });
     }
   }

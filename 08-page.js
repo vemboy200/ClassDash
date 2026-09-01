@@ -21,6 +21,7 @@ const path = require('path');
 // comment on why it exists separately from 17-api.js.
 const { currentToken, certFingerprint, isServerRunning } = require('./23-api-security.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
+const { isClassStale } = require('./22-class-activity.js');
 
 // Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
 // characters — nothing in Unicode reads as "thorough sync" the way this
@@ -812,9 +813,26 @@ ${content.join('\n')}
     const everHadClasswork = hideInactive ? new Set((rawItems || allItems).map(x => x.class)) : null;
     const everHadAnnouncement = hideInactive ? new Set(announcements.map(p => p.class)) : null;
 
+    // SKIPSTALECLASSES HIDES HERE TOO, NOT JUST FROM FETCHING.
+    //
+    // The user's own expectation, and a fair one: "skip inactive
+    // classes" reads as "skip it", full stop — not "keep fetching it a
+    // little less and still list it forever with a permanent 0". This
+    // is deliberately a SEPARATE check from hideInactiveClasses right
+    // above, not folded into it: hideInactiveClasses means "literally
+    // never had any history, ever", which a stale class usually
+    // doesn't qualify for (Video Game Club had real assignments once —
+    // it just isn't stale in the "no history" sense, it's stale in the
+    // "gone quiet for staleMonths" sense). Two different questions,
+    // same isClassStale() the actual fetch-skip decision already uses,
+    // so a class that's currently being fetched and one that's hidden
+    // here can never disagree about which classes count as stale.
+    const skipStale = filterSettings.skipStaleClasses;
+
     for (const name of allKnownClasses()) {
       if (present.has(name) || excluded.has(name)) continue;
       if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
+      if (skipStale && isClassStale(name)) continue;
       classCounts.push([name, 0]);
     }
     classCounts = classCounts.sort((a, b) => a[0].localeCompare(b[0], 'ru'));
