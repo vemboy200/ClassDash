@@ -14,6 +14,17 @@ a design decision, or build against the home API.
 | Canvas | Canvas's own REST API (`10-canvas.js`) — the same one documented at `canvas.instructure.com/doc/api/` | Official API, but not accessed the official way: no OAuth app registration or access token, the request just rides the already-open browser page's existing session cookies (see `10-canvas.js`'s own comment). Works fine headless. |
 | Edpuzzle | Edpuzzle's internal REST endpoints (`11-edpuzzle.js`) | Unofficial — no public docs, no token; the endpoints were found by watching the site's own network traffic, and the shape of what they return was confirmed against real responses, not a spec. Actively detects and refuses headless browsers ("Error 18"), so any collection pass that includes it needs a real, visible (if off-screen) browser window — see that file's own top comment for why, and `05-playwright-draft.js` for how `withEdpuzzle` decides when that's worth it. |
 
+**Materials** (`type: 'Material'` — something to read, not turn in, no due
+date, shown once) come from both Classroom and Canvas: Classroom scrapes
+them off the same stream Assignments come from, Canvas fetches them
+separately via its own Pages endpoint (`/api/v1/courses/:id/pages`), also
+official and also cookie-riding, same as Canvas Assignments. Both feed the
+exact same shared item shape, so nothing downstream (bucketing, the "New
+materials" section, the API) needs to know which platform a material came
+from. Canvas Files aren't collected — too broad and noisy (every upload,
+including things like the syllabus PDF) to map cleanly onto "new material
+worth mentioning" the way a Page is.
+
 All three run through one shared Playwright browser instance per pass —
 not three separate ones — so Edpuzzle's headless restriction ends up
 governing the whole pass: the moment it's included, the entire browser
@@ -131,7 +142,7 @@ icon on the summary page) — this table exists for anyone editing
 | `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
 | `skipStaleClasses` | `true` (default) — a class with no assignment or announcement in `staleMonths` gets treated as done and stops being checked, on Classroom and Canvas as well as Edpuzzle. Edpuzzle has a real `updatedAt` per class to check directly; Classroom and Canvas don't, so staleness there is judged from this project's own memory of what it's ever seen for that class instead (see `22-class-activity.js`) |
 | `staleMonths` | `3` (default), 1–12 — how long a class can go quiet before `skipStaleClasses` treats it as stale |
-| `hideInactiveClasses` | `false` (default) — a class this project has **never once** recorded an assignment or announcement for still gets listed by `showEmptyClasses` as just another empty one; this hides those specifically, leaving classes that are merely quiet for now still listed. Display only — doesn't change what gets fetched, unlike `skipStaleClasses` |
+| `hideInactiveClasses` | `false` (default) — a class this project has **never once** recorded an assignment, material, or announcement for still gets listed by `showEmptyClasses` as just another empty one; this hides those specifically, leaving classes that are merely quiet for now still listed. Display only — doesn't change what gets fetched, unlike `skipStaleClasses` |
 | `showEmptyClasses` | `false` (default) — the class filter only lists classes with something currently due/overdue/removed; `true` always lists every known class with a 0 next to the empty ones instead of them disappearing |
 | `apiEnabled` | `false` (default) — starts or stops the home API when toggled from the settings panel |
 | `apiNetwork` | `true` (default, only meaningful while `apiEnabled` is on) — binds `0.0.0.0` (LAN-visible) instead of `127.0.0.1` (this machine only). Defaults on because the main reason to enable the API at all is usually a client on a different device (Home Assistant); the actual protection is TLS + the bearer token, not which interface it's bound to. Changing this restarts the server — the bind address is only decided at its own startup |
@@ -298,7 +309,7 @@ integration, a script, a phone shortcut).
 |---|---|
 | `05-playwright-draft.js` | the collector: reads sources, diffs against memory, notifies |
 | `08-page.js` | builds `summary.html` — plain code, no model involved |
-| `10-canvas.js` | Canvas through its official REST API; courses are discovered, not hardcoded |
+| `10-canvas.js` | Canvas through its official REST API; courses are discovered, not hardcoded; assignments and Pages (materials) both |
 | `11-edpuzzle.js` | Edpuzzle through its own internal API (no public one exists — learned by watching the site itself); needs a visible window |
 | `12-feed.js` | teacher announcements from the Classroom stream |
 | `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |

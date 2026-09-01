@@ -703,7 +703,7 @@ ${sectionBlocks}
  * page, not from a list known ahead of time: classes now come from the
  * site itself, and a hardcoded list would go stale by September.
  */
-function filtersPanel(allItems, announcements, now) {
+function filtersPanel(allItems, announcements, now, rawItems) {
   // Counts how many cards each checkbox would match. The number next to
   // it immediately shows whether there's anything there — like the Steam
   // library the user referenced.
@@ -775,14 +775,25 @@ ${content.join('\n')}
     // showEmptyClasses can't tell "quiet right now" apart from "this
     // project has never once recorded anything for this class" — both
     // look like a bare 0. everHadClasswork/everHadAnnouncement answer
-    // that from data already on hand: allItems already includes
-    // everything ever collected for a class, removed items included
-    // (see the comment where allItems itself is built), and
-    // announcements is the same full historical merge, not just this
-    // pass's new ones. A class in neither set has no history at all,
-    // as opposed to one that simply has nothing due RIGHT NOW.
+    // that from data already on hand: announcements is the full
+    // historical merge, not just this pass's new ones, so that half is
+    // fine as-is.
+    //
+    // The classwork half is deliberately NOT allItems, even though
+    // allItems sounds like "everything" — it's actually the page's own
+    // display list, and materials only stay in it while they're still
+    // "new" (see newMaterials above and its own comment). A class whose
+    // only history is a material read weeks ago would look exactly like
+    // a class with no history at all once that material aged out of
+    // allItems, and hideInactiveClasses would hide it — caught live: a
+    // class with only Google Classroom materials, no assignments or
+    // announcements, disappeared under this toggle. rawItems is the
+    // actual full collection (everything last-collection.json has ever
+    // recorded, materials included regardless of read status), passed
+    // in from writePage() separately from the display-filtered allItems
+    // for exactly this reason.
     const hideInactive = filterSettings.hideInactiveClasses;
-    const everHadClasswork = hideInactive ? new Set(allItems.map(x => x.class)) : null;
+    const everHadClasswork = hideInactive ? new Set((rawItems || allItems).map(x => x.class)) : null;
     const everHadAnnouncement = hideInactive ? new Set(announcements.map(p => p.class)) : null;
 
     for (const name of allKnownClasses()) {
@@ -826,6 +837,14 @@ function writePage(data, outputPath) {
   const { burning, later, undated, freshIds, broken, now } = data;
   const reading = data.reading || [];
   const deferred = data.deferred || [];
+  // Full, unbucketed collection — everything last-collection.json has
+  // ever recorded, materials included regardless of whether they're
+  // still "new". Only used for hideInactiveClasses's history check (see
+  // filtersPanel's own comment on why that can't just reuse allItems);
+  // falls back to allItems itself if a caller doesn't have it, so a
+  // missing rawItems degrades to the old (buggy but harmless) behavior
+  // instead of crashing.
+  const rawItems = data.items || null;
 
   // Announcements from streams. Freshest on top.
   const overdue = data.overdue || [];
@@ -1316,7 +1335,7 @@ ${warning}
   <div class="columns">
   <div>
 ${settingsPanel()}
-${filtersPanel(allItems, announcements, now)}
+${filtersPanel(allItems, announcements, now, rawItems)}
 ${emptyBanner}
 ${remindersSection(now)}
 ${overdueSection(overdue, now)}

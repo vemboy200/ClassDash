@@ -233,6 +233,48 @@ async function collectCanvasOnce(page) {
         description: cleanDescription(a.description),
       });
     }
+
+    // Pages — Canvas's equivalent of a Classroom Material: something for
+    // a student to read, nothing to turn in, no due date. Same shared
+    // shape as Classroom's own materials (type: 'Material', due: null),
+    // which is what routes them into "undated" in sortIntoBuckets and
+    // "New materials" on the page — no separate handling needed anywhere
+    // else in the pipeline, that behavior falls out for free.
+    //
+    // TURNS OUT THE LIST ENDPOINT DOES NOT FILTER THIS FOR US.
+    //
+    // The assumption was that, like the assignments call above, this
+    // would only ever come back with what the signed-in account can
+    // actually see — Classroom's own scrape only ever sees what's
+    // rendered for the logged-in user, so the same was expected here.
+    // Wrong: caught live, unpublished pages (`published: false`) showing
+    // up in the response and landing on the summary page as materials —
+    // teacher drafts a student was never meant to see yet. `published`
+    // is explicitly checked instead of trusted away by omission: an
+    // account without manage-content rights on some course may not get
+    // the field back at all (`undefined`), and that has to still mean
+    // "show it" — only a literal `false` means "not yet published,
+    // leave it out".
+    const pages = await ask(page,
+      `/api/v1/courses/${course.id}/pages?per_page=100`);
+
+    for (const p of pages) {
+      if (p.published === false) continue;
+      items.push({
+        platform: 'Canvas',
+        class: course.name,
+        // Same collision reasoning as assignments above, plus its own
+        // "page" tag: a course's assignment and page ids are independent
+        // counters too, and could otherwise collide with each other.
+        id: `canvas-page-${p.page_id}`,
+        type: 'Material',
+        title: p.title,
+        link: p.html_url,
+        due_iso: null,
+        due: null,
+        posted: p.created_at || null,
+      });
+    }
   }
 
   const courses = active.map(c => c.name);

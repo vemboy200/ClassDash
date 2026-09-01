@@ -853,7 +853,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     try {
       page = await ctx.newPage();
       const { items, courses, pending } = await collectCanvas(page);
-      console.log(`  Canvas: courses ${courses.length}, assignments ${items.length}` +
+      console.log(`  Canvas: courses ${courses.length}, items ${items.length}` +
                   (pending.length ? `, waiting to publish: ${pending.join(', ')}` : ''));
       result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true };
     } catch (e) {
@@ -1518,7 +1518,7 @@ function redrawPage() {
     sortIntoBuckets(items, now, readMutedIds(), readHiddenIds());
 
   writePage({
-    burning, later, undated, deferred, overdue, gone,
+    burning, later, undated, deferred, overdue, gone, items,
     freshIds: new Set(freshMarks.assignments || []),
     broken: [], now,
     announcements,
@@ -1682,7 +1682,7 @@ if (require.main !== module) return;
     // "New" badges aren't set along the way: what's actually new only
     // becomes clear once every class has been read.
     writePage(
-      { burning, later, undated, deferred, overdue, gone,
+      { burning, later, undated, deferred, overdue, gone, items: combined,
         freshIds: new Set(), broken, reading: stillReading, now },
       PAGE_FILE,
     );
@@ -1871,6 +1871,7 @@ if (require.main !== module) return;
   // it needs to be fresh at any moment someone clicks it.
   writePage({
     burning, later, undated, deferred, overdue, gone, freshIds, broken, now,
+    items: all,
     announcements: allAnnouncements,
     freshAnnouncements: new Set(newAnnouncements.map(x => x.id)),
   }, PAGE_FILE);
