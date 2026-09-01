@@ -195,6 +195,7 @@ const SETTINGS = require('./19-settings.js').read();
 // Details, and why this matters at all, are in 20-browser.js.
 const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-browser.js');
 const { isClassStale, recordActivity } = require('./22-class-activity.js');
+const { record: recordCheckStatus } = require('./25-check-status.js');
 const BROWSER = SETTINGS.browserPath
   ? { executablePath: path.resolve(__dirname, SETTINGS.browserPath) }
   : ownBrowserInstalled()
@@ -866,7 +867,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
       result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true };
     } catch (e) {
       console.error(`  error on Canvas: ${e.message}`);
-      result = { cls: { id: 'canvas', name: 'Canvas' }, items: [], ok: false };
+      result = { cls: { id: 'canvas', name: 'Canvas' }, items: [], ok: false, error: e.message };
     } finally {
       if (page) { try { await page.close(); } catch {} }
     }
@@ -885,7 +886,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
       result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items, ok: true };
     } catch (e) {
       console.error(`  error on Edpuzzle: ${e.message}`);
-      result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items: [], ok: false };
+      result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items: [], ok: false, error: e.message };
     } finally {
       if (page) { try { await page.close(); } catch {} }
     }
@@ -928,7 +929,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
       console.error(`  error on ${cls.name}: ${e.message}`);
       // ok: false is NOT "the class is empty", it's "the class didn't
       // load". The difference matters — see diffWithPrevious.
-      result = { cls, items: [], ok: false };
+      result = { cls, items: [], ok: false, error: e.message };
     } finally {
       if (page) { try { await page.close(); } catch {} }
     }
@@ -970,6 +971,15 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     all: results.flatMap(r => r.items),
     announcements: results.flatMap(r => r.announcements || []),
     broken: results.filter(r => !r.ok).map(r => r.cls.name),
+    // Raw per-task results, `cls`/`items`/`ok`/`error` and all — kept
+    // alongside `broken` rather than replacing it, since `broken` is a
+    // flat name list other code already depends on (diffWithPrevious's
+    // wasUnread, the unread array). This is for 25-check-status.js:
+    // recording a per-platform status needs to tell "Canvas failed"
+    // apart from "some Classroom class failed" (broken mixes both into
+    // one array of names) and wants the actual error message, which
+    // broken never carried at all.
+    results,
   };
 }
 
@@ -1693,7 +1703,7 @@ if (require.main !== module) return;
 
   setFeedEmail(AUTHUSER);
 
-  const { all: collected, announcements, broken } = await collect(({ items, reading, broken, stillReading }) => {
+  const { all: collected, announcements, broken, results: taskResults } = await collect(({ items, reading, broken, stillReading }) => {
     // Add in from memory whatever hasn't been reached yet, on top of
     // what's already been read. Same fix as in diffWithPrevious: a
     // source's name and the class name inside it are different things.
@@ -1740,6 +1750,32 @@ if (require.main !== module) return;
     ...collected.filter(x => !/^completed\b/i.test(x.type || '')).map(x => x.class),
     ...announcements.map(p => p.class),
   ])]);
+
+  // PER-PLATFORM STATUS — "did the last check actually work?"
+  //
+  // Canvas and Edpuzzle are single tasks each, so their own result
+  // (found by matching taskResults's fixed 'Canvas'/'Edpuzzle' cls.id —
+  // set literally in collect() itself, never a real class's id) speaks
+  // for the whole platform directly. Classroom is different: it's N
+  // independent per-class tasks, not one — "ok" here means every class
+  // that was actually read this pass loaded cleanly; one bad class is
+  // enough to call the whole platform "problem", since that's exactly
+  // the signal someone reaching for a status page wants (something's
+  // wrong, go look), not an average across classes that mostly worked.
+  //
+  // Neither is called at all for a platform that wasn't attempted this
+  // pass (Canvas off, or Edpuzzle outside a full check) — its entry
+  // just stays whatever it last was, see 25-check-status.js's own
+  // comment on why that's fine.
+  const classroomResults = taskResults.filter(r => r.cls.id !== 'canvas' && r.cls.id !== 'edpuzzle');
+  if (classroomResults.length) {
+    const failed = classroomResults.find(r => !r.ok);
+    recordCheckStatus('classroom', !failed, failed ? `${failed.cls.name}: ${failed.error}` : null);
+  }
+  const canvasResult = taskResults.find(r => r.cls.id === 'canvas');
+  if (canvasResult) recordCheckStatus('canvas', canvasResult.ok, canvasResult.error);
+  const edpuzzleResult = taskResults.find(r => r.cls.id === 'edpuzzle');
+  if (edpuzzleResult) recordCheckStatus('edpuzzle', edpuzzleResult.ok, edpuzzleResult.error);
 
   // A SOURCE THAT WASN'T READ BEHAVES LIKE A BROKEN ONE: its assignments
   // are pulled from memory and don't count as new.

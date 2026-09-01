@@ -11,6 +11,7 @@ new.json
 last-collection.json
 virtual-assignments.json
 class-activity.json
+check-status.json
 api-cert.pem
 api-key.pem
 api-token.txt

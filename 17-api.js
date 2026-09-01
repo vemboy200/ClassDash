@@ -90,6 +90,7 @@ const {
 // case (apiEnabled/apiNetwork) that's deliberately NOT reachable this way.
 const notifierActions = require('./21-notifier-actions.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
+const { checkStatus } = require('./25-check-status.js');
 
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
@@ -308,6 +309,16 @@ const HANDLERS = {
   })),
 
   '/api/classes': (d) => classRoster(d),
+
+  // Per-platform "did the last check actually work?" — ok/problem/
+  // unknown, see 25-check-status.js's own header comment for the full
+  // reasoning. Its own handle, not folded into /api/status: that one's
+  // shape is depended on by existing clients (the counts an integration
+  // might already be polling), and this is a genuinely different kind
+  // of question — not "what's due", but "is the pipeline itself healthy
+  // right now" — so it gets a handle of its own instead of risking a
+  // shape change on the one that's already relied on.
+  '/api/check-status': () => checkStatus(),
 
   // Virtual assignments — reminders the user typed in themselves, not
   // read from any platform. See 24-virtual-assignments.js's own header

@@ -22,6 +22,7 @@ const path = require('path');
 const { currentToken, certFingerprint, isServerRunning } = require('./23-api-security.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { isClassStale } = require('./22-class-activity.js');
+const { checkStatus } = require('./25-check-status.js');
 
 // Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
 // characters — nothing in Unicode reads as "thorough sync" the way this
@@ -894,6 +895,40 @@ ${parts.join('\n')}
 }
 
 /**
+ * "Did the last check actually work?" — one small dot per platform, in
+ * the header. See 25-check-status.js for what ok/problem/unknown mean;
+ * this just renders whatever checkStatus() already decided.
+ *
+ * Platform display names are hardcoded English, not run through t() —
+ * same call already made for the .platform line right below the header
+ * and for every card's own platform label: these are product names,
+ * not sentence text, and stay the same word regardless of language.
+ */
+function checkStatusIndicator() {
+  const status = checkStatus();
+  const wordFor = (s) => s === 'ok' ? t('checkStatusOk')
+    : s === 'problem' ? t('checkStatusProblem') : t('checkStatusUnknown');
+
+  const entries = [
+    ['classroom', 'Google Classroom'],
+    ['canvas', 'Canvas'],
+    ['edpuzzle', 'Edpuzzle'],
+  ];
+
+  const dot = (key, label) => {
+    const s = status[key];
+    const when = s.at ? new Date(s.at).toLocaleString(locale(), {
+      day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+    }) : t('checkStatusNeverChecked');
+    const tooltip = `${label}: ${wordFor(s.status)} — ${when}` +
+      (s.detail ? `\n${s.detail}` : '');
+    return `<span class="status-dot status-${s.status}" title="${escapeHtml(tooltip)}"></span>`;
+  };
+
+  return `<span class="check-status">${entries.map(([k, l]) => dot(k, l)).join('')}</span>`;
+}
+
+/**
  * @param {object} data — {burning, later, undated, fresh, broken, now}
  * @param {string} outputPath — where to write the html
  */
@@ -1023,6 +1058,21 @@ function writePage(data, outputPath) {
   header { margin-bottom: 24px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   .when { color: var(--dim); font-size: 13px; }
+  /* Per-platform check status — three small dots, one per platform,
+     colors matching the meaning: --new (blue) for the same positive
+     sense the API's "running" indicator already uses, --hot (red) for
+     "something's actually wrong, go look", --dim (gray) for "not being
+     checked at all" (off, or no check has completed yet). The tooltip
+     carries the real detail — a dot alone can't say "which platform"
+     let alone "why", so it's built entirely from the title attribute. */
+  .check-status { margin-left: 10px; display: inline-flex; gap: 5px; vertical-align: middle; }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+    cursor: default;
+  }
+  .status-dot.status-ok { background: var(--new); }
+  .status-dot.status-problem { background: var(--hot); }
+  .status-dot.status-unknown { background: var(--dim); opacity: .5; }
   /* Reload/fresh-check/settings buttons — like a browser's, but on the
      page itself: the digest window has no browser chrome at all.
      Refresh just rereads the file; Fresh check triggers a real
@@ -1391,7 +1441,7 @@ function writePage(data, outputPath) {
          id="freshcheck-button"
          title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon freshcheck-icon"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
-         title="${escapeHtml(t('settingsTitle'))}">&#9881;</button></div>
+         title="${escapeHtml(t('settingsTitle'))}">&#9881;</button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
   </header>
 ${inProgress}

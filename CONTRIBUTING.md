@@ -184,7 +184,7 @@ integration, a script, a phone shortcut).
   on the very next request with no server restart.
 - **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
   `/api/overdue` `/api/done` `/api/assignments` `/api/announcements`
-  `/api/removed` `/api/classes` `/api/virtual`.
+  `/api/removed` `/api/classes` `/api/virtual` `/api/check-status`.
 - **Tags:** every assignment object (from any of the handles above that
   return one) carries a `tags` array — `"hidden"`, `"muted"`, `"done"`,
   `"removed"`, any combination, or empty. This replaced the API
@@ -243,6 +243,22 @@ integration, a script, a phone shortcut).
   marked done (pruned lazily, on the next read of the file — see that
   file's own comment); a hidden one stays hidden until explicitly
   un-hidden, no expiry.
+- **`/api/check-status`** — "did the last check actually work?", per
+  platform: `{"classroom": {...}, "canvas": {...}, "edpuzzle": {...}}`,
+  each `{"status": "ok"|"problem"|"unknown", "at": "<ISO>"|null,
+  "detail": "<string>"|null}`. `ok`/`problem` come from the last real
+  attempt at that platform; `unknown` means never attempted — either no
+  address configured (Canvas) or turned off (`edpuzzleEnabled`), or no
+  check has completed yet at all. Classroom's status is an AND across
+  every class actually read that pass, not a per-class breakdown — one
+  broken class is enough to call the whole platform `"problem"`, with
+  the failing class's name and error in `detail`. Canvas/Edpuzzle being
+  off overrides whatever was last recorded immediately, live at read
+  time — see `25-check-status.js`'s own header comment for the full
+  reasoning, including why this doesn't share a handle with
+  `/api/status` (a different question — pipeline health, not "what's
+  due" — and a separate handle avoids any risk of changing a shape
+  existing clients already depend on).
 - **Push:** `/api/stream` — Server-Sent Events, not WebSocket, since
   push here only ever needs to go server → client. Two event names on
   the same connection:
@@ -324,6 +340,7 @@ integration, a script, a phone shortcut).
 | `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
 | `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
 | `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
+| `25-check-status.js` | per-platform "did the last check work?" — ok/problem/unknown |
 | `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 | `.github/workflows/release.yml` | builds and publishes a `.dmg` release on a `v*` tag push |
 

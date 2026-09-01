@@ -196,6 +196,11 @@ full check) works fine on its own.
   it. If your teachers already post Edpuzzle assignments through Google
   Classroom too, there's a setting to skip Edpuzzle entirely — a fresh
   check is then faster and never opens that window.
+- Three small dots next to the gear icon, one per platform — blue means
+  the last check for that platform actually worked, red means it
+  failed (hover for why), gray means it isn't being checked at all
+  (Canvas with no address set, Edpuzzle turned off, or no check has
+  run yet).
 
 ## Home API
 
