@@ -1725,8 +1725,19 @@ if (require.main !== module) return;
   // in either array, so its recorded timestamp simply stays frozen at
   // whatever it truly was — see recordActivity()'s own comment in
   // 22-class-activity.js for why that matters.
+  //
+  // "COMPLETED" ITEMS DON'T COUNT AS ACTIVITY. Classroom keeps a turned-
+  // in assignment sitting in the class's own stream forever — it comes
+  // back in `collected` on every single pass, indefinitely, for as long
+  // as the class page is read at all. Counting that as "just seen
+  // active" made skipStaleClasses effectively never fire for any class
+  // that had ever had even one submitted assignment: its activity
+  // timestamp kept getting refreshed to right now, pass after pass,
+  // months after the last thing a teacher actually posted. Caught live
+  // — a school club's Classroom, quiet for months except old completed
+  // signup forms Classroom still renders, was never going stale.
   recordActivity([...new Set([
-    ...collected.map(x => x.class),
+    ...collected.filter(x => !/^completed\b/i.test(x.type || '')).map(x => x.class),
     ...announcements.map(p => p.class),
   ])]);
 
