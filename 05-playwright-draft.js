@@ -1199,6 +1199,20 @@ function deadline(item, now = new Date()) {
  * during collection (to redraw the page after each class) and at the end.
  */
 function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()) {
+  // Edpuzzle turned off means treated as gone entirely, not just "stop
+  // fetching new ones" — an old Edpuzzle item already sitting in memory
+  // from before the toggle was flipped gets filtered out right here,
+  // the one choke point both the page and the home API bucket through
+  // (see this function's own comment above), so neither has its own
+  // separate filter to keep in sync. Settings are read fresh on every
+  // call, not cached at module load like CANVAS_ENABLED/EDPUZZLE_ENABLED
+  // are — the home API runs as one long-lived process, and a toggle
+  // flipped from the settings panel has to take effect on the next
+  // request, not just after the server restarts.
+  if (require('./19-settings.js').read().edpuzzleEnabled === false) {
+    items = items.filter(x => x.platform !== 'Edpuzzle');
+  }
+
   const burning = [], later = [], undated = [], deferred = [], done = [];
   // Overdue items are no longer just counted, they're collected into a list.
   //
