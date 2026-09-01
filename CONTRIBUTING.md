@@ -6,6 +6,24 @@ a design decision, or build against the home API.
 
 ---
 
+## Platform support
+
+| Platform | Collection method | Official? |
+|---|---|---|
+| Google Classroom | Reads the rendered page directly (`05-playwright-draft.js`) | Not an API at all — Classroom doesn't offer one to students. This is the one genuinely fragile source: it can break if Google changes the page. |
+| Canvas | Canvas's own REST API (`10-canvas.js`) — the same one documented at `canvas.instructure.com/doc/api/` | Official API, but not accessed the official way: no OAuth app registration or access token, the request just rides the already-open browser page's existing session cookies (see `10-canvas.js`'s own comment). Works fine headless. |
+| Edpuzzle | Edpuzzle's internal REST endpoints (`11-edpuzzle.js`) | Unofficial — no public docs, no token; the endpoints were found by watching the site's own network traffic, and the shape of what they return was confirmed against real responses, not a spec. Actively detects and refuses headless browsers ("Error 18"), so any collection pass that includes it needs a real, visible (if off-screen) browser window — see that file's own top comment for why, and `05-playwright-draft.js` for how `withEdpuzzle` decides when that's worth it. |
+
+All three run through one shared Playwright browser instance per pass —
+not three separate ones — so Edpuzzle's headless restriction ends up
+governing the whole pass: the moment it's included, the entire browser
+goes visible, whether or not Classroom or Canvas individually need
+that. Positioned off-screen (`--window-position=-3000,-3000`) so it
+doesn't actually get in the way; confirmed compatible with both
+Edpuzzle and Classroom.
+
+---
+
 ## Building from source
 
 ```bash
