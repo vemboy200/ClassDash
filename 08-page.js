@@ -1132,11 +1132,17 @@ function writePage(data, outputPath) {
      reachable by keyboard and works on touch where hover doesn't)
      opens the panel below with the full breakdown, timestamps and
      error detail included. */
+  /* Same visible-at-rest chrome as .reload right next to it (border +
+     card background) — an invisible-until-hover button doesn't read as
+     clickable at all, and this one needs to, unlike the dots-only look
+     tried first. */
   .check-status {
-    margin-left: 10px; display: inline-flex; gap: 5px; vertical-align: middle;
-    background: none; border: none; padding: 4px; cursor: pointer; border-radius: 6px;
+    margin-left: 10px; display: inline-flex; align-items: center; gap: 5px;
+    vertical-align: middle; height: 26px; box-sizing: border-box;
+    background: var(--card); border: 1px solid var(--line); border-radius: 7px;
+    padding: 0 8px; cursor: pointer; transition: border-color .15s;
   }
-  .check-status:hover { background: var(--line); }
+  .check-status:hover { border-color: var(--new); }
   .status-dot {
     width: 9px; height: 9px; border-radius: 50%; display: inline-block;
     cursor: default;
