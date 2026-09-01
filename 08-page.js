@@ -317,7 +317,15 @@ function remindersSection(now) {
   // text input, and submitting whatever was actually typed — a class
   // not in this list, a typo, a made-up label for something that isn't
   // a real class at all — works exactly the same as picking a suggestion.
+  // allKnownClasses() deliberately still includes excluded classes too
+  // (see exclusionsField()'s own comment — that's what lets a settings
+  // checkbox turn one back on). A reminder isn't that: excluding a
+  // class means "stop reading and showing this one", so suggesting it
+  // here would offer something that isn't actually shown anywhere else
+  // on the page right now.
+  const excludedClasses = new Set(settings.exclusions);
   const classOptions = allKnownClasses()
+    .filter(name => !excludedClasses.has(name))
     .map(name => `<option value="${escapeHtml(name)}">`).join('');
 
   const addForm = `      <div class="reminder-add">
