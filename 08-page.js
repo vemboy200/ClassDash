@@ -482,6 +482,20 @@ ${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
  * being checked) — Edpuzzle here isn't stale, it's turned off on
  * purpose, same distinction EXCLUSIONS already makes in
  * diffWithPrevious for an excluded class.
+ *
+ * last-collection.json's own class names are folded in too, on top of
+ * the three class-listing files above — not a fourth "known" source,
+ * a fallback for a class that's fallen out of ALL of them. A real
+ * class transfer (moved to a different section, dropped a class) makes
+ * Classroom stop listing the old one entirely: it's gone from
+ * classes.json, but its old assignments are still sitting in
+ * last-collection.json marked removed:true (three misses in a row —
+ * see diffWithPrevious), still showing real "gone" cards on the page.
+ * Without this, that class couldn't be picked from the exclusions
+ * checkbox list at all — it fell out of every list the picker reads
+ * from, even though it still has real content on the page someone
+ * might want to hide. Caught live: exactly this case, a class the user
+ * had genuinely left.
  */
 function allKnownClasses() {
   const readNames = (file) => {
@@ -490,10 +504,26 @@ function allKnownClasses() {
       return JSON.parse(fs.readFileSync(file, 'utf8')).map(c => c.name).filter(Boolean);
     } catch { return []; }
   };
+  const settings = readSettings();
+  const readItemClasses = (file) => {
+    try {
+      if (!fs.existsSync(file)) return [];
+      // Same edpuzzleEnabled carve-out as edpuzzle-classes.json below —
+      // an old Edpuzzle item can sit here frozen forever once disabled
+      // (diffWithPrevious treats a disabled platform as permanently
+      // "unread", never dropping it), and without this check it would
+      // sneak Edpuzzle classes back into the list through a side door
+      // this same function otherwise deliberately blocks.
+      return JSON.parse(fs.readFileSync(file, 'utf8'))
+        .filter(x => settings.edpuzzleEnabled || x.platform !== 'Edpuzzle')
+        .map(x => x.class).filter(Boolean);
+    } catch { return []; }
+  };
   const names = new Set([
     ...readNames(path.join(__dirname, 'classes.json')),
     ...readNames(path.join(__dirname, 'canvas-classes.json')),
-    ...(readSettings().edpuzzleEnabled ? readNames(path.join(__dirname, 'edpuzzle-classes.json')) : []),
+    ...(settings.edpuzzleEnabled ? readNames(path.join(__dirname, 'edpuzzle-classes.json')) : []),
+    ...readItemClasses(path.join(__dirname, 'last-collection.json')),
   ]);
   return [...names];
 }
