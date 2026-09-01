@@ -573,6 +573,11 @@ function settingsPanel() {
     { id: 'account', label: t('settingsSectionAccount'), body: `
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsEdpuzzleEnabled'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</span>
+      </label>
 ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
@@ -656,11 +661,6 @@ ${exclusionsField(s.exclusions)}
         </label>
       </div>` },
     { id: 'fetching', label: t('settingsSectionFetching'), body: `
-      <label class="setting-row">
-        <span class="field-name">${escapeHtml(t('settingsEdpuzzleEnabled'))}</span>
-        <input type="checkbox" class="toggle" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''}>
-        <span class="field-hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</span>
-      </label>
 ${field('freshCheckAwakeMinutes', t('settingsFreshCheckAwake'), String(s.freshCheckAwakeMinutes), t('settingsFreshCheckAwakeHint'))}
 ${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.freshCheckAsleepMinutes), t('settingsFreshCheckAsleepHint'))}
       <label class="setting-row">
