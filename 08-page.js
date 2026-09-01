@@ -470,6 +470,17 @@ ${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
  * (classes.json for Classroom, canvas-classes.json, edpuzzle-classes.json)
  * for exactly this: the settings page has no other way to know what
  * classes exist without re-reading a source itself.
+ *
+ * edpuzzle-classes.json is skipped outright when edpuzzleEnabled is
+ * off. Turning Edpuzzle off stops it from being fetched, but the file
+ * itself doesn't go anywhere — it just sits there frozen, and without
+ * this check its classes would keep showing up in the class filter, the
+ * exclusions picker, and the reminder autocomplete forever, for a
+ * platform that's no longer actually being read. Not the same case as a
+ * merely-stale Classroom/Canvas class (still worth surfacing, still
+ * being checked) — Edpuzzle here isn't stale, it's turned off on
+ * purpose, same distinction EXCLUSIONS already makes in
+ * diffWithPrevious for an excluded class.
  */
 function allKnownClasses() {
   const readNames = (file) => {
@@ -481,7 +492,7 @@ function allKnownClasses() {
   const names = new Set([
     ...readNames(path.join(__dirname, 'classes.json')),
     ...readNames(path.join(__dirname, 'canvas-classes.json')),
-    ...readNames(path.join(__dirname, 'edpuzzle-classes.json')),
+    ...(readSettings().edpuzzleEnabled ? readNames(path.join(__dirname, 'edpuzzle-classes.json')) : []),
   ]);
   return [...names];
 }
