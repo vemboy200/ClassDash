@@ -191,8 +191,11 @@ full check) works fine on its own.
   instant, a couple (like changing which classes get read) trigger a
   quick real check in the background.
 - **Refresh** just rereads what's already been collected — no new fetch.
-  **Fresh check** actually checks everything again, Edpuzzle included,
-  which takes about a minute and opens a browser window for it.
+  **Fresh check** actually checks everything again, Edpuzzle included by
+  default, which takes about a minute and opens a browser window for
+  it. If your teachers already post Edpuzzle assignments through Google
+  Classroom too, there's a setting to skip Edpuzzle entirely — a fresh
+  check is then faster and never opens that window.
 
 ## Home API
 

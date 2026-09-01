@@ -656,6 +656,11 @@ ${exclusionsField(s.exclusions)}
         </label>
       </div>` },
     { id: 'fetching', label: t('settingsSectionFetching'), body: `
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsEdpuzzleEnabled'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</span>
+      </label>
 ${field('freshCheckAwakeMinutes', t('settingsFreshCheckAwake'), String(s.freshCheckAwakeMinutes), t('settingsFreshCheckAwakeHint'))}
 ${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.freshCheckAsleepMinutes), t('settingsFreshCheckAsleepHint'))}
       <label class="setting-row">

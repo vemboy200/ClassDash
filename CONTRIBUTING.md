@@ -139,6 +139,7 @@ icon on the summary page) — this table exists for anyone editing
 | `language` | `ru` or `en` |
 | `summaryHours` | hours for the full daily reminder, e.g. `[8, 18]` |
 | `exclusions` | class names to skip — applies to both Classroom and Edpuzzle |
+| `edpuzzleEnabled` | `true` (default) — `false` skips Edpuzzle entirely, overriding both of its normal triggers (digest hours and a manual Fresh check alike): no tab opened, no visible browser window. Meant for a school where teachers already re-post every Edpuzzle assignment through Google Classroom, making the separate fetch redundant |
 | `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
 | `skipStaleClasses` | `true` (default) — a class with no assignment or announcement in `staleMonths` gets treated as done and stops being checked, on Classroom and Canvas as well as Edpuzzle. Edpuzzle has a real `updatedAt` per class to check directly; Classroom and Canvas don't, so staleness there is judged from this project's own memory of what it's ever seen for that class instead (see `22-class-activity.js`) |
 | `staleMonths` | `3` (default), 1–12 — how long a class can go quiet before `skipStaleClasses` treats it as stale |

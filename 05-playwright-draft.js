@@ -276,6 +276,14 @@ const AUTHUSER = SETTINGS.email;
 // by running it.
 const CANVAS_ENABLED = !!(SETTINGS.canvas || '').trim();
 
+// Same module-level reasoning as CANVAS_ENABLED above: needed both when
+// deciding withEdpuzzle (don't open the tab, don't open the visible
+// window it requires) and when comparing against memory (treat it as
+// unread, same as Canvas being off — see the `unread` array further
+// down). Unlike CANVAS_ENABLED this isn't inferred from a blank field;
+// there's nothing to type in for Edpuzzle, so it's its own real toggle.
+const EDPUZZLE_ENABLED = SETTINGS.edpuzzleEnabled !== false;
+
 // EXPIRED COOKIES — A FAILURE WORTH SHOUTING ABOUT.
 //
 // Google eventually signs the profile out (noted from day one: "cookies
@@ -1659,10 +1667,15 @@ if (require.main !== module) return;
 
   const isDigestTime = DIGEST_HOURS.includes(hour) && notifyLog.digests[hour] !== todayStr;
   const manual = process.argv.includes('--full');
-  const withEdpuzzle = manual || isDigestTime;
+  // EDPUZZLE_ENABLED overrides both triggers, manual included — turning
+  // it off means "don't fetch it", not "don't fetch it unless someone
+  // clicks the button", see that constant's own comment above.
+  const withEdpuzzle = EDPUZZLE_ENABLED && (manual || isDigestTime);
   console.log(withEdpuzzle
     ? `Full check${manual ? ' (run manually)' : ''}: with Edpuzzle, a window will show`
-    : 'Quick check: Classroom and Canvas, no window');
+    : !EDPUZZLE_ENABLED && (manual || isDigestTime)
+      ? 'Quick check: Classroom and Canvas, no window (Edpuzzle disabled in settings)'
+      : 'Quick check: Classroom and Canvas, no window');
 
   setFeedEmail(AUTHUSER);
 

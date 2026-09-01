@@ -181,6 +181,20 @@ const DEFAULTS = {
   // that API, so this is a genuine no-op there, never something that
   // needs turning off just because the machine happens to be a Mac mini.
   freshCheckOnlyWhenCharging: true,
+
+  // TRUE by default — Edpuzzle collection is opt-OUT, not opt-in,
+  // unlike Canvas (which is naturally off until an address is typed
+  // in). At some schools every Edpuzzle assignment a teacher posts also
+  // gets announced through Google Classroom, making Edpuzzle itself
+  // redundant to actually fetch — and fetching it isn't free: it's the
+  // one platform that needs a real, visible browser window (see
+  // 11-edpuzzle.js), so turning this off also means a full check no
+  // longer ever needs to switch desktops. Turning it off here overrides
+  // BOTH triggers that would otherwise read it — the twice-daily digest
+  // hours and a manual Fresh check alike (see withEdpuzzle in
+  // 05-playwright-draft.js) — since "I don't need Edpuzzle" means just
+  // that, not "except when I click the button myself".
+  edpuzzleEnabled: true,
 };
 
 const TYPES = {
@@ -192,7 +206,7 @@ const TYPES = {
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'number', freshCheckAsleepMinutes: 'number',
-  freshCheckOnlyWhenCharging: 'boolean',
+  freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
 
