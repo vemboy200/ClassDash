@@ -255,8 +255,24 @@ async function collectCanvasOnce(page) {
     // the field back at all (`undefined`), and that has to still mean
     // "show it" — only a literal `false` means "not yet published,
     // leave it out".
-    const pages = await ask(page,
-      `/api/v1/courses/${course.id}/pages?per_page=100`);
+    // A COURSE CAN HAVE THE PAGES TOOL TURNED OFF ENTIRELY.
+    //
+    // Unlike Assignments, Pages is an optional course navigation item —
+    // a teacher can disable it, and the endpoint then 404s outright
+    // rather than returning an empty list. Caught live: one course
+    // without Pages enabled threw here, which — unwrapped — killed
+    // collectCanvasOnce() for every course in that pass, not just this
+    // one, and (once check-status.json started actually recording the
+    // real error instead of the whole thing just silently retrying)
+    // showed up as Canvas going "problem" every single pass. A course
+    // missing Pages isn't a real failure, it's just a course without
+    // that feature — skip pages for it and keep going.
+    let pages = [];
+    try {
+      pages = await ask(page, `/api/v1/courses/${course.id}/pages?per_page=100`);
+    } catch (e) {
+      console.warn(`  Canvas: no Pages for ${course.name} (${e.message})`);
+    }
 
     for (const p of pages) {
       if (p.published === false) continue;
