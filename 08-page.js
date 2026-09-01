@@ -921,36 +921,75 @@ ${parts.join('\n')}
 
 /**
  * "Did the last check actually work?" — one small dot per platform, in
- * the header. See 25-check-status.js for what ok/problem/unknown mean;
- * this just renders whatever checkStatus() already decided.
+ * the header, click to expand into a full per-platform breakdown. See
+ * 25-check-status.js for what ok/problem/unknown mean; this just
+ * renders whatever checkStatus() already decided.
+ *
+ * The dots keep their own hover tooltips too (the quick answer for one
+ * platform, no click needed) — the expanded panel is for the full
+ * picture, timestamps and error detail included, which a tooltip can't
+ * show for three platforms at once and doesn't work at all on touch.
  *
  * Platform display names are hardcoded English, not run through t() —
  * same call already made for the .platform line right below the header
  * and for every card's own platform label: these are product names,
  * not sentence text, and stay the same word regardless of language.
  */
+const CHECK_STATUS_ENTRIES = [
+  ['classroom', 'Google Classroom'],
+  ['canvas', 'Canvas'],
+  ['edpuzzle', 'Edpuzzle'],
+];
+
+function checkStatusWord(s) {
+  return s === 'ok' ? t('checkStatusOk')
+    : s === 'problem' ? t('checkStatusProblem') : t('checkStatusUnknown');
+}
+
+function checkStatusWhen(s) {
+  return s.at ? new Date(s.at).toLocaleString(locale(), {
+    day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+  }) : t('checkStatusNeverChecked');
+}
+
+/** The clickable row of dots itself — sits inline in the header's button row. */
 function checkStatusIndicator() {
   const status = checkStatus();
-  const wordFor = (s) => s === 'ok' ? t('checkStatusOk')
-    : s === 'problem' ? t('checkStatusProblem') : t('checkStatusUnknown');
-
-  const entries = [
-    ['classroom', 'Google Classroom'],
-    ['canvas', 'Canvas'],
-    ['edpuzzle', 'Edpuzzle'],
-  ];
-
   const dot = (key, label) => {
     const s = status[key];
-    const when = s.at ? new Date(s.at).toLocaleString(locale(), {
-      day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-    }) : t('checkStatusNeverChecked');
-    const tooltip = `${label}: ${wordFor(s.status)} — ${when}` +
+    const tooltip = `${label}: ${checkStatusWord(s.status)} — ${checkStatusWhen(s)}` +
       (s.detail ? `\n${s.detail}` : '');
     return `<span class="status-dot status-${s.status}" title="${escapeHtml(tooltip)}"></span>`;
   };
+  return `<button type="button" class="check-status" onclick="toggleCheckStatusDetail()"
+       title="${escapeHtml(t('checkStatusTitle'))}">${CHECK_STATUS_ENTRIES.map(([k, l]) => dot(k, l)).join('')}</button>`;
+}
 
-  return `<span class="check-status">${entries.map(([k, l]) => dot(k, l)).join('')}</span>`;
+/**
+ * The expanded breakdown, hidden until the dots above are clicked.
+ * ITS OWN FUNCTION, NOT PART OF checkStatusIndicator() — the button
+ * lives inline inside .when (the header's button row); this is a real
+ * block-level panel, and nesting it inside .when's own inline flow
+ * would make it wrap into that row instead of dropping down below the
+ * whole header the way it's meant to. Placed as its own sibling in the
+ * header markup instead.
+ */
+function checkStatusPanel() {
+  const status = checkStatus();
+  const row = (key, label) => {
+    const s = status[key];
+    return `      <div class="check-status-row">
+        <span class="status-dot status-${s.status}"></span>
+        <span class="check-status-name">${escapeHtml(label)}</span>
+        <span class="check-status-word">${escapeHtml(checkStatusWord(s.status))}</span>
+        <span class="check-status-time">${escapeHtml(checkStatusWhen(s))}</span>
+        ${s.detail ? `<span class="check-status-detail-text">${escapeHtml(s.detail)}</span>` : ''}
+      </div>`;
+  };
+  return `  <div class="check-status-panel" id="check-status-panel" hidden>
+    <div class="check-status-panel-title">${escapeHtml(t('checkStatusTitle'))}</div>
+${CHECK_STATUS_ENTRIES.map(([k, l]) => row(k, l)).join('\n')}
+  </div>`;
 }
 
 /**
@@ -1087,10 +1126,17 @@ function writePage(data, outputPath) {
      colors matching the meaning: --new (blue) for the same positive
      sense the API's "running" indicator already uses, --hot (red) for
      "something's actually wrong, go look", --dim (gray) for "not being
-     checked at all" (off, or no check has completed yet). The tooltip
-     carries the real detail — a dot alone can't say "which platform"
-     let alone "why", so it's built entirely from the title attribute. */
-  .check-status { margin-left: 10px; display: inline-flex; gap: 5px; vertical-align: middle; }
+     checked at all" (off, or no check has completed yet). Each dot's
+     own title attribute is the quick, one-platform answer on hover;
+     clicking the whole row (a real <button>, not a span, so it's
+     reachable by keyboard and works on touch where hover doesn't)
+     opens the panel below with the full breakdown, timestamps and
+     error detail included. */
+  .check-status {
+    margin-left: 10px; display: inline-flex; gap: 5px; vertical-align: middle;
+    background: none; border: none; padding: 4px; cursor: pointer; border-radius: 6px;
+  }
+  .check-status:hover { background: var(--line); }
   .status-dot {
     width: 9px; height: 9px; border-radius: 50%; display: inline-block;
     cursor: default;
@@ -1098,6 +1144,24 @@ function writePage(data, outputPath) {
   .status-dot.status-ok { background: var(--new); }
   .status-dot.status-problem { background: var(--hot); }
   .status-dot.status-unknown { background: var(--dim); opacity: .5; }
+  .check-status-panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin: 8px 0 0; max-width: 420px;
+  }
+  .check-status-panel-title { font-weight: 600; margin-bottom: 8px; }
+  .check-status-row {
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 8px;
+    font-size: 13px; padding: 5px 0; border-top: 1px solid var(--line);
+  }
+  .check-status-row:first-of-type { border-top: none; }
+  .check-status-row .status-dot { align-self: center; }
+  .check-status-name { font-weight: 500; }
+  .check-status-word { color: var(--dim); }
+  .check-status-time { color: var(--dim); font-size: 12px; margin-left: auto; }
+  .check-status-detail-text {
+    flex-basis: 100%; color: var(--dim); font-size: 12px; white-space: pre-wrap;
+    word-break: break-word;
+  }
   /* Reload/fresh-check/settings buttons — like a browser's, but on the
      page itself: the digest window has no browser chrome at all.
      Refresh just rereads the file; Fresh check triggers a real
@@ -1468,6 +1532,7 @@ function writePage(data, outputPath) {
          id="settings-button" onclick="toggleSettingsPanel()"
          title="${escapeHtml(t('settingsTitle'))}">&#9881;</button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
+${checkStatusPanel()}
   </header>
 ${inProgress}
 ${warning}
@@ -2119,6 +2184,12 @@ function toggleSettingsPanel() {
   if (!panel) return;
   panel.hidden = !panel.hidden;
   if (!panel.hidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function toggleCheckStatusDetail() {
+  var panel = document.getElementById('check-status-panel');
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
 }
 
 // Switches which settings section is visible. Sections that aren't
