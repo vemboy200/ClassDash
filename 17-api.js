@@ -72,7 +72,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // panel's exclusions checklist uses — classRoster() below reuses it
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
-const { daysUntil, allKnownClasses } = require('./08-page.js');
+const { daysUntil, allKnownClasses, knownClassStatus } = require('./08-page.js');
 const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
 // check itself all live in their own leaf module — 21-notifier-actions.js
@@ -196,6 +196,13 @@ function toPublic(x, now) {
  * /api/due-soon, /api/ahead and /api/overdue and grouping by class —
  * this handle just saves it the trouble, and adds the classes those
  * three would never mention at all.
+ *
+ * Every entry also carries `status`: `"known"` (the platform still
+ * lists this class) or `"orphaned"` (it doesn't anymore — a real class
+ * transfer, or a class hidden on Classroom's own side with no way to
+ * actually leave it — but old data for it is still around). Lets a
+ * client filter these out itself instead of an orphaned class looking
+ * identical to a real one.
  */
 function classRoster(d) {
   const countByClass = (list) => {
@@ -210,11 +217,22 @@ function classRoster(d) {
   const present = new Set([
     ...dueSoonByClass.keys(), ...aheadByClass.keys(), ...overdueByClass.keys(),
   ]);
+  // "known" — this platform's own current listing still has the class.
+  // "orphaned" — it doesn't anymore (a real class transfer, or hiding a
+  // class on Classroom's own side with no way to actually leave it),
+  // but old data for it is still sitting in last-collection.json. A
+  // client can't otherwise tell one from the other: both just look like
+  // an ordinary class in this list. Caught live — exactly this
+  // ambiguity is what flooded a Home Assistant integration with an
+  // entity for a class the student had genuinely moved on from.
+  const classStatus = knownClassStatus();
+  const statusFor = (name) => classStatus.get(name) || 'known';
   const roster = [...present].map(name => ({
     name,
     dueSoon: dueSoonByClass.get(name) || 0,
     ahead: aheadByClass.get(name) || 0,
     overdue: overdueByClass.get(name) || 0,
+    status: statusFor(name),
   }));
 
   const settings = require('./19-settings.js').read();
@@ -240,7 +258,7 @@ function classRoster(d) {
       if (present.has(name) || excluded.has(name)) continue;
       if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
       if (skipStale && isClassStale(name)) continue;
-      roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0 });
+      roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0, status: statusFor(name) });
     }
   }
 

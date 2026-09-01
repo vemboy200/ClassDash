@@ -213,17 +213,32 @@ integration, a script, a phone shortcut).
 - **`/api/classes`, specifically:** the full class roster, merged across
   Classroom/Canvas/Edpuzzle (`allKnownClasses()` in `08-page.js`, not
   just Classroom's own `classes.json` — that was the old shape).
-  `[{"name": "...", "dueSoon": 0, "ahead": 0, "overdue": 0}, ...]`. A
-  class with all-zero counts only appears here when `showEmptyClasses`
-  is on — same setting, same meaning, as the "show classes with
-  nothing due" toggle in the settings panel; `hideInactiveClasses`
-  narrows it further the same way it does there (a class with zero
-  history, not just zero due right now, stays out either way); an
-  excluded class is left out unconditionally. `/api/status`'s own
-  `classes` count is NOT gated by any of this — it's
-  `allKnownClasses().length`, unconditionally, so an existing client's
-  "how many classes total" number doesn't start moving on its own the
-  moment someone flips a display setting it's never heard of.
+  `[{"name": "...", "dueSoon": 0, "ahead": 0, "overdue": 0, "status":
+  "known"}, ...]`. A class with all-zero counts only appears here when
+  `showEmptyClasses` is on — same setting, same meaning, as the "show
+  classes with nothing due" toggle in the settings panel;
+  `hideInactiveClasses` narrows it further the same way it does there
+  (a class with zero history, not just zero due right now, stays out
+  either way); `skipStaleClasses` narrows it again the same way (a
+  class gone quiet longer than `staleMonths` stays out too — see
+  `filtersPanel`'s own comment in `08-page.js`); an excluded class is
+  left out unconditionally. `/api/status`'s own `classes` count is NOT
+  gated by any of this — it's `allKnownClasses().length`,
+  unconditionally, so an existing client's "how many classes total"
+  number doesn't start moving on its own the moment someone flips a
+  display setting it's never heard of.
+  - **`status`** — `"known"` (the platform still lists this class) or
+    `"orphaned"` (it doesn't anymore, but `last-collection.json` still
+    has old data for it — see `knownClassStatus()` in `08-page.js`).
+    Comes up for a real class transfer, or a class hidden on Classroom's
+    own side (its "hide this class from me" feature — the only option
+    when a student genuinely can't leave a class outright). Without
+    this a client can't tell an orphaned class apart from a real one;
+    exactly this ambiguity flooded a Home Assistant integration with an
+    entity for a class the student had already moved on from — the
+    exclusions list is the actual fix (once excluded, the class and its
+    old data both disappear for good), `status` is just so a client
+    doesn't have to guess in the meantime.
 - **Virtual assignments** — reminders the user types in themselves; see
   `24-virtual-assignments.js`'s own header comment for the full "why".
   `GET /api/virtual` returns all of them (active, hidden, and done

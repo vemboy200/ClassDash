@@ -499,6 +499,26 @@ ${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
  * had genuinely left.
  */
 function allKnownClasses() {
+  return [...knownClassStatus().keys()];
+}
+
+/**
+ * Same merge as allKnownClasses(), but keeping WHERE each name came
+ * from — a platform's own current listing ("known"), or only from
+ * last-collection.json's leftover items ("orphaned"). allKnownClasses()
+ * itself only ever needed the names (the class filter, the exclusions
+ * picker, the reminder autocomplete don't care which); classRoster() in
+ * 17-api.js needs the distinction, so a consumer like a Home Assistant
+ * integration can tell "this is a real, currently-listed class" apart
+ * from "this fell off the platform's own listing, ClassDash just still
+ * remembers it had data" — instead of both looking identical in the
+ * roster and a client having no way to filter one out. Caught live: an
+ * orphaned class (hidden on Classroom's own side, per that platform's
+ * "hide this class from me" feature — a real class transfer with no way
+ * to actually leave) flooded an HA integration with an entity it had no
+ * way to distinguish from a real one.
+ */
+function knownClassStatus() {
   const readNames = (file) => {
     try {
       if (!fs.existsSync(file)) return [];
@@ -520,13 +540,18 @@ function allKnownClasses() {
         .map(x => x.class).filter(Boolean);
     } catch { return []; }
   };
-  const names = new Set([
+
+  const known = new Set([
     ...readNames(path.join(__dirname, 'classes.json')),
     ...readNames(path.join(__dirname, 'canvas-classes.json')),
     ...(settings.edpuzzleEnabled ? readNames(path.join(__dirname, 'edpuzzle-classes.json')) : []),
-    ...readItemClasses(path.join(__dirname, 'last-collection.json')),
   ]);
-  return [...names];
+  const fromItems = readItemClasses(path.join(__dirname, 'last-collection.json'));
+
+  const status = new Map();
+  for (const name of known) status.set(name, 'known');
+  for (const name of fromItems) if (!status.has(name)) status.set(name, 'orphaned');
+  return status;
 }
 
 /**
@@ -2405,9 +2430,9 @@ applyFilters();
   return outputPath;
 }
 
-// allKnownClasses is exported for 17-api.js's own /api/classes roster —
-// same reasoning as sortIntoBuckets being shared between this page and
-// the API instead of reimplemented: the merged-across-all-three-
-// platforms class list should mean exactly one thing everywhere it's
-// used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses };
+// allKnownClasses/knownClassStatus are exported for 17-api.js's own
+// /api/classes roster — same reasoning as sortIntoBuckets being shared
+// between this page and the API instead of reimplemented: the merged-
+// across-all-three-platforms class list should mean exactly one thing
+// everywhere it's used, not two that could quietly drift apart.
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus };
