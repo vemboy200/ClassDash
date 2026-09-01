@@ -20,6 +20,7 @@ const path = require('path');
 // reads at redraw time to show in the panel. See that file's own
 // comment on why it exists separately from 17-api.js.
 const { currentToken, certFingerprint, isServerRunning } = require('./23-api-security.js');
+const virtualAssignments = require('./24-virtual-assignments.js');
 
 // Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
 // characters — nothing in Unicode reads as "thorough sync" the way this
@@ -214,6 +215,122 @@ ${bar}
       <div class="feed">
 ${cards}
       </div>
+    </section>`;
+}
+
+/**
+ * Reminders — virtual assignments the user typed in themselves. See
+ * 24-virtual-assignments.js's own header comment for what these are.
+ *
+ * Its own section, not folded into Due Soon/Ahead/Overdue: those three
+ * are built around Classroom/Canvas/Edpuzzle assumptions (freshness
+ * badges keyed to a diff against last collection, "hide" only existing
+ * for overdue items) that don't fit something the user fully owns the
+ * lifecycle of. One flat list instead — overdue-and-soonest-first,
+ * undated ones last — with all three actions (done, hide, delete)
+ * available on every card, since none of the due-date-bucket-specific
+ * rules apply here.
+ */
+function remindersSection(now) {
+  const settings = readSettings();
+  const { burning, later, overdue, undated, done } =
+    virtualAssignments.bucketed(now, settings.treatUndatedAsUrgent);
+  const all = [...overdue, ...burning, ...later, ...undated];
+  const active = all.filter(x => !x.hidden)
+    .sort((a, b) => {
+      if (!a.due_at && !b.due_at) return 0;
+      if (!a.due_at) return 1;
+      if (!b.due_at) return -1;
+      return a.due_at - b.due_at;
+    });
+  const hiddenItems = all.filter(x => x.hidden);
+
+  const dueText = (x) => {
+    if (!x.due_at) return t('reminderNoDue');
+    if (x.note) return t(x.note);
+    return `${x.due_at.toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${when(x.due_at, now)}`;
+  };
+
+  const card = (x, kind) => {
+    const actions = kind === 'done'
+      ? `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUndone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderUndo'))}</a>`
+      : kind === 'hidden'
+        ? `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUnhide', '${escapeHtml(x.id)}')">${escapeHtml(t('restore'))}</a>`
+        : `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualDone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDone'))}</a>` +
+          `<a class="quiet quiet-faint" href="#" onclick="return virtualAction(event, 'virtualHide', '${escapeHtml(x.id)}')">${escapeHtml(t('hide'))}</a>` +
+          `<a class="quiet quiet-faint" href="#" onclick="return virtualDeleteConfirm(event, '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDelete'))}</a>`;
+    return `      <div class="row" data-id="${escapeHtml(x.id)}">
+      <div class="item">
+        <div class="title">${escapeHtml(x.title)}</div>
+        <div class="meta">
+          <span class="plat">${escapeHtml(t('reminderPlatform'))}</span>
+          ${x.class ? `<span class="cls">${escapeHtml(x.class)}</span>` : ''}
+          <span class="due">${escapeHtml(dueText(x))}</span>
+        </div>
+      </div>
+      ${actions}
+      </div>`;
+  };
+
+  // NOT .show-hidden-btn — that class is swept up globally by
+  // applyFilters() (querySelectorAll('.show-hidden-btn') across the
+  // WHOLE page, not scoped to one section), which calls refreshSection()
+  // on whatever section it's in. refreshSection() counts .row.hidden-row
+  // elements specifically, which these cards never use, so it would
+  // force-hide this button on every filter change regardless of whether
+  // there's actually anything hidden. Own class, own styling instead.
+  const hiddenButton =
+    `      <button class="reminder-toggle-btn"${hiddenItems.length ? '' : ' hidden'}
+              id="reminders-hidden-btn" onclick="toggleReminderGroup('reminders-hidden')">${escapeHtml(t('showHidden'))} (${hiddenItems.length})</button>`;
+  const doneButton =
+    `      <button class="reminder-toggle-btn"${done.length ? '' : ' hidden'}
+              id="reminders-done-btn" onclick="toggleReminderGroup('reminders-done')">${escapeHtml(t('reminderShowDone'))} (${done.length})</button>`;
+
+  // <datalist> — suggests, doesn't apply. Typing "che" offers "Chemistry"
+  // in a dropdown, same as any browser's own address-bar autocomplete,
+  // but nothing is auto-corrected or forced: the field stays a plain
+  // text input, and submitting whatever was actually typed — a class
+  // not in this list, a typo, a made-up label for something that isn't
+  // a real class at all — works exactly the same as picking a suggestion.
+  const classOptions = allKnownClasses()
+    .map(name => `<option value="${escapeHtml(name)}">`).join('');
+
+  const addForm = `      <div class="reminder-add">
+        <input type="text" id="reminder-title" placeholder="${escapeHtml(t('reminderTitlePlaceholder'))}">
+        <input type="text" id="reminder-class" list="reminder-class-list" placeholder="${escapeHtml(t('reminderClassPlaceholder'))}">
+        <datalist id="reminder-class-list">${classOptions}</datalist>
+        <span class="reminder-due-field">
+          <input type="datetime-local" id="reminder-due" title="${escapeHtml(t('reminderDueHint'))}"
+                 oninput="document.getElementById('reminder-due-clear').hidden = !this.value">
+          <button type="button" class="mini-btn" id="reminder-due-clear" hidden
+                  onclick="clearReminderDue()" title="${escapeHtml(t('reminderDueClear'))}">✕</button>
+        </span>
+        <button type="button" onclick="addReminder()">${escapeHtml(t('reminderAdd'))}</button>
+        <span class="result" id="reminders-result"></span>
+      </div>
+      <p class="hint">${escapeHtml(t('reminderCaption'))}</p>`;
+
+  // NOT data-has-items="yes" — that opts a section into recount()'s
+  // live auto-hide-when-empty behavior, which only knows about the
+  // .hidden-row/shown convention (real assignments' hide mechanism),
+  // not this section's own [hidden]-wrapper-div one. Every state change
+  // here reloads the page anyway (see virtualAction() etc.), so this
+  // section never needs recount()'s LIVE recalculation in the first
+  // place — and skipping it is what keeps the add-reminder form always
+  // visible even with zero reminders, rather than the whole section
+  // vanishing the moment there's nothing active in it.
+  return `    <section>
+      <h2>${escapeHtml(t('reminders'))} <span class="count">${active.length}</span></h2>
+${addForm}
+${active.map(x => card(x, 'active')).join('\n')}
+      <div id="reminders-hidden" hidden>
+${hiddenItems.map(x => card(x, 'hidden')).join('\n')}
+      </div>
+${hiddenButton}
+      <div id="reminders-done" hidden>
+${done.map(x => card(x, 'done')).join('\n')}
+      </div>
+${doneButton}
     </section>`;
 }
 
@@ -1114,6 +1231,34 @@ function writePage(data, outputPath) {
     cursor: pointer; margin-top: 4px;
   }
   .show-hidden-btn:hover { color: var(--text); border-color: var(--dim); }
+  .reminder-toggle-btn {
+    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
+    cursor: pointer; margin-top: 4px; margin-right: 8px;
+  }
+  .reminder-toggle-btn:hover { color: var(--text); border-color: var(--dim); }
+  .reminder-add {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin-bottom: 4px;
+  }
+  .reminder-add input[type="text"] {
+    font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  }
+  .reminder-add input#reminder-title { flex: 1 1 180px; min-width: 120px; }
+  .reminder-add input#reminder-class { flex: 1 1 120px; min-width: 90px; }
+  .reminder-due-field { display: inline-flex; align-items: center; gap: 4px; }
+  .reminder-add input[type="datetime-local"] {
+    font: inherit; font-size: 13px; padding: 5px 6px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  }
+  .reminder-add button {
+    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
+    cursor: pointer;
+  }
+  .reminder-add button:hover { color: var(--text); border-color: var(--dim); }
+  #reminders-result { color: var(--dim); font-size: 12px; flex-basis: 100%; }
   footer { color: var(--dim); font-size: 12px; margin-top: 32px; }
 </style>
 </head>
@@ -1137,6 +1282,7 @@ ${warning}
 ${settingsPanel()}
 ${filtersPanel(allItems, announcements, now)}
 ${emptyBanner}
+${remindersSection(now)}
 ${overdueSection(overdue, now)}
 ${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
 ${section(t('ahead'), later, now, freshIds)}
@@ -1216,6 +1362,9 @@ const WORDS = ${JSON.stringify({
   confirmRollToken: t('confirmRollToken'),
   confirmRollTokenHint: t('confirmRollTokenHint'),
   copied: t('settingsCopied'),
+  confirmDeleteReminder: t('confirmDeleteReminder'),
+  reminderTitleRequired: t('reminderTitleRequired'),
+  reminderAdding: t('reminderAdding'),
 })};
 
 // ── Reaching outside the page ──
@@ -1425,6 +1574,68 @@ function toggleHiddenRows(button) {
   refreshSection(section);
 }
 
+// ── Reminders — virtual assignments ──
+//
+// Every action (done/undone/hide/unhide/delete) just calls
+// dispatchAction and reloads the page on success, rather than
+// surgically updating the DOM the way hideOverdueItem/muteItem above
+// do — reminders are a much smaller feature, and a reload here costs
+// nothing noticeable.
+function virtualAction(e, action, id) {
+  if (e) e.preventDefault();
+  dispatchAction(action, id, function (res) {
+    if (res && res.ok) { location.reload(); return; }
+    var result = document.getElementById('reminders-result');
+    if (result) result.textContent = (res && res.why) || WORDS.checkFailed;
+  });
+  return false;
+}
+
+function virtualDeleteConfirm(e, id) {
+  if (e) e.preventDefault();
+  if (!confirm(WORDS.confirmDeleteReminder)) return false;
+  return virtualAction(null, 'virtualDelete', id);
+}
+
+function toggleReminderGroup(id) {
+  var el = document.getElementById(id);
+  if (el) el.hidden = !el.hidden;
+}
+
+// An explicit way out of the date field, not just "leave it alone" --
+// datetime-local inputs aren't reliably empty-by-default across every
+// WebKit build this could run in, so this guarantees the field can
+// always be forced back to blank with one click, however it ended up
+// non-empty.
+function clearReminderDue() {
+  var field = document.getElementById('reminder-due');
+  field.value = '';
+  document.getElementById('reminder-due-clear').hidden = true;
+}
+
+function addReminder() {
+  var titleField = document.getElementById('reminder-title');
+  var result = document.getElementById('reminders-result');
+  var title = titleField.value.trim();
+  if (!title) {
+    if (result) result.textContent = WORDS.reminderTitleRequired;
+    return;
+  }
+  var cls = document.getElementById('reminder-class').value.trim();
+  var dueField = document.getElementById('reminder-due').value;
+  var payload = {
+    title: title,
+    class: cls || null,
+    due: dueField ? new Date(dueField).toISOString() : null,
+  };
+  var chunk = toBase64Url(JSON.stringify(payload));
+  if (result) result.textContent = WORDS.reminderAdding;
+  dispatchAction('virtualCreate', chunk, function (res) {
+    if (res && res.ok) { location.reload(); return; }
+    if (result) result.textContent = (res && res.why) || WORDS.checkFailed;
+  });
+}
+
 // "Not urgent": fades, shows "muted", and slides away a second later.
 // sendLinkViaBridge sends the id to the app directly when it can, or
 // leaves the link's own href to do it the old way when it can't — either
@@ -1456,6 +1667,11 @@ function muteItem(e, button) {
 function isRowVisible(row) {
   if (row.classList.contains('filtered-out')) return false;
   if (row.classList.contains('hidden-row') && !row.classList.contains('shown')) return false;
+  // Reminders' hidden/done groups use a plain [hidden] wrapper div
+  // instead of the hidden-row/shown class dance above — a second kind
+  // of "not currently on screen" this function needs to know about too,
+  // or recount()'s header counter would include cards nobody can see.
+  if (row.closest('[hidden]')) return false;
   return true;
 }
 
@@ -1589,6 +1805,14 @@ function applyFilters() {
   var rows = document.querySelectorAll('.row');
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
+
+    // Reminder cards aren't part of this class/type/due-date filter
+    // system at all — they have none of those data-* attributes, and
+    // without this check an active class or type filter would read
+    // that absence as "doesn't match", filtering every reminder out
+    // the moment any such checkbox got checked.
+    if (!r.hasAttribute('data-cls')) continue;
+
     var ok = true;
 
     // Removed items are hidden by default: they're about history, not work.

@@ -172,7 +172,7 @@ integration, a script, a phone shortcut).
   on the very next request with no server restart.
 - **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
   `/api/overdue` `/api/done` `/api/assignments` `/api/announcements`
-  `/api/removed` `/api/classes`.
+  `/api/removed` `/api/classes` `/api/virtual`.
 - **Tags:** every assignment object (from any of the handles above that
   return one) carries a `tags` array — `"hidden"`, `"muted"`, `"done"`,
   `"removed"`, any combination, or empty. This replaced the API
@@ -212,6 +212,21 @@ integration, a script, a phone shortcut).
   `allKnownClasses().length`, unconditionally, so an existing client's
   "how many classes total" number doesn't start moving on its own the
   moment someone flips a display setting it's never heard of.
+- **Virtual assignments** — reminders the user types in themselves; see
+  `24-virtual-assignments.js`'s own header comment for the full "why".
+  `GET /api/virtual` returns all of them (active, hidden, and done
+  alike) through the same `toPublic()`/`tags` shape everything else
+  uses — a done one comes back tagged `"done"`, a hidden one tagged
+  `"hidden"`. Writes: `POST /api/virtual/create` (body
+  `{"title": "...", "class": "...", "due": "..."}` — only `title` is
+  required), `/done` and `/undone`, `/hide` and `/unhide` (all body
+  `{"id": "..."}`), and `/delete` (same body) — the one genuinely
+  irreversible handle in this whole API, matching `remove()` in
+  `24-virtual-assignments.js` being a real deletion rather than a flag.
+  A done reminder clears itself automatically 7 days after being marked
+  done (pruned lazily, on the next read of the file — see that file's
+  own comment); a hidden one stays hidden until explicitly un-hidden,
+  no expiry.
 - **Push:** `/api/stream` — Server-Sent Events, not WebSocket, since
   push here only ever needs to go server → client. Two event names on
   the same connection:
@@ -292,6 +307,7 @@ integration, a script, a phone shortcut).
 | `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly, not a separate app |
 | `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
 | `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
+| `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
 | `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 | `.github/workflows/release.yml` | builds and publishes a `.dmg` release on a `v*` tag push |
 

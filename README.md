@@ -175,14 +175,22 @@ full check) works fine on its own.
   brought back with the button at the bottom of that section.
 - **Not urgent** on an assignment with no real due date moves it out of
   "due soon" without hiding it entirely.
+- **Reminders** — for the "a teacher said something in class and you
+  forgot" problem none of the three platforms can ever solve, since
+  nothing was actually assigned through them. Type it into the
+  **Reminders** section yourself, with an optional class and due date.
+  Mark one **done** (it clears itself automatically a week later — long
+  enough to notice a misclick, short enough not to pile up) or **hide**
+  it (stays hidden until you bring it back, no expiry), or **delete** it
+  outright, which is the one action here with no undo.
 - The **gear icon** opens settings: your email/Canvas address, which
   classes to skip, language, and toggles for most of the behavior
   described above. Changes take effect right after saving — most are
   instant, a couple (like changing which classes get read) trigger a
   quick real check in the background.
-- Clicking the reload arrow refreshes the page from what's already been
-  collected; holding it down runs a full check right away instead of
-  waiting for the next scheduled one.
+- **Refresh** just rereads what's already been collected — no new fetch.
+  **Fresh check** actually checks everything again, Edpuzzle included,
+  which takes about a minute and opens a browser window for it.
 
 ## Home API
 

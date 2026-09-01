@@ -88,6 +88,7 @@ const {
 // that could drift. See the WRITE_HANDLERS comment below for the one
 // case (apiEnabled/apiNetwork) that's deliberately NOT reachable this way.
 const notifierActions = require('./21-notifier-actions.js');
+const virtualAssignments = require('./24-virtual-assignments.js');
 
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
@@ -297,6 +298,21 @@ const HANDLERS = {
   })),
 
   '/api/classes': (d) => classRoster(d),
+
+  // Virtual assignments — reminders the user typed in themselves, not
+  // read from any platform. See 24-virtual-assignments.js's own header
+  // comment for what these are. bucketed() already returns the shared
+  // item shape (due_at as a Date, hidden/done flags) toPublic() expects,
+  // so this is a straight reuse, not a second rendering path — a done
+  // one comes back tagged "done", a hidden one tagged "hidden", exactly
+  // like a real assignment's would.
+  '/api/virtual': (d) => {
+    const { treatUndatedAsUrgent } = require('./19-settings.js').read();
+    const { burning, later, overdue, undated, done } =
+      virtualAssignments.bucketed(d.now, treatUndatedAsUrgent);
+    return [...overdue, ...burning, ...later, ...undated, ...done]
+      .map(x => toPublic(x, d.now));
+  },
 };
 
 /** Reads and parses a POST body as JSON. Capped well above anything a
@@ -415,6 +431,58 @@ const WRITE_HANDLERS = {
   // minutesAgo are how a client finds out when it actually has.
   '/api/reload': () => ({ status: 200, body: notifierActions.main('reload', '') }),
   '/api/check': () => ({ status: 200, body: notifierActions.main('check', '') }),
+
+  // Virtual assignments — write side. Same dispatcher
+  // (notifierActions.main) the page's own Reminders section uses, so
+  // creating/completing/hiding/deleting one through the API and doing
+  // the same thing by hand on the page are the exact same code path.
+  '/api/virtual/create': (body) => {
+    if (!body || typeof body.title !== 'string' || !body.title.trim()) {
+      return { status: 400, body: { error: 'expected a JSON body: {"title": "...", "class": "...", "due": "..."}  — class and due are both optional' } };
+    }
+    // toConfigChunk — same base64url-JSON encoding /api/settings uses,
+    // just carrying {title, class, due} instead of a settings batch.
+    const result = notifierActions.main('virtualCreate', toConfigChunk({
+      title: body.title, class: body.class || null, due: body.due || null,
+    }));
+    return { status: result.ok ? 200 : 400, body: result };
+  },
+  '/api/virtual/done': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('virtualDone', body.id) };
+  },
+  '/api/virtual/undone': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('virtualUndone', body.id) };
+  },
+  '/api/virtual/hide': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('virtualHide', body.id) };
+  },
+  '/api/virtual/unhide': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('virtualUnhide', body.id) };
+  },
+  // The one genuinely irreversible write handle in this whole API —
+  // every other one here (hide, mute, this same file's own done/hide)
+  // has an undo. This doesn't, on purpose: it mirrors remove() in
+  // 24-virtual-assignments.js exactly, which is a real deletion, not a
+  // flag — see that file's own comment on why "deleted" is an action
+  // and not a third state alongside done/hidden.
+  '/api/virtual/delete': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('virtualDelete', body.id) };
+  },
 };
 
 /** Root: a list of handles, so no one has to dig through the source for addresses. */

@@ -309,6 +309,49 @@ function main(action, arg) {
       require('./23-api-security.js').rollToken();
       redraw();
       return { ok: true, action };
+
+    // ── Virtual assignments — see 24-virtual-assignments.js's own
+    // header comment for what these are and why they're not just
+    // another Classroom/Canvas/Edpuzzle source. 'virtualCreate' carries
+    // {title, class, due} the same base64url-JSON way 'config' carries
+    // a settings batch (see applyBatch's own comment in 19-settings.js)
+    // — one short id fits in a napominalka:// URL segment, a title
+    // typed by hand with commas and slashes in it doesn't. The rest
+    // just take the id directly, same as hide/unhide above.
+    case 'virtualCreate': {
+      const va = require('./24-virtual-assignments.js');
+      let payload;
+      try {
+        const normal = String(arg).replace(/-/g, '+').replace(/_/g, '/');
+        payload = JSON.parse(Buffer.from(normal, 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      const result = va.create(payload);
+      if (!result.ok) return { ok: false, action, why: result.why };
+      redraw();
+      return { ok: true, action, entry: result.entry };
+    }
+    case 'virtualDone':
+    case 'virtualUndone': {
+      const result = require('./24-virtual-assignments.js').markDone(arg, action === 'virtualDone');
+      if (!result.ok) return { ok: false, action, why: result.why };
+      redraw();
+      return { ok: true, action, entry: result.entry };
+    }
+    case 'virtualHide':
+    case 'virtualUnhide': {
+      const result = require('./24-virtual-assignments.js').setHidden(arg, action === 'virtualHide');
+      if (!result.ok) return { ok: false, action, why: result.why };
+      redraw();
+      return { ok: true, action, entry: result.entry };
+    }
+    case 'virtualDelete': {
+      const result = require('./24-virtual-assignments.js').remove(arg);
+      if (!result.ok) return { ok: false, action, why: result.why };
+      redraw();
+      return { ok: true, action, entry: result.entry };
+    }
     default:
       console.error('unknown napominalka action:', action);
       process.exitCode = 1;
