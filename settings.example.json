@@ -21,5 +21,6 @@
   "hideInactiveClasses": false,
   "showEmptyClasses": false,
   "freshCheckAwakeMinutes": 0,
-  "freshCheckAsleepMinutes": 0
+  "freshCheckAsleepMinutes": 0,
+  "freshCheckOnlyWhenCharging": true
 }

@@ -504,7 +504,12 @@ ${exclusionsField(s.exclusions)}
       </div>` },
     { id: 'fetching', label: t('settingsSectionFetching'), body: `
 ${field('freshCheckAwakeMinutes', t('settingsFreshCheckAwake'), String(s.freshCheckAwakeMinutes), t('settingsFreshCheckAwakeHint'))}
-${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.freshCheckAsleepMinutes), t('settingsFreshCheckAsleepHint'))}` },
+${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.freshCheckAsleepMinutes), t('settingsFreshCheckAsleepHint'))}
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsFreshCheckCharging'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="freshCheckOnlyWhenCharging"${s.freshCheckOnlyWhenCharging ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsFreshCheckChargingHint'))}</span>
+      </label>` },
     { id: 'advanced', label: t('settingsAdvanced'), body: `
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}

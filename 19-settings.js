@@ -169,6 +169,18 @@ const DEFAULTS = {
   // function's own comment for why.
   freshCheckAwakeMinutes: 0,
   freshCheckAsleepMinutes: 0,
+
+  // TRUE by default — unlike the two minute settings above, which
+  // default OFF. Once someone has actually turned auto-fresh-checking
+  // on for either state, running it only while plugged in is the safer
+  // posture: it means a laptop can never have this feature quietly
+  // draining its battery, without needing to think about it or tune
+  // the interval down to compensate. Checked via IOKit's power-source
+  // API (isOnACPower() in 16-summary.swift), not device-model-sniffed
+  // — a desktop with no battery at all always reads as "on AC" from
+  // that API, so this is a genuine no-op there, never something that
+  // needs turning off just because the machine happens to be a Mac mini.
+  freshCheckOnlyWhenCharging: true,
 };
 
 const TYPES = {
@@ -180,6 +192,7 @@ const TYPES = {
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'number', freshCheckAsleepMinutes: 'number',
+  freshCheckOnlyWhenCharging: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
 

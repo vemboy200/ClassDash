@@ -25,6 +25,7 @@
 import Cocoa
 import WebKit
 import UserNotifications
+import IOKit.ps
 
 // THE PROJECT PATH ISN'T HARDCODED.
 //
@@ -771,9 +772,19 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     @objc private func displayDidWake() { isDisplayAsleep = false }
 
     private func maybeRunAutoFreshCheck() {
-        let (awakeMinutes, asleepMinutes) = readFreshCheckMinutes()
+        let (awakeMinutes, asleepMinutes, onlyWhenCharging) = readFreshCheckSettings()
         let intervalMinutes = isDisplayAsleep ? asleepMinutes : awakeMinutes
         guard intervalMinutes > 0 else { return } // 0 — disabled for this state
+
+        // Checked AFTER the interval, not instead of it: a Mac that's
+        // unplugged right now with the toggle on just skips this run
+        // entirely and tries again next tick — the interval itself
+        // still governs cadence once it IS plugged back in, rather
+        // than this becoming its own separate schedule.
+        if onlyWhenCharging && !isOnACPower() {
+            logWindow("auto fresh check: skipped — on battery and freshCheckOnlyWhenCharging is on")
+            return
+        }
 
         // last-collection.json's own mtime — the exact same signal
         // /api/status calls collectedAt/minutesAgo. Using it instead of
@@ -794,24 +805,26 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     }
 
     // Reads settings.json directly rather than shelling out to node
-    // 19-settings.js for two numbers — it's a plain file already
+    // 19-settings.js for a few values — it's a plain file already
     // sitting on disk, and this needs an answer every 60 seconds, not
     // a whole node process spun up that often just to ask it. Missing
-    // key or missing file both mean 0 (disabled) — NOT the defaults
-    // 19-settings.js would apply, since there's no equivalent
-    // merge-with-defaults happening on this side. A freshly-created
-    // settings.json from before this feature existed simply doesn't
-    // have these keys yet, and the safe reading of that is "off", not
-    // "guess at what the default should have been".
-    private func readFreshCheckMinutes() -> (awake: Int, asleep: Int) {
+    // keys or a missing file both mean 0/true (freshCheckOnlyWhenCharging
+    // defaults true in 19-settings.js too, see its own comment there for
+    // why) — NOT a full merge-with-defaults, since there's no equivalent
+    // happening on this side. A freshly-created settings.json from
+    // before this feature existed simply doesn't have these keys yet,
+    // and the safe reading of the two minute values specifically is
+    // "off", not "guess at what the default should have been".
+    private func readFreshCheckSettings() -> (awake: Int, asleep: Int, onlyWhenCharging: Bool) {
         let path = projectDir + "/settings.json"
         guard let data = FileManager.default.contents(atPath: path),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return (0, 0)
+            return (0, 0, true)
         }
         let awake = (obj["freshCheckAwakeMinutes"] as? Int) ?? 0
         let asleep = (obj["freshCheckAsleepMinutes"] as? Int) ?? 0
-        return (awake, asleep)
+        let onlyWhenCharging = (obj["freshCheckOnlyWhenCharging"] as? Bool) ?? true
+        return (awake, asleep, onlyWhenCharging)
     }
 
     private func minutesSinceLastCollection() -> Double? {
@@ -821,6 +834,29 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             return nil
         }
         return Date().timeIntervalSince(modDate) / 60
+    }
+
+    // Whether AC power is what's actually supplying this Mac right now
+    // — not the finer-grained "mid charge cycle" question, which would
+    // wrongly say no for a laptop sitting on its charger at 100%. A
+    // desktop with no battery at all (an empty power-source list, not
+    // one reporting "Battery Power") falls through the loop below and
+    // returns true from the guard — there's nothing else it could be
+    // running on. Confirmed against this project's own Mac mini: no
+    // battery/charging entities exist for it in Home Assistant's own
+    // Mac-monitoring integration either, for the same underlying reason.
+    private func isOnACPower() -> Bool {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef],
+              !sources.isEmpty else {
+            return true
+        }
+        for source in sources {
+            guard let info = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any],
+                  let state = info[kIOPSPowerSourceStateKey] as? String else { continue }
+            return state == kIOPSACPowerValue
+        }
+        return true
     }
 
     // MARK: - JS confirm()
