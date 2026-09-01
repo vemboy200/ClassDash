@@ -271,9 +271,20 @@ function remindersSection(now) {
     // x.due_at: due_at gets forced to "tomorrow" by treatUndatedAsUrgent
     // for a reminder that never had a real due date, and editing needs
     // the actual stored value, not that display-only stand-in.
+    //
+    // data-cls/data-type/data-days — the SAME attributes itemCard()
+    // puts on a real assignment's row, so a reminder assigned to a
+    // class actually participates in the main filter panel: hiding that
+    // class hides this too, and its own class-count badge includes it.
+    // Without these, applyFilters() had nothing to match against and
+    // exempted every reminder from class filtering entirely — a
+    // reminder for a hidden class stayed on screen regardless.
+    const days = x.due_at ? daysUntil(now, x.due_at) : 'none';
     return `      <div class="row" data-id="${escapeHtml(x.id)}"
            data-title="${escapeHtml(x.title)}" data-class="${escapeHtml(x.class || '')}"
-           data-raw-due="${escapeHtml(x.rawDue || '')}">
+           data-raw-due="${escapeHtml(x.rawDue || '')}"
+           data-cls="${escapeHtml(x.class || '')}" data-type="${escapeHtml(x.type || '')}"
+           data-days="${days}">
       <div class="item">
         <div class="title">${escapeHtml(x.title)}</div>
         <div class="meta">
@@ -1877,14 +1888,6 @@ function applyFilters() {
   var rows = document.querySelectorAll('.row');
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-
-    // Reminder cards aren't part of this class/type/due-date filter
-    // system at all — they have none of those data-* attributes, and
-    // without this check an active class or type filter would read
-    // that absence as "doesn't match", filtering every reminder out
-    // the moment any such checkbox got checked.
-    if (!r.hasAttribute('data-cls')) continue;
-
     var ok = true;
 
     // Removed items are hidden by default: they're about history, not work.
