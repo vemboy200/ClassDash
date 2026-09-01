@@ -447,6 +447,18 @@ const WRITE_HANDLERS = {
     }));
     return { status: result.ok ? 200 : 400, body: result };
   },
+  '/api/virtual/edit': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "...", "title": "...", "class": "...", "due": "..."}' } };
+    }
+    if (typeof body.title !== 'string' || !body.title.trim()) {
+      return { status: 400, body: { error: 'title is required' } };
+    }
+    const result = notifierActions.main('virtualEdit', toConfigChunk({
+      id: body.id, title: body.title, class: body.class || null, due: body.due || null,
+    }));
+    return { status: result.ok ? 200 : 400, body: result };
+  },
   '/api/virtual/done': (body) => {
     if (!body || typeof body.id !== 'string' || !body.id) {
       return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };

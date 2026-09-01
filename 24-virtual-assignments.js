@@ -85,10 +85,11 @@ function findIndex(list, id) {
   return list.findIndex((v) => v.id === id);
 }
 
-/** title required, class and due both optional — a due-less reminder
- *  is exactly the "teacher mentioned it, no actual deadline" case this
- *  whole thing exists for. */
-function create({ title, class: className, due }) {
+/** Shared by create() and edit(): title required, due either a valid
+ *  date or falsy (meaning "no due date", not "invalid"). Returns
+ *  {ok: false, why} the same shape every other function here does, or
+ *  {ok: true, title, className, dueISO} ready to assign directly. */
+function validateTitleAndDue({ title, class: className, due }) {
   const cleanTitle = String(title || '').trim();
   if (!cleanTitle) return { ok: false, why: 'title is required' };
 
@@ -99,11 +100,26 @@ function create({ title, class: className, due }) {
     dueISO = d.toISOString();
   }
 
+  return {
+    ok: true,
+    title: cleanTitle,
+    className: className ? String(className).trim() || null : null,
+    dueISO,
+  };
+}
+
+/** title required, class and due both optional — a due-less reminder
+ *  is exactly the "teacher mentioned it, no actual deadline" case this
+ *  whole thing exists for. */
+function create({ title, class: className, due }) {
+  const v = validateTitleAndDue({ title, class: className, due });
+  if (!v.ok) return v;
+
   const entry = {
     id: 'v-' + crypto.randomBytes(8).toString('hex'),
-    title: cleanTitle,
-    class: className ? String(className).trim() || null : null,
-    due: dueISO,
+    title: v.title,
+    class: v.className,
+    due: v.dueISO,
     createdAt: new Date().toISOString(),
     done: false,
     doneAt: null,
@@ -114,6 +130,26 @@ function create({ title, class: className, due }) {
   list.push(entry);
   writeRaw(list);
   return { ok: true, entry };
+}
+
+/** Title and due follow the same rules create() enforces; class is
+ *  always overwritten too (including back to null), not merged — the
+ *  edit form always sends the current-or-changed value for all three,
+ *  a full snapshot rather than a partial diff, same as saveSettings()
+ *  does for the settings panel. */
+function edit(id, { title, class: className, due }) {
+  const list = readAll();
+  const i = findIndex(list, id);
+  if (i === -1) return { ok: false, why: 'no such virtual assignment' };
+
+  const v = validateTitleAndDue({ title, class: className, due });
+  if (!v.ok) return v;
+
+  list[i].title = v.title;
+  list[i].class = v.className;
+  list[i].due = v.dueISO;
+  writeRaw(list);
+  return { ok: true, entry: list[i] };
 }
 
 function markDone(id, done) {
@@ -181,6 +217,12 @@ function bucketed(now, treatUndatedAsUrgent) {
       type: 'Assignment',
       link: null,
       hidden: !!v.hidden,
+      // The ORIGINAL due value, not due_at below — due_at gets forced
+      // to "tomorrow" by treatUndatedAsUrgent for a reminder that never
+      // had a real due date at all. Editing needs to pre-fill with what
+      // was actually set, not a display-only stand-in date; see
+      // startEditReminder() in 08-page.js.
+      rawDue: v.due,
     };
 
     if (v.done) {
@@ -205,4 +247,4 @@ function bucketed(now, treatUndatedAsUrgent) {
   return { burning, later, overdue, undated, done };
 }
 
-module.exports = { FILE, readAll, create, markDone, setHidden, remove, bucketed };
+module.exports = { FILE, readAll, create, edit, markDone, setHidden, remove, bucketed };

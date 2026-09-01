@@ -219,14 +219,18 @@ integration, a script, a phone shortcut).
   uses — a done one comes back tagged `"done"`, a hidden one tagged
   `"hidden"`. Writes: `POST /api/virtual/create` (body
   `{"title": "...", "class": "...", "due": "..."}` — only `title` is
-  required), `/done` and `/undone`, `/hide` and `/unhide` (all body
-  `{"id": "..."}`), and `/delete` (same body) — the one genuinely
-  irreversible handle in this whole API, matching `remove()` in
-  `24-virtual-assignments.js` being a real deletion rather than a flag.
-  A done reminder clears itself automatically 7 days after being marked
-  done (pruned lazily, on the next read of the file — see that file's
-  own comment); a hidden one stays hidden until explicitly un-hidden,
-  no expiry.
+  required) and `/edit` (same body plus a required `"id"` — `title` is
+  still required on every edit too, `class`/`due` are always
+  overwritten with whatever's sent, including back to `null`; a full
+  snapshot each time, not a partial diff, same as `saveSettings()` does
+  for the settings panel), `/done` and `/undone`, `/hide` and `/unhide`
+  (all body `{"id": "..."}`), and `/delete` (same body) — the one
+  genuinely irreversible handle in this whole API, matching `remove()`
+  in `24-virtual-assignments.js` being a real deletion rather than a
+  flag. A done reminder clears itself automatically 7 days after being
+  marked done (pruned lazily, on the next read of the file — see that
+  file's own comment); a hidden one stays hidden until explicitly
+  un-hidden, no expiry.
 - **Push:** `/api/stream` — Server-Sent Events, not WebSocket, since
   push here only ever needs to go server → client. Two event names on
   the same connection:

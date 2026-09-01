@@ -252,14 +252,28 @@ function remindersSection(now) {
   };
 
   const card = (x, kind) => {
+    // Edit isn't offered for done ones — the add-form only has fields
+    // for title/class/due, nothing to un-do "done" through, and that's
+    // what the undo link right below is already for.
+    const editLink = kind !== 'done'
+      ? `<a class="quiet" href="#" onclick="return startEditReminder(event, this)">${escapeHtml(t('reminderEdit'))}</a>`
+      : '';
     const actions = kind === 'done'
       ? `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUndone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderUndo'))}</a>`
       : kind === 'hidden'
-        ? `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUnhide', '${escapeHtml(x.id)}')">${escapeHtml(t('restore'))}</a>`
-        : `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualDone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDone'))}</a>` +
+        ? editLink + `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUnhide', '${escapeHtml(x.id)}')">${escapeHtml(t('restore'))}</a>`
+        : editLink +
+          `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualDone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDone'))}</a>` +
           `<a class="quiet quiet-faint" href="#" onclick="return virtualAction(event, 'virtualHide', '${escapeHtml(x.id)}')">${escapeHtml(t('hide'))}</a>` +
           `<a class="quiet quiet-faint" href="#" onclick="return virtualDeleteConfirm(event, '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDelete'))}</a>`;
-    return `      <div class="row" data-id="${escapeHtml(x.id)}">
+    // data-title/data-class/data-raw-due — read by startEditReminder()
+    // to pre-fill the add form. data-raw-due specifically, not
+    // x.due_at: due_at gets forced to "tomorrow" by treatUndatedAsUrgent
+    // for a reminder that never had a real due date, and editing needs
+    // the actual stored value, not that display-only stand-in.
+    return `      <div class="row" data-id="${escapeHtml(x.id)}"
+           data-title="${escapeHtml(x.title)}" data-class="${escapeHtml(x.class || '')}"
+           data-raw-due="${escapeHtml(x.rawDue || '')}">
       <div class="item">
         <div class="title">${escapeHtml(x.title)}</div>
         <div class="meta">
@@ -296,6 +310,7 @@ function remindersSection(now) {
     .map(name => `<option value="${escapeHtml(name)}">`).join('');
 
   const addForm = `      <div class="reminder-add">
+        <input type="hidden" id="reminder-editing-id" value="">
         <input type="text" id="reminder-title" placeholder="${escapeHtml(t('reminderTitlePlaceholder'))}">
         <input type="text" id="reminder-class" list="reminder-class-list" placeholder="${escapeHtml(t('reminderClassPlaceholder'))}">
         <datalist id="reminder-class-list">${classOptions}</datalist>
@@ -305,7 +320,9 @@ function remindersSection(now) {
           <button type="button" class="mini-btn" id="reminder-due-clear" hidden
                   onclick="clearReminderDue()" title="${escapeHtml(t('reminderDueClear'))}">✕</button>
         </span>
-        <button type="button" onclick="addReminder()">${escapeHtml(t('reminderAdd'))}</button>
+        <button type="button" id="reminder-save-btn" onclick="saveReminder()">${escapeHtml(t('reminderAdd'))}</button>
+        <button type="button" class="mini-btn" id="reminder-cancel-edit-btn" hidden
+                onclick="cancelEditReminder()">${escapeHtml(t('reminderCancelEdit'))}</button>
         <span class="result" id="reminders-result"></span>
       </div>
       <p class="hint">${escapeHtml(t('reminderCaption'))}</p>`;
@@ -1365,6 +1382,9 @@ const WORDS = ${JSON.stringify({
   confirmDeleteReminder: t('confirmDeleteReminder'),
   reminderTitleRequired: t('reminderTitleRequired'),
   reminderAdding: t('reminderAdding'),
+  reminderAdd: t('reminderAdd'),
+  reminderSave: t('reminderSave'),
+  reminderSaving: t('reminderSaving'),
 })};
 
 // ── Reaching outside the page ──
@@ -1613,7 +1633,53 @@ function clearReminderDue() {
   document.getElementById('reminder-due-clear').hidden = true;
 }
 
-function addReminder() {
+// ISO (UTC) -> the local-time "YYYY-MM-DDTHH:mm" a datetime-local input
+// actually wants in its .value. Used only to pre-fill the field when
+// editing — new Date(iso) already reads it back correctly either way,
+// since getFullYear()/getHours()/etc. below are local-time accessors.
+function isoToLocalDatetimeValue(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+// Pre-fills the add form from a card's own data-* attributes (see
+// card() in remindersSection(), 08-page.js) and switches it into edit
+// mode — saveReminder() below checks reminder-editing-id to decide
+// whether to create or edit.
+function startEditReminder(e, link) {
+  if (e) e.preventDefault();
+  var row = link.closest('.row');
+  document.getElementById('reminder-editing-id').value = row.getAttribute('data-id');
+  document.getElementById('reminder-title').value = row.getAttribute('data-title') || '';
+  document.getElementById('reminder-class').value = row.getAttribute('data-class') || '';
+  var dueField = document.getElementById('reminder-due');
+  dueField.value = isoToLocalDatetimeValue(row.getAttribute('data-raw-due'));
+  document.getElementById('reminder-due-clear').hidden = !dueField.value;
+  document.getElementById('reminder-save-btn').textContent = WORDS.reminderSave;
+  document.getElementById('reminder-cancel-edit-btn').hidden = false;
+  var result = document.getElementById('reminders-result');
+  if (result) result.textContent = '';
+  document.getElementById('reminder-title').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('reminder-title').focus();
+  return false;
+}
+
+function cancelEditReminder() {
+  document.getElementById('reminder-editing-id').value = '';
+  document.getElementById('reminder-title').value = '';
+  document.getElementById('reminder-class').value = '';
+  clearReminderDue();
+  document.getElementById('reminder-save-btn').textContent = WORDS.reminderAdd;
+  document.getElementById('reminder-cancel-edit-btn').hidden = true;
+  var result = document.getElementById('reminders-result');
+  if (result) result.textContent = '';
+}
+
+function saveReminder() {
   var titleField = document.getElementById('reminder-title');
   var result = document.getElementById('reminders-result');
   var title = titleField.value.trim();
@@ -1623,14 +1689,20 @@ function addReminder() {
   }
   var cls = document.getElementById('reminder-class').value.trim();
   var dueField = document.getElementById('reminder-due').value;
+  var editingId = document.getElementById('reminder-editing-id').value;
   var payload = {
     title: title,
     class: cls || null,
     due: dueField ? new Date(dueField).toISOString() : null,
   };
+  var action = 'virtualCreate';
+  if (editingId) {
+    payload.id = editingId;
+    action = 'virtualEdit';
+  }
   var chunk = toBase64Url(JSON.stringify(payload));
-  if (result) result.textContent = WORDS.reminderAdding;
-  dispatchAction('virtualCreate', chunk, function (res) {
+  if (result) result.textContent = editingId ? WORDS.reminderSaving : WORDS.reminderAdding;
+  dispatchAction(action, chunk, function (res) {
     if (res && res.ok) { location.reload(); return; }
     if (result) result.textContent = (res && res.why) || WORDS.checkFailed;
   });

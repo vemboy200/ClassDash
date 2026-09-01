@@ -332,6 +332,21 @@ function main(action, arg) {
       redraw();
       return { ok: true, action, entry: result.entry };
     }
+    case 'virtualEdit': {
+      const va = require('./24-virtual-assignments.js');
+      let payload;
+      try {
+        const normal = String(arg).replace(/-/g, '+').replace(/_/g, '/');
+        payload = JSON.parse(Buffer.from(normal, 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      if (!payload.id) return { ok: false, action, why: 'id is required' };
+      const result = va.edit(payload.id, payload);
+      if (!result.ok) return { ok: false, action, why: result.why };
+      redraw();
+      return { ok: true, action, entry: result.entry };
+    }
     case 'virtualDone':
     case 'virtualUndone': {
       const result = require('./24-virtual-assignments.js').markDone(arg, action === 'virtualDone');

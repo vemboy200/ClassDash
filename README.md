@@ -179,10 +179,12 @@ full check) works fine on its own.
   forgot" problem none of the three platforms can ever solve, since
   nothing was actually assigned through them. Type it into the
   **Reminders** section yourself, with an optional class and due date.
-  Mark one **done** (it clears itself automatically a week later — long
-  enough to notice a misclick, short enough not to pile up) or **hide**
-  it (stays hidden until you bring it back, no expiry), or **delete** it
-  outright, which is the one action here with no undo.
+  **Edit** one any time to fix a typo or change the date — the class
+  field suggests matching classes as you type, but never applies one on
+  its own. Mark one **done** (it clears itself automatically a week
+  later — long enough to notice a misclick, short enough not to pile
+  up) or **hide** it (stays hidden until you bring it back, no expiry),
+  or **delete** it outright, which is the one action here with no undo.
 - The **gear icon** opens settings: your email/Canvas address, which
   classes to skip, language, and toggles for most of the behavior
   described above. Changes take effect right after saving — most are
