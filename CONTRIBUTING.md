@@ -224,6 +224,21 @@ integration, a script, a phone shortcut).
   `crypto.timingSafeEqual`. The token is read fresh from disk on every
   request, not cached, so rolling it from the settings panel takes effect
   on the very next request with no server restart.
+- **Adding a new write handle is not a bigger decision than adding a
+  button.** Every write here (see `WRITE_HANDLERS` in `17-api.js`) is
+  TLS + bearer-token authenticated, same as every read, and routes
+  through the exact same `notifierActions.main()` dispatcher a click on
+  the page itself uses — exposing one through the API isn't opening a
+  new trust boundary, it's just letting an already-authenticated client
+  press a button that already exists locally. When a page-local action
+  (a toggle, a dismiss, anything `notifierActions.main()` already
+  handles) has an obvious API shape, add the `WRITE_HANDLERS` entry in
+  the same pass, don't treat it as needing separate justification. The
+  two real exceptions: `apiEnabled`/`apiNetwork` are deliberately kept
+  out (changing them restarts the very process that would be answering
+  the request — see that handle's own comment, a technical constraint,
+  not caution), and a genuinely irreversible action (`/api/virtual/delete`)
+  should say so in its own comment the way that one already does.
 - **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
   `/api/overdue` `/api/done` `/api/assignments` `/api/announcements`
   `/api/removed` `/api/classes` `/api/virtual` `/api/check-status`
