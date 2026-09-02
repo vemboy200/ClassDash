@@ -547,6 +547,18 @@ const WRITE_HANDLERS = {
     }
     return { status: 200, body: notifierActions.main('virtualDelete', body.id) };
   },
+
+  // Same dismissUpdate the page's own banner dismiss button calls —
+  // see 21-notifier-actions.js and 26-update-check.js. version is
+  // whatever GET /api/update-status's latestVersion said; sending
+  // anything else just means that value doesn't match a future check's
+  // latestVersion, so it never actually suppresses anything.
+  '/api/update-status/dismiss': (body) => {
+    if (!body || typeof body.version !== 'string' || !body.version) {
+      return { status: 400, body: { error: 'expected a JSON body: {"version": "..."}' } };
+    }
+    return { status: 200, body: notifierActions.main('dismissUpdate', body.version) };
+  },
 };
 
 /** Root: a list of handles, so no one has to dig through the source for addresses. */

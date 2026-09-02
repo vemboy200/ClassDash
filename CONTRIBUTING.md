@@ -161,7 +161,9 @@ whether the banner's been dismissed, and through the home API —
 (`update-status.json`'s own shape, `dismissedVersion` included), for
 something like a Home Assistant sensor that watches `updateAvailable`
 without needing to open the app at all. `null` fields there mean no
-check has completed yet, not an error.
+check has completed yet, not an error. `POST /api/update-status/dismiss`
+(body `{"version": "..."}`) is the write side — the exact same
+`dismissUpdate` the page's own banner button calls.
 
 ---
 
