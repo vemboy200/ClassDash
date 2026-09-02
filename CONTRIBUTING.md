@@ -156,7 +156,12 @@ dismiss button goes through the normal napominalka:// bridge
 `26-update-check.js`, the same file-based handoff every other piece of
 state shared between the app and the collector already uses. Also
 surfaced as a read-only row in Settings → Advanced, regardless of
-whether the banner's been dismissed.
+whether the banner's been dismissed, and through the home API —
+`GET /api/update-status` returns the exact same object
+(`update-status.json`'s own shape, `dismissedVersion` included), for
+something like a Home Assistant sensor that watches `updateAvailable`
+without needing to open the app at all. `null` fields there mean no
+check has completed yet, not an error.
 
 ---
 
@@ -219,7 +224,8 @@ integration, a script, a phone shortcut).
   on the very next request with no server restart.
 - **REST (GET, read-only):** `/api/status` `/api/due-soon` `/api/ahead`
   `/api/overdue` `/api/done` `/api/assignments` `/api/announcements`
-  `/api/removed` `/api/classes` `/api/virtual` `/api/check-status`.
+  `/api/removed` `/api/classes` `/api/virtual` `/api/check-status`
+  `/api/update-status`.
 - **Tags:** every assignment object (from any of the handles above that
   return one) carries a `tags` array — `"hidden"`, `"muted"`, `"done"`,
   `"removed"`, any combination, or empty. This replaced the API

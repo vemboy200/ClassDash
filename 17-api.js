@@ -91,6 +91,7 @@ const {
 const notifierActions = require('./21-notifier-actions.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
+const { readUpdateStatus } = require('./26-update-check.js');
 
 const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
@@ -337,6 +338,18 @@ const HANDLERS = {
   // right now" — so it gets a handle of its own instead of risking a
   // shape change on the one that's already relied on.
   '/api/check-status': () => checkStatus(),
+
+  // Whatever 16-summary.swift's own update check last found — see
+  // 26-update-check.js and CONTRIBUTING.md's "Update check" section
+  // for the full mechanism. `null` fields mean no check has completed
+  // yet (a fresh install, or the app hasn't been launched since
+  // updating from a version without this feature) rather than the
+  // handle erroring — same "no signal isn't an error" reasoning
+  // classLastActivity() already uses in 22-class-activity.js.
+  '/api/update-status': () => readUpdateStatus() || {
+    currentVersion: null, latestVersion: null, url: null,
+    checkedAt: null, updateAvailable: false,
+  },
 
   // Virtual assignments — reminders the user typed in themselves, not
   // read from any platform. See 24-virtual-assignments.js's own header
