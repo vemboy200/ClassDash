@@ -319,6 +319,30 @@ function main(action, arg) {
       require('./26-update-check.js').dismissUpdate(arg);
       redraw();
       return { ok: true, action };
+    // Starts the actual download — see 26-update-check.js's own header
+    // comment for why the fetch itself lives there and not in
+    // 16-summary.swift. Async, same "started, not finished" contract
+    // 'check'/'reload' already use: main() returns right away while
+    // the download keeps running.
+    //
+    // ONLY REACHABLE FROM THE API TODAY, DELIBERATELY NOT FROM THE
+    // BRIDGE. 17-api.js calls main() as a plain in-process function —
+    // its own long-running server process stays alive regardless, so
+    // the download finishing later is genuinely fire-and-forget from
+    // its point of view. The napominalka:// bridge is different: it
+    // invokes this exact file as a fresh, short-lived CLI process (see
+    // runAction() in 16-summary.swift), and nothing here ever calls
+    // process.exit() — Node keeps a process alive for as long as
+    // there's a pending callback, an open download socket included.
+    // 'check'/'reload' avoid that by detaching their real work into a
+    // SEPARATE child process before returning; this case doesn't. A
+    // future page-side "download now" button would need the same
+    // detach, not a direct call through this path, or the click would
+    // just hang until the whole .dmg finished downloading.
+    case 'downloadUpdate': {
+      const result = require('./26-update-check.js').downloadUpdate();
+      return { ok: result.ok, action, ...result };
+    }
 
     // ── Virtual assignments — see 24-virtual-assignments.js's own
     // header comment for what these are and why they're not just

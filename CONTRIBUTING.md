@@ -165,6 +165,52 @@ check has completed yet, not an error. `POST /api/update-status/dismiss`
 (body `{"version": "..."}`) is the write side — the exact same
 `dismissUpdate` the page's own banner button calls.
 
+**Downloading and installing** are two more actions, split across the
+same two processes for a real reason, not by accident:
+
+- **`POST /api/update-status/download`** starts the actual `.dmg`
+  download — no body needed. Runs in `26-update-check.js`, in
+  **Node**, not Swift: `17-api.js` is a fully independent, detached
+  process (`startApiServer()` in `21-notifier-actions.js`), whose
+  lifetime has nothing to do with whether `ClassDash.app` is even
+  open, so a download that only worked while the app happened to be
+  running would defeat the point of triggering it over the API at
+  all. `checkForUpdates()` captures the release's `.dmg` asset URL
+  (matched by `.hasSuffix(".dmg")` among the release's `assets`, not
+  the release PAGE url) into `downloadURL`; `fetchToFile()` follows
+  GitHub's redirect to the actual S3-hosted file itself (`https.get`
+  never follows redirects on its own). Same async contract as
+  `/api/reload`/`/api/check` — answers immediately, a client polls
+  `GET /api/update-status`'s `downloading`/`readyToInstall` fields for
+  progress. Quarantine is a non-issue here: macOS only tags a
+  downloaded file `com.apple.quarantine` when the fetching app opts
+  into `LSFileQuarantineEnabled` or calls the quarantine APIs directly
+  (Safari, Mail) — a plain Node `https.get` never does either, so
+  there's nothing to strip afterward, unlike a hypothetical
+  `URLSession`-based Swift download would have needed to handle.
+- **Installing is never reachable through the API, on purpose, at
+  all.** It replaces `ClassDash.app`'s own running binary in
+  `/Applications` and relaunches it — get that interrupted and there's
+  nothing left running to notice or recover it — so it's gated behind
+  a real `NSAlert` in `16-summary.swift` that nothing outside that
+  process can trigger or skip. `maybeShowInstallPrompt()` checks
+  `update-status.json`'s `readyToInstall` on launch and every 60
+  seconds after (`installPromptTimer` — a separate, faster timer than
+  `updateCheckTimer`'s 24-hour one, specifically so an API-triggered
+  download that finishes while the app happens to be open gets noticed
+  within a minute, not up to a day later). Declining ("Later") is
+  remembered only for that version and only for the current launch
+  (`declinedInstallVersion`, in-memory, not written to disk) — a fresh
+  launch, or a newer release becoming ready, asks again.
+  `installReadyUpdate()` mounts the `.dmg` with `hdiutil attach`,
+  copies `ClassDash.app` over the one in `/Applications` (no
+  sudo/elevation — the same unprivileged permissions `build.sh`'s own
+  install step already relies on), detaches the volume, deletes the
+  downloaded `.dmg`, and relaunches via `NSWorkspace.openApplication`
+  before this instance quits. Any failure along the way shows what
+  went wrong and leaves the currently-installed version untouched —
+  never a partial copy.
+
 ---
 
 ## Settings reference
@@ -414,7 +460,7 @@ integration, a script, a phone shortcut).
 | `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
 | `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
 | `25-check-status.js` | per-platform "did the last check work?" — ok/problem/unknown |
-| `26-update-check.js` | reads the update check 16-summary.swift already ran; writes the one field that's this side's to own (dismissedVersion) |
+| `26-update-check.js` | reads the update check 16-summary.swift already ran; writes dismissedVersion; downloads the release .dmg (the one piece of "update support" that lives in Node, not Swift) |
 | `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
 | `.github/workflows/release.yml` | builds and publishes a `.dmg` release on a `v*` tag push |
 

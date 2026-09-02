@@ -1,32 +1,41 @@
 /**
- * Reads what 16-summary.swift's own update check already found — this
- * file doesn't do any checking itself.
+ * Reads what 16-summary.swift's own update check already found, and
+ * handles downloading the release it points at — two different halves
+ * of "update support," split across two processes for a real reason,
+ * not by accident.
  *
- * THE ACTUAL GITHUB CALL LIVES IN SWIFT, NOT HERE.
+ * ── Checking lives in Swift, downloading lives here ──
  *
  * checkForUpdates() in 16-summary.swift runs on launch and every 24
- * hours after, writing whatever it finds to update-status.json. That's
+ * hours after, writing whatever it finds to update-status.json — that's
  * the one place with a long-running process to hang a repeating timer
- * on and a menu bar to put a manual "Check for Updates…" item in —
- * neither exists on this side, which only runs for ten seconds at a
- * time every ten minutes. This file just reads that same file back for
- * the summary page and the settings panel to show, plus writes the one
- * field that belongs to a click on the page instead: dismissedVersion.
+ * on, and a menu bar to put a manual "Check for Updates…" item in.
  *
- * ── Why dismissedVersion is written from here, not Swift ──
+ * Downloading the actual .dmg is different: it has to work even when
+ * 16-summary.swift ISN'T running at all. The home API's own process
+ * (17-api.js) is spawned fully detached — see startApiServer() in
+ * 21-notifier-actions.js — its lifetime has nothing to do with whether
+ * the app is open. A POST to /api/update-status/download has to
+ * actually do something regardless, so the fetch happens here, in
+ * plain Node, not in Swift. This also sidesteps a real Gatekeeper
+ * concern for free: macOS only quarantines a downloaded file when the
+ * app fetching it opts into LSFileQuarantineEnabled (Safari, Mail) or
+ * calls the quarantine APIs directly — a plain `https.get` here never
+ * triggers that, so there's nothing to strip afterward.
  *
- * Dismissing the banner is a click on the page, which reaches this
- * process through the exact same napominalka:// bridge every other
- * page action does (see 21-notifier-actions.js) — writing it directly
- * here keeps that one consistent path, instead of the page's dismiss
- * button needing some other way to reach back into the Swift process
- * that isn't already there for anything else it does.
+ * Actually INSTALLING the download (mounting the .dmg, replacing
+ * ClassDash.app, relaunching) still has to happen in 16-summary.swift
+ * — that needs AppKit, and it's the one step deliberately gated behind
+ * a native confirmation nothing outside that process can trigger or
+ * skip. See installReadyUpdate()/maybeShowInstallPrompt() there.
  */
 
 const fs = require('fs');
+const https = require('https');
 const path = require('path');
 
 const FILE = path.join(__dirname, 'update-status.json');
+const DMG_PATH = path.join(__dirname, 'update-download.dmg');
 
 /** Whatever the last check found — null if none has ever run yet. */
 function readUpdateStatus() {
@@ -35,6 +44,21 @@ function readUpdateStatus() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Merges into whatever's already there, same "each writer owns its own
+ * fields" rule 16-summary.swift's own writeUpdateStatus() follows —
+ * this only ever touches downloading/readyToInstall/readyVersion/
+ * downloadedPath, never latestVersion/url/dismissedVersion, which
+ * belong to the check and the dismiss action respectively.
+ */
+function writeFields(fields) {
+  const current = readUpdateStatus() || {};
+  Object.assign(current, fields);
+  try {
+    fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
+  } catch { /* not fatal — status just won't reflect this step */ }
 }
 
 /**
@@ -51,4 +75,77 @@ function dismissUpdate(version) {
   } catch { /* not fatal — the banner just won't have been dismissed */ }
 }
 
-module.exports = { readUpdateStatus, dismissUpdate, FILE };
+/**
+ * Follows redirects itself — Node's https.get doesn't, and GitHub's
+ * own `browser_download_url` always 302s to a signed, short-lived S3
+ * URL rather than serving the asset directly. Capped at 5 hops so a
+ * redirect loop fails loudly instead of hanging forever.
+ */
+function fetchToFile(url, destPath, redirectsLeft, cb) {
+  const file = fs.createWriteStream(destPath);
+  const cleanupAndFail = (err) => {
+    file.close();
+    fs.unlink(destPath, () => cb(err));
+  };
+
+  https.get(url, (res) => {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      res.resume(); // drain this response before starting the next one
+      file.close();
+      if (redirectsLeft <= 0) return cleanupAndFail(new Error('too many redirects'));
+      return fetchToFile(res.headers.location, destPath, redirectsLeft - 1, cb);
+    }
+    if (res.statusCode !== 200) {
+      res.resume();
+      return cleanupAndFail(new Error(`download responded ${res.statusCode}`));
+    }
+    res.pipe(file);
+    file.on('finish', () => file.close(() => cb(null)));
+    file.on('error', cleanupAndFail);
+  }).on('error', cleanupAndFail);
+}
+
+/**
+ * Starts a download in the background and returns immediately — same
+ * "started, not finished" contract 'check'/'reload' already use for a
+ * real collection pass (see 21-notifier-actions.js). A caller (the
+ * page, an API client) watches update-status.json's own downloading/
+ * readyToInstall fields for progress instead of waiting on this call,
+ * since a release .dmg is a real download, not something to hold a
+ * request open for.
+ */
+function downloadUpdate() {
+  const status = readUpdateStatus();
+  if (!status || !status.downloadURL || !status.latestVersion) {
+    return { ok: false, why: 'no downloadURL yet — run a check first' };
+  }
+
+  // Already have this exact version sitting downloaded — nothing to
+  // do, just let whatever's polling notice readyToInstall is already
+  // true. Re-downloading the same bytes on every retry would be a
+  // waste, and would also spuriously flip downloading back to true for
+  // something that's already sitting there finished.
+  if (status.readyVersion === status.latestVersion && status.readyToInstall) {
+    return { ok: true, alreadyReady: true };
+  }
+
+  const latestVersion = status.latestVersion;
+  writeFields({ downloading: true });
+
+  fetchToFile(status.downloadURL, DMG_PATH, 5, (err) => {
+    if (err) {
+      writeFields({ downloading: false });
+      return;
+    }
+    writeFields({
+      downloading: false,
+      readyToInstall: true,
+      readyVersion: latestVersion,
+      downloadedPath: DMG_PATH,
+    });
+  });
+
+  return { ok: true, started: true };
+}
+
+module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, FILE, DMG_PATH };

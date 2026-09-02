@@ -264,6 +264,13 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     var isDisplayAsleep = false
     var autoFreshCheckTimer: Timer?
     var updateCheckTimer: Timer?
+    var installPromptTimer: Timer?
+    // Which ready version this launch has already asked about and been
+    // told "Later" for — without this, the 60-second poll would show
+    // the same NSAlert again every minute for as long as it stays
+    // undismissed. Session-only, deliberately not written to disk: a
+    // fresh launch means asking again, same as any other updater.
+    var declinedInstallVersion: String?
 
     // WHEN THE LAST OUTGOING LINK WAS HANDED TO macOS.
     //
@@ -901,6 +908,13 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
             self?.checkForUpdates(manual: false)
         }
+        // Resumes an install that was downloaded but never confirmed
+        // last time the app ran — declinedInstallVersion is per-launch,
+        // so a fresh launch always asks again about a still-pending
+        // update, same as the 60-second poll below asks again about
+        // one that just finished downloading via the API.
+        maybeShowInstallPrompt()
+        setupInstallPromptCheck()
     }
 
     @objc private func checkForUpdatesManually() {
@@ -949,10 +963,23 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             let releaseURL = (obj["html_url"] as? String) ?? Self.updateReleasesURL
             let updateAvailable = Self.isNewer(latestVersion, than: currentVersion)
 
+            // The .dmg's own direct download URL, not the release PAGE
+            // url above — downloadUpdate() below needs something it can
+            // actually fetch bytes from. release.yml always names it
+            // "ClassDash-<tag>.dmg"; matched by suffix rather than that
+            // exact pattern so a hand-published release with a
+            // differently-formatted asset name still works, as long as
+            // it's still the one .dmg.
+            let assets = obj["assets"] as? [[String: Any]] ?? []
+            let downloadURL = assets.first(where: {
+                ($0["name"] as? String)?.hasSuffix(".dmg") == true
+            }).flatMap { $0["browser_download_url"] as? String }
+
             logWindow("update check: running \(currentVersion), latest is \(latestVersion)" +
-                            (updateAvailable ? " — update available" : ""))
+                            (updateAvailable ? " — update available" : "") +
+                            (downloadURL == nil ? " (no .dmg asset found)" : ""))
             self.writeUpdateStatus(currentVersion: currentVersion, latestVersion: latestVersion,
-                                    url: releaseURL, updateAvailable: updateAvailable)
+                                    url: releaseURL, downloadURL: downloadURL, updateAvailable: updateAvailable)
 
             if manual {
                 DispatchQueue.main.async {
@@ -980,20 +1007,36 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         alert.runModal()
     }
 
-    // Written fresh on every check, EXCEPT dismissedVersion — that field
-    // belongs to the bridge-side writer (dismissUpdate in
-    // 21-notifier-actions.js), not this one, and has to survive being
-    // overwritten by the next automatic check or it would silently
-    // un-dismiss a banner the user already closed. Read the existing
-    // file first and carry that one field forward; every other field is
-    // this function's own to decide fresh each time.
+    // Written fresh on every check, EXCEPT dismissedVersion and the
+    // download-state fields — those belong to other writers
+    // (dismissUpdate in 21-notifier-actions.js, downloadUpdate() below)
+    // and have to survive being overwritten by the next automatic
+    // check or a dismissal / a completed download would silently
+    // un-happen. Read the existing file first and carry those forward;
+    // every other field is this function's own to decide fresh.
+    //
+    // The download-state fields are carried over CONDITIONALLY, not
+    // unconditionally like dismissedVersion: they're only still true
+    // for the version they were recorded against. If a newer release
+    // ships after one was already downloaded-but-not-installed, that
+    // download is now stale — carrying readyToInstall forward would
+    // offer to install a version that's no longer the latest one.
     private func writeUpdateStatus(currentVersion: String, latestVersion: String,
-                                    url: String, updateAvailable: Bool) {
+                                    url: String, downloadURL: String?, updateAvailable: Bool) {
         let path = projectDir + "/update-status.json"
         var dismissedVersion: String? = nil
+        var readyToInstall = false
+        var readyVersion: String? = nil
+        var downloadedPath: String? = nil
         if let existing = FileManager.default.contents(atPath: path),
            let obj = try? JSONSerialization.jsonObject(with: existing) as? [String: Any] {
             dismissedVersion = obj["dismissedVersion"] as? String
+            let existingReadyVersion = obj["readyVersion"] as? String
+            if existingReadyVersion == latestVersion {
+                readyToInstall = (obj["readyToInstall"] as? Bool) ?? false
+                readyVersion = existingReadyVersion
+                downloadedPath = obj["downloadedPath"] as? String
+            }
         }
 
         let formatter = ISO8601DateFormatter()
@@ -1003,10 +1046,13 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             "url": url,
             "checkedAt": formatter.string(from: Date()),
             "updateAvailable": updateAvailable,
+            "downloading": false,
+            "readyToInstall": readyToInstall,
         ]
-        if let dismissedVersion = dismissedVersion {
-            status["dismissedVersion"] = dismissedVersion
-        }
+        if let downloadURL = downloadURL { status["downloadURL"] = downloadURL }
+        if let dismissedVersion = dismissedVersion { status["dismissedVersion"] = dismissedVersion }
+        if let readyVersion = readyVersion { status["readyVersion"] = readyVersion }
+        if let downloadedPath = downloadedPath { status["downloadedPath"] = downloadedPath }
 
         guard let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted]) else { return }
         try? data.write(to: URL(fileURLWithPath: path))
@@ -1029,6 +1075,183 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             if x != y { return x > y }
         }
         return false
+    }
+
+    // MARK: - Update download & install
+
+    // "API TRIGGERS DOWNLOAD, NATIVE CONFIRM BEFORE INSTALL" — THE
+    // DELIBERATE SPLIT, AND WHY THE DOWNLOAD ITSELF LIVES IN NODE, NOT HERE.
+    //
+    // 17-api.js runs as a fully independent, detached process (see
+    // startApiServer() in 21-notifier-actions.js) — its lifetime has
+    // nothing to do with whether this app is even open. A download
+    // triggered from downloadUpdate() living in THIS process would
+    // silently do nothing whenever the API is hit while ClassDash.app
+    // isn't running, which defeats the entire point of triggering it
+    // over the API in the first place. So 26-update-check.js does the
+    // actual fetch and writes downloading/readyToInstall/readyVersion/
+    // downloadedPath straight into update-status.json — no quarantine
+    // concern there either, since a plain download only gets tagged
+    // com.apple.quarantine by an app that explicitly opts into
+    // LSFileQuarantineEnabled (Safari, Mail) or calls the quarantine
+    // APIs directly, neither of which a Node `https.get` does.
+    //
+    // What still has to live HERE: replacing this app's own running
+    // binary on disk and relaunching it needs AppKit (NSWorkspace) and
+    // has to happen from inside the actual macOS app, not a detached
+    // Node process — installReadyUpdate() below. And the confirmation
+    // before that happens is deliberately ONLY ever native (this
+    // periodic check + maybeShowInstallPrompt()'s NSAlert): nothing
+    // outside this process can trigger or skip it, unlike the download
+    // itself, which is safe to start unattended (worst case it wastes
+    // some bandwidth and disk space).
+    private func readUpdateStatusFile() -> [String: Any]? {
+        let path = projectDir + "/update-status.json"
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    // Ticks independently of updateCheckTimer's 24-hour cadence — a
+    // download triggered over the API while this app happens to be
+    // open needs to be noticed reasonably soon, not up to a day later.
+    // Cheap enough (one file read) that a modest interval costs
+    // nothing; matches the auto-fresh-check timer's own 60-second tick
+    // just above for the same "cheap enough to just poll" reasoning.
+    private func setupInstallPromptCheck() {
+        installPromptTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async { self?.maybeShowInstallPrompt() }
+        }
+    }
+
+    // The one and only place installReadyUpdate() can be reached from.
+    // Called on launch, every 60 seconds after (setupInstallPromptCheck
+    // above), and right after checkForUpdates() finds nothing new to
+    // download — reading readyToInstall straight from the file rather
+    // than an in-memory flag means this is correct however the ready
+    // state actually got there: an API-triggered download that
+    // finished while this app was running, one that finished while it
+    // wasn't, or one from a previous launch nobody answered yet.
+    @MainActor
+    private func maybeShowInstallPrompt() {
+        guard let status = readUpdateStatusFile(),
+              (status["readyToInstall"] as? Bool) == true,
+              let readyVersion = status["readyVersion"] as? String,
+              readyVersion != declinedInstallVersion,
+              let downloadedPath = status["downloadedPath"] as? String,
+              FileManager.default.fileExists(atPath: downloadedPath) else {
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.messageText = "Install ClassDash \(readyVersion)?"
+        alert.informativeText = "The update has already been downloaded. Installing will quit ClassDash and relaunch it as the new version."
+        alert.addButton(withTitle: "Install & Relaunch")
+        alert.addButton(withTitle: "Later")
+        if alert.runModal() == .alertFirstButtonReturn {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.installReadyUpdate(dmgPath: downloadedPath)
+            }
+        } else {
+            declinedInstallVersion = readyVersion
+        }
+    }
+
+    // MOUNT, COPY, RELAUNCH — THE SAME THREE STEPS build.sh's OWN
+    // /Applications INSTALL ALREADY DOES, just from a downloaded .dmg
+    // instead of a fresh local build. No sudo/elevation needed: this
+    // app got INTO /Applications the same unprivileged way in the
+    // first place (a drag in Finder, or build.sh's own `cp -R`) — same
+    // permissions apply to replacing it.
+    //
+    // Deliberately synchronous (Process.waitUntilExit(), not a
+    // completion handler like runAction() above) — called from a
+    // background queue by maybeShowInstallPrompt() specifically so
+    // blocking here doesn't freeze the UI, and the whole sequence has
+    // to happen in order anyway (can't copy from a volume that isn't
+    // mounted yet).
+    private func installReadyUpdate(dmgPath: String) {
+        logWindow("install update: mounting \(dmgPath)")
+
+        let attach = Process()
+        attach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        attach.arguments = ["attach", dmgPath, "-nobrowse", "-plist"]
+        let outPipe = Pipe()
+        attach.standardOutput = outPipe
+        do {
+            try attach.run()
+        } catch {
+            DispatchQueue.main.async { self.showInstallFailedAlert("couldn't mount the update: \(error.localizedDescription)") }
+            return
+        }
+        let plistData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        attach.waitUntilExit()
+
+        guard attach.terminationStatus == 0,
+              let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+              let entities = plist["system-entities"] as? [[String: Any]],
+              let mountPoint = entities.compactMap({ $0["mount-point"] as? String }).first else {
+            DispatchQueue.main.async { self.showInstallFailedAlert("couldn't mount the update — hdiutil didn't report a mount point") }
+            return
+        }
+
+        defer {
+            let detach = Process()
+            detach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+            detach.arguments = ["detach", mountPoint, "-quiet"]
+            try? detach.run()
+        }
+
+        let mountedApp = mountPoint + "/ClassDash.app"
+        guard FileManager.default.fileExists(atPath: mountedApp) else {
+            DispatchQueue.main.async { self.showInstallFailedAlert("the downloaded update doesn't contain ClassDash.app") }
+            return
+        }
+
+        logWindow("install update: copying to /Applications")
+        let destination = "/Applications/ClassDash.app"
+        do {
+            if FileManager.default.fileExists(atPath: destination) {
+                try FileManager.default.removeItem(atPath: destination)
+            }
+            try FileManager.default.copyItem(atPath: mountedApp, toPath: destination)
+        } catch {
+            DispatchQueue.main.async { self.showInstallFailedAlert("couldn't install to /Applications: \(error.localizedDescription)") }
+            return
+        }
+
+        try? FileManager.default.removeItem(atPath: dmgPath)
+        logWindow("install update: relaunching from \(destination)")
+
+        DispatchQueue.main.async {
+            let config = NSWorkspace.OpenConfiguration()
+            config.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: destination), configuration: config) { _, error in
+                if let error = error {
+                    logWindow("install update: relaunch failed: \(error.localizedDescription)")
+                }
+            }
+            // A moment for the relaunch to actually get going before
+            // this instance disappears out from under it — matches
+            // the reasoning already documented on lastHandoff further
+            // up for why a handoff and this process's own exit can't
+            // be assumed instantaneous relative to each other.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    @MainActor
+    private func showInstallFailedAlert(_ reason: String) {
+        logWindow("install update FAILED: \(reason)")
+        let alert = NSAlert()
+        alert.messageText = "Couldn't install the update"
+        alert.informativeText = reason + "\n\nThe currently installed version was not changed."
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     // MARK: - JS confirm()

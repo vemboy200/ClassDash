@@ -13,6 +13,7 @@ virtual-assignments.json
 class-activity.json
 check-status.json
 update-status.json
+update-download.dmg
 api-cert.pem
 api-key.pem
 api-token.txt

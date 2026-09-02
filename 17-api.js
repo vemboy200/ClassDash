@@ -559,6 +559,20 @@ const WRITE_HANDLERS = {
     }
     return { status: 200, body: notifierActions.main('dismissUpdate', body.version) };
   },
+
+  // Starts downloading the latest release's .dmg in the background —
+  // no body needed, there's only ever one release to download. Answers
+  // right away; poll GET /api/update-status for downloading/
+  // readyToInstall to see progress, same as /api/reload and /api/check
+  // already work for a real collection pass. Deliberately download-
+  // only, not install — see 26-update-check.js's own header comment
+  // and CONTRIBUTING.md's "Update check" section for why actually
+  // installing an update is never reachable through the API at all:
+  // it replaces this app's own running binary and relaunches it, and
+  // stays gated behind a native confirmation on the machine itself.
+  '/api/update-status/download': () => ({
+    status: 200, body: notifierActions.main('downloadUpdate', ''),
+  }),
 };
 
 /** Root: a list of handles, so no one has to dig through the source for addresses. */
