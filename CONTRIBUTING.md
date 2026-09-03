@@ -210,6 +210,22 @@ same two processes for a real reason, not by accident:
   before this instance quits. Any failure along the way shows what
   went wrong and leaves the currently-installed version untouched —
   never a partial copy.
+- **Check for Updates…** in the menu bar is the one-stop version of
+  all of the above, for anyone who'd rather not go find the API or
+  wait for the 24-hour automatic check. `checkForUpdatesManually()`
+  goes straight to `maybeShowInstallPrompt()` if a download is already
+  sitting there ready (no reason to hit GitHub again just to report
+  "up to date" relative to a version that isn't even installed yet);
+  otherwise it runs a real check and, if there's something newer,
+  `offerToDownload()` asks right there whether to start pulling it
+  down. That reuses the exact same `downloadUpdate` action the API
+  triggers — through `runAction()`, the normal node-CLI bridge path —
+  safe to fire-and-forget from a menu click specifically because
+  nothing here needs to wait synchronously on the result the way a
+  page button would (see `downloadUpdate`'s own case in
+  `21-notifier-actions.js`): `installPromptTimer`'s existing poll
+  notices once it's actually done, the same way it already does for a
+  download that came from the API instead.
 
 ---
 

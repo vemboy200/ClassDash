@@ -917,7 +917,17 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         setupInstallPromptCheck()
     }
 
+    // A download that's already sitting there ready doesn't need
+    // hitting GitHub again — the menu item's whole point is being the
+    // one convenient place to go for "what's the update situation and
+    // what do I do about it", so it goes straight to the install
+    // confirmation instead of re-checking and reporting "up to date"
+    // relative to a version that's not even installed yet.
     @objc private func checkForUpdatesManually() {
+        if let status = readUpdateStatusFile(), (status["readyToInstall"] as? Bool) == true {
+            maybeShowInstallPrompt()
+            return
+        }
         checkForUpdates(manual: true)
     }
 
@@ -987,6 +997,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
                         self.window.makeKeyAndOrderFront(nil)
                         NSApp.activate(ignoringOtherApps: true)
                         self.web.evaluateJavaScript("location.reload()", completionHandler: nil)
+                        self.offerToDownload(latestVersion: latestVersion)
                     } else {
                         let alert = NSAlert()
                         alert.messageText = "You're up to date"
@@ -1005,6 +1016,35 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         alert.informativeText = reason
         alert.alertStyle = .warning
         alert.runModal()
+    }
+
+    // ONLY SHOWN FOR A MANUAL CHECK — the "convenient update button in
+    // the menu" the automatic silent checks deliberately aren't (that
+    // banner-only behavior for the automatic path is unchanged). This
+    // is what makes the menu item into an actual one-stop "check, then
+    // download, then (once downloadUpdate() reports readyToInstall)
+    // install" flow instead of stopping at "here's a banner, go figure
+    // out how to actually get the update yourself."
+    //
+    // Fires the SAME downloadUpdate action the API uses, through
+    // runAction() (the normal node-CLI bridge path) — safe to do from
+    // here specifically because a menu click doesn't need to wait
+    // synchronously on the result the way a page button would (see
+    // downloadUpdate's own case in 21-notifier-actions.js for why that
+    // matters there and not here): this just fires it and lets
+    // maybeShowInstallPrompt()'s existing 60-second poll notice once
+    // it's actually done, exactly like an API-triggered download
+    // already gets noticed.
+    @MainActor
+    private func offerToDownload(latestVersion: String) {
+        let alert = NSAlert()
+        alert.messageText = "ClassDash \(latestVersion) is available"
+        alert.informativeText = "Download it now? You'll be asked to confirm again before it's actually installed."
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        logWindow("menu: starting download of v\(latestVersion)")
+        runAction("downloadUpdate", "") { _ in }
     }
 
     // Written fresh on every check, EXCEPT dismissedVersion and the

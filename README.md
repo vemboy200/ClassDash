@@ -204,7 +204,8 @@ full check) works fine on its own.
 - ClassDash checks for a new release automatically, once a day, and
   shows a dismissable banner if one's out. **Check for Updates…** in
   the menu bar (right under About ClassDash) checks on demand instead
-  of waiting.
+  of waiting — and if there's something newer, offers to download and
+  install it right there, no need to go find the `.dmg` yourself.
 
 ## Home API
 
