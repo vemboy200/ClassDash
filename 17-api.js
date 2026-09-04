@@ -346,9 +346,17 @@ const HANDLERS = {
   // updating from a version without this feature) rather than the
   // handle erroring — same "no signal isn't an error" reasoning
   // classLastActivity() already uses in 22-class-activity.js.
+  //
+  // `status` and `downloadedVersion` are computed on read by
+  // readUpdateStatus() itself, not stored fields — see computeStatus()
+  // in 26-update-check.js for the one place that logic lives, so a
+  // client can watch a single word (unknown/error/downloading/ready/
+  // available/up_to_date) instead of reconstructing it from three
+  // booleans and an error field itself.
   '/api/update-status': () => readUpdateStatus() || {
     currentVersion: null, latestVersion: null, url: null,
     checkedAt: null, updateAvailable: false,
+    status: 'unknown', downloadedVersion: null,
   },
 
   // Virtual assignments — reminders the user typed in themselves, not

@@ -37,8 +37,62 @@ const path = require('path');
 const FILE = path.join(__dirname, 'update-status.json');
 const DMG_PATH = path.join(__dirname, 'update-download.dmg');
 
-/** Whatever the last check found — null if none has ever run yet. */
+/**
+ * One word for "what's it doing right now" — computed fresh from the
+ * raw fields every time, not stored as its own field anyone has to
+ * remember to keep in sync. Three different writers touch this file
+ * (checkForUpdates() and installReadyUpdate() in 16-summary.swift,
+ * downloadUpdate() here) — a stored status string would mean all three
+ * agreeing on when to update it, and any one of them forgetting would
+ * silently desync it from the booleans it's supposed to summarize.
+ * Deriving it here instead means there's exactly one place that can
+ * ever be wrong.
+ *
+ *   unknown     — no check has completed yet
+ *   error       — the last check or download attempt failed (see `error`)
+ *   downloading — a download is in progress right now
+ *   ready       — downloaded, waiting on the native install confirmation
+ *   available   — a newer version exists, nothing downloaded yet
+ *   up_to_date  — currentVersion is already the latest
+ */
+function computeStatus(raw) {
+  if (!raw || !raw.checkedAt) return 'unknown';
+  if (raw.downloading) return 'downloading';
+  if (raw.readyToInstall) return 'ready';
+  if (raw.error) return 'error';
+  if (raw.updateAvailable) return 'available';
+  return 'up_to_date';
+}
+
+/**
+ * Whatever the last check found, plus `status` (computeStatus() above)
+ * and `downloadedVersion` — the version actually sitting downloaded,
+ * as opposed to `currentVersion` (what's running) or `latestVersion`
+ * (what GitHub has). Both computed on read, not stored under their own
+ * keys: `readyVersion` is still the field every writer touches
+ * internally (least churn to the three places that already reference
+ * it by that name), `downloadedVersion` is just the clearer name to
+ * expose. Returns null if no check has ever run yet.
+ */
 function readUpdateStatus() {
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+  return {
+    ...raw,
+    status: computeStatus(raw),
+    downloadedVersion: raw.readyVersion || null,
+  };
+}
+
+/** The raw object as last written, with none of readUpdateStatus()'s
+ *  computed fields — what every writer should read-modify-write
+ *  against, so a computed field never gets accidentally persisted as
+ *  if it were real stored state. */
+function readUpdateStatusRaw() {
   try {
     return JSON.parse(fs.readFileSync(FILE, 'utf8'));
   } catch {
@@ -54,7 +108,7 @@ function readUpdateStatus() {
  * belong to the check and the dismiss action respectively.
  */
 function writeFields(fields) {
-  const current = readUpdateStatus() || {};
+  const current = readUpdateStatusRaw() || {};
   Object.assign(current, fields);
   try {
     fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
@@ -67,7 +121,7 @@ function writeFields(fields) {
  * file to create out of thin air here (Swift owns every other field).
  */
 function dismissUpdate(version) {
-  const current = readUpdateStatus();
+  const current = readUpdateStatusRaw();
   if (!current) return;
   current.dismissedVersion = version;
   try {
@@ -115,7 +169,7 @@ function fetchToFile(url, destPath, redirectsLeft, cb) {
  * request open for.
  */
 function downloadUpdate() {
-  const status = readUpdateStatus();
+  const status = readUpdateStatusRaw();
   if (!status || !status.downloadURL || !status.latestVersion) {
     return { ok: false, why: 'no downloadURL yet — run a check first' };
   }
@@ -130,11 +184,16 @@ function downloadUpdate() {
   }
 
   const latestVersion = status.latestVersion;
-  writeFields({ downloading: true });
+  // error cleared here, not just on success — starting a fresh attempt
+  // is itself a reason to stop reporting a PREVIOUS attempt's failure;
+  // computeStatus() would otherwise keep reading "error" right through
+  // a download that's actually in progress right now, since a stale
+  // error field never got cleared by anything.
+  writeFields({ downloading: true, error: null });
 
   fetchToFile(status.downloadURL, DMG_PATH, 5, (err) => {
     if (err) {
-      writeFields({ downloading: false });
+      writeFields({ downloading: false, error: err.message });
       return;
     }
     writeFields({
@@ -142,6 +201,7 @@ function downloadUpdate() {
       readyToInstall: true,
       readyVersion: latestVersion,
       downloadedPath: DMG_PATH,
+      error: null,
     });
   });
 

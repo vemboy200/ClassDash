@@ -165,6 +165,28 @@ check has completed yet, not an error. `POST /api/update-status/dismiss`
 (body `{"version": "..."}`) is the write side — the exact same
 `dismissUpdate` the page's own banner button calls.
 
+**`status` and `downloadedVersion`** are computed on read, not their
+own stored fields — `computeStatus()` in `26-update-check.js` is the
+one place that logic lives, so `readUpdateStatus()` (used by both
+`08-page.js` and `17-api.js`) always agrees with itself regardless of
+which of the three writers (`checkForUpdates()`, `installReadyUpdate()`
+in `16-summary.swift`, `downloadUpdate()` here) touched the file last.
+`status` is one of `unknown` (no check yet) / `error` (the last check
+or download failed — see `error`) / `downloading` / `ready` (downloaded,
+waiting on the native install confirmation) / `available` (newer
+version exists, nothing downloaded) / `up_to_date`. `downloadedVersion`
+is the version actually sitting downloaded — `null` until something
+is, distinct from `currentVersion` (what's running) and `latestVersion`
+(what GitHub has); internally still stored under `readyVersion`, kept
+for the three places already writing that field name, just exposed
+under the clearer one. Both a stale-state bug fix in one: previously,
+successfully installing an update left `readyToInstall`/`readyVersion`/
+`downloadedPath` on file describing an install that had already
+happened (`installReadyUpdate()` deleted the `.dmg` but never told
+`update-status.json` about it) — `status` would have read `"ready"`
+for something already done. `installReadyUpdate()` now clears all
+three right before relaunching.
+
 **Downloading and installing** are two more actions, split across the
 same two processes for a real reason, not by accident:
 

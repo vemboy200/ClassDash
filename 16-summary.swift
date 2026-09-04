@@ -953,9 +953,10 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             if let error = error {
-                logWindow("update check failed: \(error.localizedDescription)")
+                let reason = error.localizedDescription
+                logWindow("update check failed: \(reason)")
+                self.recordCheckError(reason)
                 if manual {
-                    let reason = error.localizedDescription
                     DispatchQueue.main.async { self.showUpdateCheckFailedAlert(reason) }
                 }
                 return
@@ -964,6 +965,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tagName = obj["tag_name"] as? String else {
                 logWindow("update check: couldn't parse GitHub's response")
+                self.recordCheckError("unexpected response from GitHub")
                 if manual {
                     DispatchQueue.main.async { self.showUpdateCheckFailedAlert("unexpected response from GitHub") }
                 }
@@ -1045,6 +1047,22 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         logWindow("menu: starting download of v\(latestVersion)")
         runAction("downloadUpdate", "") { _ in }
+    }
+
+    // A failed check couldn't call writeUpdateStatus() below — there's
+    // no latestVersion/url/updateAvailable to write, that's the whole
+    // problem — but silently leaving update-status.json exactly as it
+    // was would mean a client watching `status` never learns the check
+    // is failing at all, automatic ones especially (a manual failure at
+    // least shows an alert). A plain merge, not a full rewrite: nothing
+    // else on file needs to change just because this one check failed.
+    private func recordCheckError(_ reason: String) {
+        let path = projectDir + "/update-status.json"
+        var status = readUpdateStatusFile() ?? [:]
+        status["error"] = reason
+        status["checkedAt"] = ISO8601DateFormatter().string(from: Date())
+        guard let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
     }
 
     // Written fresh on every check, EXCEPT dismissedVersion and the
@@ -1263,6 +1281,28 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         }
 
         try? FileManager.default.removeItem(atPath: dmgPath)
+
+        // THE INSTALL ACTUALLY HAPPENED — readyToInstall/readyVersion/
+        // downloadedPath now describe something that's no longer true.
+        // Without this, the NEXT launch's own fresh check would carry
+        // readyToInstall forward (writeUpdateStatus()'s own carry-over
+        // logic: readyVersion still equals the new latestVersion, since
+        // that's exactly what was just installed) pointing at a
+        // downloadedPath that no longer exists — status would read
+        // "ready" for an install that already happened. Merged in here
+        // rather than left to the relaunched instance to notice and
+        // clean up itself, since maybeShowInstallPrompt() already
+        // guards on the file existing before ever showing the alert —
+        // this is about what GET /api/update-status honestly reports,
+        // not about anything the UI would have gotten wrong.
+        var status = readUpdateStatusFile() ?? [:]
+        status["readyToInstall"] = false
+        status.removeValue(forKey: "readyVersion")
+        status.removeValue(forKey: "downloadedPath")
+        if let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted]) {
+            try? data.write(to: URL(fileURLWithPath: projectDir + "/update-status.json"))
+        }
+
         logWindow("install update: relaunching from \(destination)")
 
         DispatchQueue.main.async {

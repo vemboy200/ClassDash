@@ -628,6 +628,14 @@ function versionRow() {
     ? ` — ${t('updateAvailable')} <b>v${escapeHtml(status.latestVersion)}</b>` +
       ` (<a href="${escapeHtml(status.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateViewRelease'))}</a>)`
     : '';
+  // A failed check/download used to be completely invisible on the
+  // page — recordCheckError() in 16-summary.swift and downloadUpdate()
+  // in 26-update-check.js both now actually record why, so this is the
+  // one place a person looking at Settings (not just an API client
+  // watching `status`) finds out too.
+  const errorNote = status && status.error
+    ? ` <span class="update-error-note">— ${escapeHtml(t('updateCheckFailed'))}: ${escapeHtml(status.error)}</span>`
+    : '';
   // Empty middle span deliberately kept — .setting-row is a fixed
   // 3-column grid (name / value / hint), and every other row has
   // something in that middle slot (an input, a checkbox). Without it,
@@ -637,7 +645,7 @@ function versionRow() {
   return `      <label class="setting-row">
         <span class="field-name">ClassDash</span>
         <span></span>
-        <span class="field-hint">${escapeHtml(versionText)}${updateNote}</span>
+        <span class="field-hint">${escapeHtml(versionText)}${updateNote}${errorNote}</span>
       </label>`;
 }
 
@@ -1316,6 +1324,7 @@ function writePage(data, outputPath) {
     flex-shrink: 0;
   }
   .update-dismiss:hover { opacity: 1; }
+  .update-error-note { color: var(--warn); }
   .live {
     background: var(--card); border: 1px solid var(--line); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px; color: var(--dim);
