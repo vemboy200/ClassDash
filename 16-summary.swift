@@ -943,11 +943,15 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // what do I do about it", so it goes straight to the install
     // confirmation instead of re-checking and reporting "up to date"
     // relative to a version that's not even installed yet.
+    //
+    // Relies on maybeShowInstallPrompt()'s own return value rather than
+    // re-checking readyToInstall here itself: that function now falls
+    // through to false (instead of just silently returning) both when
+    // the recorded download has gone missing and when this version was
+    // already declined this session — either way, this button should
+    // never be a silent no-op, so both cases fall back to a real check.
     @objc private func checkForUpdatesManually() {
-        if let status = readUpdateStatusFile(), (status["readyToInstall"] as? Bool) == true {
-            maybeShowInstallPrompt()
-            return
-        }
+        guard !maybeShowInstallPrompt() else { return }
         checkForUpdates(manual: true)
     }
 
@@ -1209,16 +1213,37 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // state actually got there: an API-triggered download that
     // finished while this app was running, one that finished while it
     // wasn't, or one from a previous launch nobody answered yet.
+    // Returns whether an install prompt was actually shown — so callers
+    // (checkForUpdatesManually() above) know whether to fall back to a
+    // real check instead of treating this as having handled things.
+    //
+    // The fileExists check below isn't just defensive: the recorded
+    // download can genuinely vanish out from under a real install —
+    // someone deleting what looks like a stray leftover .dmg sitting in
+    // their project folder, a cloud-synced project folder evicting the
+    // local copy, or the project folder being moved after the download
+    // finished (downloadedPath is an absolute path baked in at download
+    // time). Previously this just returned with readyToInstall left
+    // true forever, which made the manual "Check for Updates…" button a
+    // permanent silent no-op once that happened. Clearing the stale
+    // fields here means the guard fails cleanly and stays fixed instead
+    // of failing the exact same way on every future launch and 60-second
+    // poll.
+    @discardableResult
     @MainActor
-    private func maybeShowInstallPrompt() {
+    private func maybeShowInstallPrompt() -> Bool {
         guard let status = readUpdateStatusFile(),
               (status["readyToInstall"] as? Bool) == true,
               let readyVersion = status["readyVersion"] as? String,
-              readyVersion != declinedInstallVersion,
-              let downloadedPath = status["downloadedPath"] as? String,
-              FileManager.default.fileExists(atPath: downloadedPath) else {
-            return
+              let downloadedPath = status["downloadedPath"] as? String else {
+            return false
         }
+        guard FileManager.default.fileExists(atPath: downloadedPath) else {
+            logWindow("update: \(downloadedPath) is gone — clearing stale ready-to-install state")
+            clearStaleReadyState()
+            return false
+        }
+        guard readyVersion != declinedInstallVersion else { return false }
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -1235,6 +1260,22 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         } else {
             declinedInstallVersion = readyVersion
         }
+        return true
+    }
+
+    // Same "read existing, touch only these fields" merge every other
+    // writer here uses (see recordCheckError above) — clears exactly the
+    // fields maybeShowInstallPrompt() found stale (a downloadedPath that
+    // no longer exists), leaving whatever the last real check wrote
+    // (latestVersion, url, error, ...) untouched.
+    private func clearStaleReadyState() {
+        let path = projectDir + "/update-status.json"
+        var status = readUpdateStatusFile() ?? [:]
+        status["readyToInstall"] = false
+        status.removeValue(forKey: "readyVersion")
+        status.removeValue(forKey: "downloadedPath")
+        guard let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
     }
 
     // MOUNT, COPY, RELAUNCH — THE SAME THREE STEPS build.sh's OWN
