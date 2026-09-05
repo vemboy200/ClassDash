@@ -205,7 +205,7 @@ const TYPES = {
   apiEnabled: 'boolean', apiNetwork: 'boolean',
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
-  freshCheckAwakeMinutes: 'number', freshCheckAsleepMinutes: 'number',
+  freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
 };
@@ -243,6 +243,23 @@ function validate(key, raw) {
     if (!Number.isFinite(n) || n < 1 || n > 12) {
       return { ok: false, why: 'needs to be a whole number of months, 1 to 12' };
     }
+    return { ok: true, value: n };
+  }
+  if (kind === 'freshCheckInterval') {
+    // 0 (off) or at least 10 minutes — nothing in between. A Fresh
+    // check opens a real browser window and takes about a minute on
+    // its own; a plain 'number' here used to accept literally any
+    // positive value, including something like 5. Confirmed live: 5
+    // minutes, sustained for a few hours while the display was asleep,
+    // meant a full Chromium-based browser launch and teardown roughly
+    // every 5-8 minutes around the clock — real memory pressure into
+    // swap and a pile of leftover Brave helper processes, bad enough
+    // the user had to force-quit them by hand. 10 minutes leaves real
+    // margin over that ~1-minute runtime instead of asking the
+    // previous launch to barely finish before the next one starts.
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return { ok: false, why: 'needs to be a number' };
+    if (n > 0 && n < 10) return { ok: false, why: 'needs to be 0 (off) or at least 10 minutes' };
     return { ok: true, value: n };
   }
   if (kind === 'number') {

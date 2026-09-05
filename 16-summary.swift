@@ -832,14 +832,34 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // before this feature existed simply doesn't have these keys yet,
     // and the safe reading of the two minute values specifically is
     // "off", not "guess at what the default should have been".
+    // THIS IS THE ACTUAL RUNTIME ENFORCEMENT POINT, NOT 19-settings.js's
+    // OWN validate().
+    //
+    // This reads settings.json directly, off this project's normal
+    // read()/validate() path entirely — a value here didn't necessarily
+    // come through the settings panel or the API, which is exactly what
+    // makes clamping it here, not just at the save point, the fix that
+    // actually matters. Confirmed live: freshCheckAsleepMinutes sitting
+    // at 5 meant a full, real-browser Fresh check (Edpuzzle included,
+    // itself about a minute to run) launching roughly every 5-8 minutes
+    // around the clock — sustained memory pressure into swap and a pile
+    // of leftover Brave helper processes, bad enough to need force-
+    // quitting by hand. Any positive value under 10 is treated as
+    // disabled (0), not rounded up to 10 — a value that low reads as
+    // unsafe leftover state to fail safe away from, not a real request
+    // for "as close to 10 as possible" this should try to honor.
+    private func clampFreshCheckMinutes(_ n: Int) -> Int {
+        return (n > 0 && n < 10) ? 0 : n
+    }
+
     private func readFreshCheckSettings() -> (awake: Int, asleep: Int, onlyWhenCharging: Bool) {
         let path = projectDir + "/settings.json"
         guard let data = FileManager.default.contents(atPath: path),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return (0, 0, true)
         }
-        let awake = (obj["freshCheckAwakeMinutes"] as? Int) ?? 0
-        let asleep = (obj["freshCheckAsleepMinutes"] as? Int) ?? 0
+        let awake = clampFreshCheckMinutes((obj["freshCheckAwakeMinutes"] as? Int) ?? 0)
+        let asleep = clampFreshCheckMinutes((obj["freshCheckAsleepMinutes"] as? Int) ?? 0)
         let onlyWhenCharging = (obj["freshCheckOnlyWhenCharging"] as? Bool) ?? true
         return (awake, asleep, onlyWhenCharging)
     }
