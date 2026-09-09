@@ -1,0 +1,66 @@
+# Builds the Windows installer on every push to main and uploads it as a
+# workflow artifact — a real GitHub download over HTTPS, reachable from
+# any browser (Windows laptop included) without needing a real release
+# tag or a hand-built-and-transferred .exe.
+#
+# ── Why this exists, separate from release.yml ──
+#
+# release.yml only ever runs on a `v*` tag — a deliberate, occasional
+# "this is installable" moment (see its own comment). Testing the
+# Windows wrapper during actual development needs the opposite: a build
+# from whatever's on main right now, every time it changes, with nothing
+# published as a real release. Two different triggers, two different
+# jobs — kept as its own file rather than folded into release.yml's tag-
+# only trigger.
+#
+# ── Why an artifact, not a rolling pre-release ──
+#
+# A workflow artifact needs no release-management logic (no tag to
+# create or move, nothing to mark as a pre-release) — just the one
+# upload step. The tradeoff: downloading it means being signed into
+# GitHub and opening this specific run's page, and it expires after 90
+# days (GitHub's own artifact-retention default) — acceptable for a dev
+# build nobody's meant to keep around, unlike a real release asset.
+#
+# ── Why Windows only ──
+#
+# Local Mac builds already work fine directly (`./build.sh`) — the
+# actual problem this solves (no reliable way to hand a fresh build to
+# a second machine) is Windows-specific.
+name: Windows Dev Build
+
+on:
+  push:
+    branches: [main]
+  # Lets a rebuild be triggered by hand from the Actions tab too, without
+  # needing an empty commit just to re-run this.
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A dev version string, not a real release number — same "honest
+      # about not being a real release build" reasoning build.sh's own
+      # git-describe fallback uses. Short SHA identifies exactly which
+      # commit this build came from.
+      - name: Build the installer
+        run: npx electron-builder --win nsis -c.extraMetadata.version="0.0.0-dev.$(git rev-parse --short HEAD)"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassDash-Windows-dev-build
+          path: electron/dist/*.exe
