@@ -58,12 +58,24 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # node_modules HAS to exist before build.sh runs, confirmed live —
+      # build.sh's own ProjectTemplate-bundling step (added 2026-09-08,
+      # for the new-project setup wizard) does `cp -R node_modules
+      # "$TEMPLATE_DIR/node_modules"`, and a fresh CI checkout has no
+      # node_modules at all until something installs it. This is the
+      # exact same gap already fixed for both Windows build jobs — just
+      # never caught here too until the first real release after that
+      # step existed actually tried to run.
+      - name: Install dependencies
+        run: npm ci
 
       # Builds ClassDash.app (ad-hoc signed, see above), installs a copy
       # to /Applications, and registers the napominalka:// scheme — all
-      # harmless on a throwaway CI runner. No `npm install` needed first:
-      # building the app is pure swiftc + codesign, nothing here touches
-      # Playwright or any other Node dependency.
+      # harmless on a throwaway CI runner.
       # VERSION is passed explicitly here, not left to build.sh's own
       # `git describe` fallback: a shallow checkout (actions/checkout's
       # default) doesn't fetch tag history, so describe would only ever
