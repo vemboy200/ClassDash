@@ -441,7 +441,7 @@ function installBraveWindows() {
     const installerPath = path.join(app.getPath('temp'), `BraveInstaller-${Date.now()}.exe`);
 
     const download = (url, redirectsLeft) => {
-      https.get(url, (res) => {
+      const req = https.get(url, { timeout: 30000 }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           if (redirectsLeft <= 0) { resolve(false); return; }
@@ -452,7 +452,15 @@ function installBraveWindows() {
         const file = fs.createWriteStream(installerPath);
         res.pipe(file);
         file.on('finish', () => file.close(runInstaller));
-      }).on('error', () => resolve(false));
+      });
+      req.on('error', () => resolve(false));
+      // An IDLE timeout, not an overall deadline — fires only when the
+      // socket goes quiet this long, not just because a ~150MB transfer
+      // takes a while. Found live testing this: the laptop went to
+      // sleep mid-download, and with no timeout at all the request just
+      // hung forever on waking, with the busy panel stuck open and no
+      // way back into the app short of force-quitting it.
+      req.on('timeout', () => req.destroy(new Error('stalled')));
     };
 
     function runInstaller() {
