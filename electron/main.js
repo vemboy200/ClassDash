@@ -373,7 +373,11 @@ function showBusyWindow(message) {
     'border-top-color:#4da3ff;border-radius:50%;animation:spin 0.8s linear infinite;">' +
     '</div><div>' + message + '</div>' +
     '<style>@keyframes spin{to{transform:rotate(360deg)}}</style></body></html>';
-  busy.loadURL('data:text/html,' + encodeURIComponent(html));
+  // charset=utf-8 is required here, not decorative — without it the "…"
+  // in the message argument (e.g. "Installing Brave…") gets read back
+  // as Windows-1252 instead of UTF-8, rendering as garbled "â‚¬"-style
+  // mojibake. Found live testing this on Windows.
+  busy.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   return busy;
 }
 
