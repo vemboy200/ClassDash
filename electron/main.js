@@ -13,6 +13,7 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, powerMonitor, shell } = requi
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const { spawn, spawnSync } = require('child_process');
 
 // Electron's own app.getName() — which drives internal paths like
 // getPath('userData') below — defaults to package.json's "name" field
@@ -32,6 +33,72 @@ let declinedInstallVersion = null;
 let freshCheckTimer = null;
 let updateCheckTimer = null;
 let installPromptTimer = null;
+
+// Set true only by setUpNewProject() succeeding — gates
+// continueNewProjectSetupIfNeeded() so an existing-folder launch (the
+// ordinary case, every time after the very first) never sees the
+// browser/settings/login prompts meant for a brand new setup. Mirrors
+// isNewProjectSetup in 16-summary.swift exactly.
+let isNewProjectSetup = false;
+
+// Electron's own bundled Node runtime, run as a plain node process
+// instead of a second Electron instance — ELECTRON_RUN_AS_NODE makes
+// process.execPath (the Electron binary itself) behave like an ordinary
+// `node` binary for one invocation. Deliberately NOT a system-installed
+// `node`: the whole point of bundling Node via Electron is that nobody
+// running this needs one installed separately — falling back to a
+// system `node` here would quietly reintroduce exactly the dependency
+// the wizard below exists to remove.
+function nodeEnv() {
+  return { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+}
+
+// Blocking — for one-shot setup steps (the --redraw pass in
+// setUpNewProject() below) where the next step genuinely can't start
+// until this one has actually finished. Mirrors runNodeScriptSync in
+// 16-summary.swift.
+function runNodeScriptSync(script, args, dir) {
+  spawnSync(process.execPath, [path.join(dir, script), ...args], {
+    cwd: dir,
+    env: nodeEnv(),
+    stdio: 'ignore',
+  });
+}
+
+// Genuinely fire-and-forget — for --login, which needs to keep running
+// (and its real, visible browser window needs to keep existing) for as
+// long as the user takes to actually log in. UNLIKE a plain fire-and-
+// forget spawn, this reports back whether it crashed almost
+// immediately — found the hard way testing this same wizard on macOS: a
+// machine with no compatible browser installed makes login() throw
+// right away, and with no feedback at all that silently looks exactly
+// like nothing happened. checkAfterMs gives it a few seconds (a real
+// login run keeps the process alive far longer than that, waiting on
+// the browser window closing) before reporting in — long enough to
+// catch a launch failure, short enough not to meaningfully delay the
+// normal case. Node's child.on('exit', ...) fires on this same
+// single-threaded event loop, so — unlike the Swift version, which had
+// to explicitly redirect a cross-thread terminationHandler callback
+// onto the main queue — there's no equivalent race to guard against here.
+function runNodeScriptDetached(script, args, dir, checkAfterMs, completion) {
+  let child;
+  try {
+    child = spawn(process.execPath, [path.join(dir, script), ...args], {
+      cwd: dir,
+      env: nodeEnv(),
+      detached: true,
+      stdio: 'ignore',
+    });
+  } catch {
+    completion(true);
+    return;
+  }
+  let hasExited = false;
+  child.on('exit', () => { hasExited = true; });
+  child.on('error', () => { hasExited = true; });
+  child.unref();
+  setTimeout(() => completion(hasExited), checkAfterMs);
+}
 
 // ── Project folder resolution ──
 //
@@ -69,6 +136,25 @@ async function resolveProjectDir() {
   const stored = readStoredProjectDir();
   if (isValidProjectDir(stored)) return stored;
 
+  // Mirrors the NSAlert in 16-summary.swift's applicationDidFinishLaunching
+  // — a real choice instead of only ever asking to locate an existing
+  // folder, so a first-time setup never needs git or npm run by hand.
+  const welcome = await dialog.showMessageBox({
+    type: 'question',
+    message: 'Welcome to ClassDash',
+    detail: 'ClassDash needs a project folder to work from — the folder that does the ' +
+      'actual collecting and stores your data. If you don\'t have one yet, ClassDash can ' +
+      'set one up for you, no Terminal needed.',
+    buttons: ['Set Up New Project', 'I Already Have a Project Folder'],
+    defaultId: 0,
+  });
+
+  if (welcome.response === 0) {
+    const created = await setUpNewProject();
+    if (created) isNewProjectSetup = true;
+    return created;
+  }
+
   const result = await dialog.showOpenDialog({
     title: 'Choose your ClassDash project folder',
     message: 'Pick the folder that already has summary.html in it (the one you ran the collector from).',
@@ -84,6 +170,64 @@ async function resolveProjectDir() {
     );
     return null;
   }
+  writeStoredProjectDir(chosen);
+  return chosen;
+}
+
+// THE ALTERNATIVE TO THE FOLDER-PICKER ABOVE: creates a new project
+// folder instead of locating an existing one. Mirrors setUpNewProject()
+// in 16-summary.swift — copies the pristine template electron-builder
+// bundles (electron/package.json's own extraResources, the Windows
+// equivalent of build.sh's Contents/Resources/ProjectTemplate step) into
+// wherever the user picks, then runs one collection-less --redraw pass
+// so there's a real summary.html to load before anything's actually
+// been collected — already verified live on macOS that this works
+// against a fully empty project.
+async function setUpNewProject() {
+  const result = await dialog.showOpenDialog({
+    title: 'Set Up a New ClassDash Project',
+    message: 'Choose where to create your ClassDash project folder — pick an empty ' +
+      'folder, or use "New Folder" to make one.',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const chosen = result.filePaths[0];
+
+  // Only a packaged build has this — running unpackaged via `npm start`
+  // (electron .) has no resourcesPath template at all. Failing here with
+  // a clear message is better than copying nothing and leaving a broken
+  // half-empty folder.
+  const templateDir = path.join(process.resourcesPath, 'ProjectTemplate');
+  if (!fs.existsSync(templateDir)) {
+    dialog.showErrorBox(
+      "Can't set up a new project from this copy",
+      'This build doesn\'t have the project template bundled in it. Use "I Already Have ' +
+      'a Project Folder" instead, or build ClassDash from source.'
+    );
+    return null;
+  }
+
+  try {
+    fs.cpSync(templateDir, chosen, { recursive: true });
+    const settingsPath = path.join(chosen, 'settings.json');
+    fs.copyFileSync(path.join(chosen, 'settings.example.json'), settingsPath);
+    // settings.example.json's own canvas field is a fake-but-valid-
+    // looking URL, not an empty string — and 05-playwright-draft.js's
+    // CANVAS_ENABLED check treats ANY non-empty value as "yes, read
+    // this", not just a real one. Same fix as setUpNewProject() in
+    // 16-summary.swift, for the same reason: start correctly in the
+    // already-supported "Canvas off" state instead of trying (and
+    // failing) to read a fake domain.
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    settings.canvas = '';
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  } catch (e) {
+    dialog.showErrorBox('Couldn\'t set up the project folder', e.message);
+    return null;
+  }
+
+  runNodeScriptSync('05-playwright-draft.js', ['--redraw'], chosen);
+
   writeStoredProjectDir(chosen);
   return chosen;
 }
@@ -170,6 +314,12 @@ function buildMenu() {
       submenu: [
         { label: 'Check for Updates…', click: () => checkForUpdatesManually() },
         { label: 'Settings…', click: () => openSettings() },
+        // Both reachable any time, not just during the one-time new-
+        // project wizard — see chooseBrowserFromMenu()/attemptLogin()'s
+        // own comments for why (the same gap testing the macOS wizard
+        // live turned up there).
+        { label: 'Choose Browser…', click: () => chooseBrowserFromMenu() },
+        { label: 'Sign In to Google Classroom…', click: () => attemptLogin() },
         { type: 'separator' },
         { role: 'reload' },
         { type: 'separator' },
@@ -186,6 +336,290 @@ function openSettings() {
   win.show();
   win.focus();
   win.webContents.executeJavaScript('toggleSettingsPanel()').catch(() => {});
+}
+
+// ── New-project setup wizard (continued) ──
+//
+// setUpNewProject() above only gets a project folder to exist and load
+// — everything past that needs the real window to already be up, which
+// is why this runs from app.whenReady()'s own callback, after
+// createWindow(), instead of being part of setUpNewProject() directly.
+// Mirrors continueNewProjectSetupIfNeeded() in 16-summary.swift exactly.
+function continueNewProjectSetupIfNeeded() {
+  if (!isNewProjectSetup) return;
+  isNewProjectSetup = false; // only ever runs once, right after creation
+  presentBrowserSetup(() => promptForSettingsThenLogin());
+}
+
+// A small floating "still working" indicator — Electron has no native
+// panel-plus-spinner control the way AppKit's NSProgressIndicator does,
+// so this is a frameless BrowserWindow loading an inline data: URL
+// instead. Found live testing the macOS version this replicates: with
+// nothing visible on screen during a real ~150MB download, there was no
+// way to tell "still working" from "silently stuck."
+function showBusyWindow(message) {
+  const busy = new BrowserWindow({
+    width: 300,
+    height: 80,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    webPreferences: { contextIsolation: true },
+  });
+  const html = '<!doctype html><html><body style="margin:0;display:flex;' +
+    'align-items:center;gap:14px;padding:20px;font:14px -apple-system,sans-serif;' +
+    'background:#2b2b2b;color:#fff;box-sizing:border-box;height:100%;">' +
+    '<div style="width:20px;height:20px;flex:none;border:3px solid #555;' +
+    'border-top-color:#4da3ff;border-radius:50%;animation:spin 0.8s linear infinite;">' +
+    '</div><div>' + message + '</div>' +
+    '<style>@keyframes spin{to{transform:rotate(360deg)}}</style></body></html>';
+  busy.loadURL('data:text/html,' + encodeURIComponent(html));
+  return busy;
+}
+
+// The browser-choice step — the wizard's own, but also reachable any
+// time afterward from the menu bar's "Choose Browser…" (see
+// chooseBrowserFromMenu() below) — same gap testing the macOS wizard
+// live turned up there: skipping this (or wanting to redo it later)
+// left no way back short of deleting the project folder and starting
+// over. `completion` runs once a choice has actually been made or
+// declined — the wizard chains into settings+login there; a
+// menu-triggered run just shows a confirmation instead.
+async function presentBrowserSetup(completion) {
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    message: 'Set Up a Browser for Collection',
+    detail: 'ClassDash needs a real Chromium-based browser to log in and collect your ' +
+      'assignments. Brave is recommended — more privacy-focused than Chrome. About ' +
+      '150 MB, one time only — ClassDash will continue automatically once it\'s done.',
+    buttons: ['Install Brave (Recommended)', 'I Already Have Chrome',
+      'Choose a Different Browser…', 'Skip for Now'],
+    defaultId: 0,
+  });
+
+  if (response === 0) {
+    const busy = showBusyWindow('Installing Brave…');
+    await installBraveWindows();
+    busy.close();
+    completion();
+  } else if (response === 2) {
+    await chooseCustomBrowser(completion);
+  } else {
+    completion();
+  }
+}
+
+// UNLIKE 20-browser.js's Mac install (an isolated copy extracted into
+// this project's own .browser/ folder, never touching a system-wide
+// install), Windows has no equivalent of "just copy an app bundle out
+// and it works standalone" — Brave's Windows distribution is a real
+// installer that writes to a standard per-user location. This makes it
+// the user's regular Windows Brave too, not project-only — still safe,
+// since the isolation the Mac approach protects (never touching a real
+// profile) comes from Playwright's own --user-data-dir flag, not from
+// the install being physically separate.
+//
+// LOWER CONFIDENCE THAN THE REST OF THIS FILE: the exact download URL
+// and silent-install flags below are a best-effort guess (following
+// laptop-updates.brave.com's own URL pattern, already verified working
+// for the Mac endpoints in 20-browser.js) rather than something
+// verified live — this is the single most likely spot in the whole
+// Windows wizard to need adjusting after an actual test run.
+const BRAVE_INSTALLER_URL = 'https://laptop-updates.brave.com/latest/winx64';
+
+function braveExePath() {
+  return path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware', 'Brave-Browser',
+    'Application', 'brave.exe');
+}
+
+function installBraveWindows() {
+  return new Promise((resolve) => {
+    const installerPath = path.join(app.getPath('temp'), `BraveInstaller-${Date.now()}.exe`);
+
+    const download = (url, redirectsLeft) => {
+      https.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume();
+          if (redirectsLeft <= 0) { resolve(false); return; }
+          download(res.headers.location, redirectsLeft - 1);
+          return;
+        }
+        if (res.statusCode !== 200) { res.resume(); resolve(false); return; }
+        const file = fs.createWriteStream(installerPath);
+        res.pipe(file);
+        file.on('finish', () => file.close(runInstaller));
+      }).on('error', () => resolve(false));
+    };
+
+    function runInstaller() {
+      // /silent /install: the commonly-documented flags for this
+      // Omaha-style (Google-Update-derived) installer family Brave's
+      // own Windows build uses — not confirmed against this exact
+      // build, see this function's own header comment.
+      let child;
+      try {
+        child = spawn(installerPath, ['/silent', '/install'], { stdio: 'ignore' });
+      } catch {
+        resolve(false);
+        return;
+      }
+      child.on('exit', () => {
+        fs.unlink(installerPath, () => {});
+        if (fs.existsSync(braveExePath())) {
+          writeBrowserPathSetting(braveExePath());
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      });
+      child.on('error', () => resolve(false));
+    }
+
+    download(BRAVE_INSTALLER_URL, 5);
+  });
+}
+
+// Manual browser selection — for anyone whose real browser is neither
+// Brave nor Chrome. Written straight into settings.json's browserPath,
+// the SAME field 05-playwright-draft.js's own BROWSER resolution
+// already checks first — no new plumbing needed on the Node side.
+//
+// THE WARNING BELOW IS NOT DECORATIVE. See 20-browser.js's own header
+// comment: Arc silently ignored --user-data-dir once (on macOS), ran
+// ClassDash's automation against a REAL everyday profile instead of an
+// isolated one, and the real cookies/extensions in that profile didn't
+// survive the next normal launch — no backup, no way back. Detection
+// here is filename/path-based (no bundle identifier on Windows the way
+// macOS has one) — a real, smaller-coverage fallback than the Mac
+// check, not a full equivalent.
+async function chooseCustomBrowser(completion) {
+  const result = await dialog.showOpenDialog({
+    title: 'Choose a Browser',
+    message: 'Pick the browser ClassDash should use to log in and collect your assignments.',
+    properties: ['openFile'],
+    filters: [{ name: 'Applications', extensions: ['exe'] }],
+    defaultPath: process.env.LOCALAPPDATA || undefined,
+  });
+  if (result.canceled || !result.filePaths[0]) {
+    completion();
+    return;
+  }
+
+  const chosenPath = result.filePaths[0];
+  const displayName = path.basename(chosenPath, path.extname(chosenPath));
+  const isKnownUnsafe = chosenPath.toLowerCase().includes('arc');
+
+  let confirmed;
+  if (isKnownUnsafe) {
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      message: `${displayName} Is Not Safe to Use Here`,
+      detail: `${displayName} may not respect the isolated profile folder ClassDash asks ` +
+        `for. This already happened for real once (on macOS): it silently used the REAL, ` +
+        `everyday profile instead of a separate one, and once ClassDash's automation ` +
+        `touched it, the real cookies and extensions in that profile did not survive the ` +
+        `next normal launch — no backup, no way to undo it. This is not a "probably fine" ` +
+        `warning. Use Chrome or Brave instead.`,
+      buttons: ['Choose a Different Browser Instead', `Use ${displayName} Anyway (Not Recommended)`],
+      defaultId: 0,
+    });
+    confirmed = response === 1;
+  } else {
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      message: `Use ${displayName}?`,
+      detail: `Only choose a browser you know respects an isolated profile folder (a ` +
+        `"--user-data-dir" launch flag) — Chrome and Brave are confirmed safe. If ` +
+        `${displayName} doesn't, it could use your REAL everyday profile instead of a ` +
+        `separate one, with no way to undo any damage that causes. If you're not sure, ` +
+        `use Chrome or Brave instead.`,
+      buttons: [`Use ${displayName}`, 'Cancel'],
+      defaultId: 0,
+    });
+    confirmed = response === 0;
+  }
+
+  if (!confirmed) {
+    await chooseCustomBrowser(completion); // declined/cancelled — try another
+    return;
+  }
+
+  writeBrowserPathSetting(chosenPath);
+  completion();
+}
+
+function writeBrowserPathSetting(browserPath) {
+  const settingsPath = path.join(projectDir, 'settings.json');
+  try {
+    const obj = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    obj.browserPath = browserPath;
+    fs.writeFileSync(settingsPath, JSON.stringify(obj, null, 2));
+  } catch {
+    /* not fatal — browser choice just won't be saved */
+  }
+}
+
+// Opens the real, already-built settings panel (same bridge and page
+// every ordinary launch uses — no new settings UI needed for the
+// wizard) so the user fills in their email/Canvas domain, then offers
+// to start the interactive login.
+async function promptForSettingsThenLogin() {
+  win.show();
+  win.focus();
+  win.webContents.executeJavaScript('toggleSettingsPanel()').catch(() => {});
+
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: 'Sign In to Google Classroom',
+    detail: 'Fill in your settings above, then click Sign In — a real browser window ' +
+      'will open for you to log in normally, the same as logging into any site. Come ' +
+      'back here once you\'re done.',
+    buttons: ['Sign In', "I'll Do This Later"],
+    defaultId: 0,
+  });
+  if (response !== 0) return;
+  attemptLogin();
+}
+
+// Reachable both from the wizard above and any time afterward from the
+// menu bar (signInFromMenu below) — no macOS-style permission gate to
+// warn about first on Windows (there's no Privacy & Security equivalent
+// to App Management/Automation here), so unlike 16-summary.swift's
+// attemptLogin() this goes straight to spawning the login script.
+function attemptLogin() {
+  runNodeScriptDetached('05-playwright-draft.js', ['--login'], projectDir, 3000, async (crashed) => {
+    if (crashed) {
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        message: "Couldn't open a browser to sign in",
+        detail: 'This usually means no compatible browser is installed. Use "Choose ' +
+          'Browser…" from the menu to install Brave or pick one, then try again.',
+        buttons: ['Try Again', 'Cancel'],
+        defaultId: 0,
+      });
+      if (response === 0) attemptLogin();
+      return;
+    }
+    await dialog.showMessageBox(win, {
+      message: 'Signing In',
+      detail: 'A browser window should now be open. Log in with your school account, ' +
+        'then come back and click Done.',
+      buttons: ['Done'],
+    });
+    runAction('check', '');
+  });
+}
+
+// Menu-bar entry points — same underlying functions the wizard uses,
+// just reachable any time instead of gated behind isNewProjectSetup.
+function chooseBrowserFromMenu() {
+  presentBrowserSetup(() => {
+    dialog.showMessageBox(win, {
+      message: 'Browser Updated',
+      detail: 'Takes effect on the next check — right away if you start one now (the ' +
+        'reload button, or Check Now).',
+    });
+  });
 }
 
 // ── Auto fresh-check timer — port of setupAutoFreshCheck() /
@@ -431,7 +865,6 @@ function checkForUpdatesManually() {
 // that prompt. The dialog just above this (Install & Relaunch) is
 // followed by a SECOND, OS-level one neither this file nor NSIS controls.
 function installReadyUpdate(installerPath) {
-  const { spawn } = require('child_process');
   try {
     spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore' }).unref();
   } catch (e) {
@@ -472,6 +905,7 @@ if (!gotLock) {
     createWindow();
     setupAutoFreshCheck();
     setupUpdateCheck();
+    continueNewProjectSetupIfNeeded();
   });
 
   app.on('window-all-closed', () => {

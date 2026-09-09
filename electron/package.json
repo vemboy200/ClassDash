@@ -30,6 +30,19 @@
       "main.js",
       "preload.js",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "ProjectTemplate",
+        "filter": [
+          "*.js",
+          "package.json",
+          "settings.example.json",
+          "freshcheck-icon.png",
+          "node_modules/**"
+        ]
+      }
     ]
   }
 }
