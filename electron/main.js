@@ -441,18 +441,41 @@ function installBraveWindows() {
     const installerPath = path.join(app.getPath('temp'), `BraveInstaller-${Date.now()}.exe`);
 
     const download = (url, redirectsLeft) => {
-      const req = https.get(url, { timeout: 30000 }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          res.resume();
-          if (redirectsLeft <= 0) { resolve(false); return; }
-          download(res.headers.location, redirectsLeft - 1);
-          return;
-        }
-        if (res.statusCode !== 200) { res.resume(); resolve(false); return; }
-        const file = fs.createWriteStream(installerPath);
-        res.pipe(file);
-        file.on('finish', () => file.close(runInstaller));
-      });
+      let req;
+      try {
+        req = https.get(url, { timeout: 30000 }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            res.resume();
+            if (redirectsLeft <= 0) { resolve(false); return; }
+            // A Location header isn't guaranteed to be an absolute URL
+            // — resolving it against the URL just requested handles a
+            // relative one correctly (an already-absolute one passes
+            // through new URL() unchanged either way). Found live
+            // testing this: a relative Location here crashed the WHOLE
+            // APP with an uncaught "Invalid URL" exception, since
+            // https.get() throws SYNCHRONOUSLY for a non-absolute URL
+            // string instead of failing just this one download —
+            // exactly why this whole call is now wrapped in try/catch,
+            // not only guarded by the request's own 'error' event.
+            let nextUrl;
+            try {
+              nextUrl = new URL(res.headers.location, url).toString();
+            } catch {
+              resolve(false);
+              return;
+            }
+            download(nextUrl, redirectsLeft - 1);
+            return;
+          }
+          if (res.statusCode !== 200) { res.resume(); resolve(false); return; }
+          const file = fs.createWriteStream(installerPath);
+          res.pipe(file);
+          file.on('finish', () => file.close(runInstaller));
+        });
+      } catch {
+        resolve(false);
+        return;
+      }
       req.on('error', () => resolve(false));
       // An IDLE timeout, not an overall deadline — fires only when the
       // socket goes quiet this long, not just because a ~150MB transfer

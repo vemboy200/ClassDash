@@ -155,21 +155,47 @@ function fetchToFile(url, destPath, redirectsLeft, cb) {
     fs.unlink(destPath, () => cb(err));
   };
 
-  https.get(url, (res) => {
-    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-      res.resume(); // drain this response before starting the next one
-      file.close();
-      if (redirectsLeft <= 0) return cleanupAndFail(new Error('too many redirects'));
-      return fetchToFile(res.headers.location, destPath, redirectsLeft - 1, cb);
-    }
-    if (res.statusCode !== 200) {
-      res.resume();
-      return cleanupAndFail(new Error(`download responded ${res.statusCode}`));
-    }
-    res.pipe(file);
-    file.on('finish', () => file.close(() => cb(null)));
-    file.on('error', cleanupAndFail);
-  }).on('error', cleanupAndFail);
+  // https.get() throws SYNCHRONOUSLY for an invalid URL string (a
+  // relative one included) — the .on('error', ...) below only ever
+  // catches an ASYNCHRONOUS failure, so a malformed url here would
+  // throw right out of this function instead. Found live testing the
+  // Windows wizard's own (separate, but structurally identical)
+  // redirect-following code: this matters more here than it looks,
+  // since electron/main.js calls this whole chain in-process, not as a
+  // spawned subprocess the way 16-summary.swift's runAction() does — an
+  // uncaught throw here would crash the entire Electron app, not just
+  // this one download.
+  let req;
+  try {
+    req = https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume(); // drain this response before starting the next one
+        file.close();
+        if (redirectsLeft <= 0) return cleanupAndFail(new Error('too many redirects'));
+        // Not guaranteed to already be absolute — resolving against the
+        // URL just requested handles a relative Location correctly (an
+        // already-absolute one passes through new URL() unchanged).
+        let nextUrl;
+        try {
+          nextUrl = new URL(res.headers.location, url).toString();
+        } catch (e) {
+          return cleanupAndFail(e);
+        }
+        return fetchToFile(nextUrl, destPath, redirectsLeft - 1, cb);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return cleanupAndFail(new Error(`download responded ${res.statusCode}`));
+      }
+      res.pipe(file);
+      file.on('finish', () => file.close(() => cb(null)));
+      file.on('error', cleanupAndFail);
+    });
+  } catch (e) {
+    cleanupAndFail(e);
+    return;
+  }
+  req.on('error', cleanupAndFail);
 }
 
 /**
