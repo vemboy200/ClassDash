@@ -49,6 +49,20 @@ jobs:
         with:
           node-version: 20
 
+      # THE ROOT PROJECT'S OWN DEPENDENCIES — CONFIRMED MISSING FROM
+      # EVERY DEV BUILD BEFORE THIS: electron/package.json's own
+      # extraResources bundles ../node_modules into ProjectTemplate (see
+      # its own comment), but nothing here ever installed it — this job
+      # only ever ran `npm ci` inside electron/, for electron/electron-
+      # builder themselves, never touching playwright/selfsigned at the
+      # repo root. Verified directly by extracting a real CI-built
+      # installer: ProjectTemplate/node_modules simply didn't exist.
+      # Every brand-new project folder built from that template would
+      # crash immediately on require('playwright').
+      - name: Install the root project's own dependencies
+        working-directory: .
+        run: npm ci
+
       - name: Install dependencies
         run: npm ci
 
