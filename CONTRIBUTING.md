@@ -90,7 +90,76 @@ untouched during the rename to ClassDash, since renaming it would silently
 break every permission grant already tied to that identity. Not a
 leftover to clean up.)
 
-### The .dmg release pipeline
+### The Windows wrapper
+
+`electron/` is a second native shell, alongside `16-summary.swift` — same
+job (the window, the bridge, the menu, update checking), different
+platform. Building it:
+
+```bash
+cd electron
+npm install
+npm start
+```
+
+**The bridge is a shim, not a reimplementation.** `08-page.js`'s
+`dispatchAction()` only ever checks for
+`window.webkit.messageHandlers.classdash` — it has no idea whether the
+other end is Swift or Node. `electron/preload.js` exposes exactly that
+shape via `contextBridge`; `electron/main.js`'s `ipcMain` handler calls
+straight into `21-notifier-actions.js`'s `main(action, arg)`, the same
+dispatcher every bridge action already goes through everywhere else.
+Result: `08-page.js` and `21-notifier-actions.js` needed zero changes to
+run under Electron at all.
+
+**`process.execPath` inside a spawned child is `ClassDash.exe` itself,
+not plain Node** — the one Electron-specific trap worth knowing before
+touching any of this. Every subprocess `main.js` spawns (login, checks,
+the bridge itself) uses `process.execPath` with `ELECTRON_RUN_AS_NODE=1`
+set, which makes the Electron binary behave like an ordinary `node` for
+that one invocation — deliberately not a system-installed `node`, so
+nobody running this ever needs one installed separately. That env var
+propagates to anything a spawned child spawns in turn, which is exactly
+why `runAction()` spawns `21-notifier-actions.js` as a real subprocess
+rather than calling its `main()` in-process the way `17-api.js` does:
+that file's own `redraw()`/`fullCheck()`/`quickCheck()`/`startApiServer()`
+all re-spawn further work via `process.execPath` too, and without the env
+var propagating down from a real subprocess spawn, those would each try
+to launch a second copy of `ClassDash.exe` itself instead of Node.
+
+**Known, unresolved consequence of that same fact**: the detached home
+API server (`17-api.js`) shares process identity with the app — it's
+also, technically, `ClassDash.exe`. A reinstall or the app's own
+self-update (both run the installer, which closes anything named
+`ClassDash.exe` before overwriting it) can kill the API server even
+though it's supposed to survive the main app closing entirely, the way
+it does on macOS (a genuinely separate system `node` process there).
+Toggling **Enable home API** off then on again (each followed by Save)
+forces a fresh restart and works around it; the real fix would bundle an
+actual separate portable Node binary for exactly this kind of long-running
+process, not yet built.
+
+**The new-project wizard's template** comes from
+`electron/package.json`'s own `build.extraResources` — bundles every
+`.js` file, `package.json`, `settings.example.json`,
+`freshcheck-icon.png`, and `node_modules` from the repo root into
+`resources/ProjectTemplate` inside the packaged app, the Electron
+equivalent of `build.sh`'s own `Contents/Resources/ProjectTemplate` step
+for the Mac build. **Needs the root project's own `npm ci` run first** —
+see the release pipeline below for the real bug this already caused once.
+
+**Brave's Windows install is a real system install**, unlike macOS's
+isolated `.browser/`-folder copy — Windows has no equivalent of
+"extract an app bundle in isolation and run it from there." Downloads
+`BraveBrowserStandaloneSilentSetup.exe` (confirmed against Brave's own
+real [winget package manifest](https://github.com/microsoft/winget-pkgs/tree/master/manifests/b/Brave/Brave)
+after two wrong URL guesses first — GitHub Releases directly, not
+`laptop-updates.brave.com` or `referrals.brave.com`) to its standard
+per-user location. Still safe: the profile isolation that matters comes
+from Playwright's own `--user-data-dir` flag, not from the install being
+physically separate.
+
+### The release pipeline — both platforms, one tag
 
 `.github/workflows/release.yml` builds, packages, and publishes a release
 whenever a `v*` tag is pushed:
@@ -100,15 +169,33 @@ git tag v1.0.0
 git push fork v1.0.0
 ```
 
-It runs `build.sh` on a `macos-latest` runner, stages `ClassDash.app`
-alongside an `/Applications` symlink (the standard drag-to-install
-layout), packages that into a `.dmg` with `hdiutil` (already a dependency
-via `20-browser.js`'s own Brave download — no new tool to trust), and
-publishes it as a GitHub Release with `gh release create --generate-notes`
-using the default `GITHUB_TOKEN`. No signing secrets involved at all: the
-build is ad-hoc signed, same as any local build without the certificate
-above, which is why the README documents the Gatekeeper warning as
-expected rather than a bug.
+Three jobs: `build-macos` runs `build.sh` on a `macos-latest` runner,
+stages `ClassDash.app` alongside an `/Applications` symlink (the standard
+drag-to-install layout), and packages that into a `.dmg` with `hdiutil`
+(already a dependency via `20-browser.js`'s own Brave download — no new
+tool to trust). `build-windows` runs on `windows-latest`, installs the
+root project's own dependencies (`npm ci` — genuinely needed, not
+redundant with the next step: `electron/package.json`'s own
+`extraResources` bundles `../node_modules` into the template a first-run
+setup copies from, so without this the resulting installer's own
+new-project wizard would crash immediately on `require('playwright')` —
+confirmed live, caught before it ever shipped in a real release), then
+`electron/`'s own `npm ci` for Electron itself, then packages an NSIS
+installer via `electron-builder`. Both jobs only ever upload their
+artifact; a third job, `publish`, needs both and does the one real
+`gh release create --generate-notes` once they're both ready — avoids two
+jobs racing to create the same release. No signing secrets involved on
+either platform: both builds are unsigned (ad-hoc on macOS, no
+certificate at all on Windows), which is why the README documents the
+Gatekeeper/SmartScreen warnings as expected rather than a bug.
+
+**`.github/workflows/windows-dev-build.yml`** is a separate, lighter
+workflow — builds just the Windows installer on every push to `main`
+(not a real release) and uploads it as a workflow artifact, for testing
+changes on an actual Windows machine without a hand-transferred file
+over something like LocalSend (which corrupted more than once in
+practice). Same `npm ci`-at-the-root requirement as `build-windows`
+above, for the same reason.
 
 **Why a CI-built copy needs to ask where the project folder is.** A local
 build bakes the real project path into `Info.plist` at build time; a
@@ -483,24 +570,28 @@ integration, a script, a phone shortcut).
 |---|---|
 | `05-playwright-draft.js` | the collector: reads sources, diffs against memory, notifies |
 | `08-page.js` | builds `summary.html` — plain code, no model involved |
-| `10-canvas.js` | Canvas through its official REST API; courses are discovered, not hardcoded; assignments and Pages (materials) both |
+| `10-canvas.js` | Canvas through its official REST API; courses are discovered, not hardcoded; assignments and Pages (materials) both; normalizes the configured address (adds `https://` if it's missing) before using it |
 | `11-edpuzzle.js` | Edpuzzle through its own internal API (no public one exists — learned by watching the site itself); needs a visible window |
 | `12-feed.js` | teacher announcements from the Classroom stream |
 | `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
 | `14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
-| `16-summary.swift` | the app — the summary window, the `napominalka://` bridge and its browser-tab fallback, notifications, and locating the project folder, all in one |
+| `16-summary.swift` | the macOS app — the summary window, the `napominalka://` bridge and its browser-tab fallback, notifications, locating the project folder, and (since 2026-09-09) the no-terminal new-project setup wizard, all in one |
 | `17-api.js` | the home API |
 | `18-language.js` | Russian and English wording |
 | `19-settings.js` | settings: read, write, validate |
-| `20-browser.js` | downloads and installs the project's own isolated Brave |
-| `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly, not a separate app |
+| `20-browser.js` | downloads and installs the project's own isolated Brave — **macOS only**; the Windows wrapper has its own, separate Brave-install logic in `electron/main.js`, since Windows has no equivalent of an isolated app-bundle copy |
+| `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly on macOS, by `electron/main.js` (as a real spawned subprocess, see its own section above) on Windows, not a separate app on either platform |
 | `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
-| `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js |
+| `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js; certificate generation uses the `selfsigned` package (pinned to 4.x), not `openssl` — Windows doesn't ship it the way macOS does |
 | `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
 | `25-check-status.js` | per-platform "did the last check work?" — ok/problem/unknown |
-| `26-update-check.js` | reads the update check 16-summary.swift already ran; writes dismissedVersion; downloads the release .dmg (the one piece of "update support" that lives in Node, not Swift) |
-| `build.sh` | builds the app, registers its URL scheme, bakes in the project path |
-| `.github/workflows/release.yml` | builds and publishes a `.dmg` release on a `v*` tag push |
+| `26-update-check.js` | reads the update check the native wrapper already ran; writes dismissedVersion; downloads the release asset (`.dmg` on macOS, `.exe` on Windows — the destination filename is derived from the actual download URL's own extension) |
+| `build.sh` | builds the macOS app, registers its URL scheme, bakes in the project path, bundles the new-project template |
+| `electron/main.js` | the Windows app — same jobs as 16-summary.swift, see [The Windows wrapper](#the-windows-wrapper) above |
+| `electron/preload.js` | the bridge shim — makes `08-page.js` believe it's still talking to Swift's WKWebView |
+| `electron/package.json` | Electron/electron-builder config — the NSIS installer target, the new-project template's `extraResources` bundling |
+| `.github/workflows/release.yml` | builds and publishes both a `.dmg` and a Windows `.exe` on a `v*` tag push |
+| `.github/workflows/windows-dev-build.yml` | builds just the Windows installer on every push to `main`, as a downloadable workflow artifact — for testing on a real Windows machine without a real release |
 
 The code comments are fairly heavy. Those comments are not decoration: nearly
 every one of them records a failure that already happened and explains why

@@ -52,67 +52,18 @@ puts everything on one page.
 
 ## Get it
 
-Two things go on your computer, and both are needed: the **project
-folder** (does the actual work — reading your assignments, writing the
-summary page) and **ClassDash.app** (a window that shows that summary and
-sends you notifications, instead of you having to open a file by hand).
+One thing goes on your computer: the **ClassDash app**. The first time
+you open it, it sets up its own **project folder** (does the actual
+work — reading your assignments, writing the summary page) for you —
+picking a browser, signing you in, all of it — no Terminal required.
 
-### 1. Set up the project folder
+### 1. Download and install
 
-This step is the least friendly part of the whole thing — Terminal, a
-few typed commands, editing a JSON file by hand. There's no getting
-around that today; a real installer or a guided first-run setup inside
-the app that skips Terminal entirely is possible in principle, but
-nothing like that has been built yet. This is the actual state of things
-right now, not a "coming soon."
+Go to the [Releases page](https://github.com/vemboy200/ClassDash/releases)
+and grab the build for your platform:
 
-**Requirements:**
-- macOS (the notification popup, the summary window, and the scheduler
-  are all macOS-specific — the rest of this runs on Linux/Windows too)
-- [Node.js](https://nodejs.org) 18 or newer
-
-Open Terminal (Spotlight → "Terminal") and run:
-
-```bash
-git clone https://github.com/vemboy200/ClassDash.git
-cd ClassDash
-npm install
-npm run setup-browser
-cp settings.example.json settings.json
-```
-
-(No `git`? Download the ZIP from the green "Code" button on
-[the GitHub page](https://github.com/vemboy200/ClassDash) instead, unzip
-it, and `cd` into that folder.)
-
-`setup-browser` checks whether Google Chrome is already installed — if
-so, nothing else happens, since Chrome already works safely for this.
-Only if Chrome is missing does it download its own separate, isolated
-copy of Brave, kept entirely inside this project folder — never your
-everyday browser.
-
-Now open `settings.json` in any text editor and fill in your school email
-and (if your school uses it) your Canvas address. Every other setting has
-a default and can be left alone — they're all adjustable later from
-inside the app itself.
-
-Sign in once — a real browser window opens and you log in by hand, the
-same as logging into any site:
-
-```bash
-npm run login
-```
-
-That session is saved and lasts for weeks. When it eventually expires,
-ClassDash tells you with a notification instead of silently showing
-stale data.
-
-### 2. Get the app
-
-**Easiest: download it.** Go to the
-[Releases page](https://github.com/vemboy200/ClassDash/releases), download
-the latest `.dmg`, open it, and drag **ClassDash** into your
-**Applications** folder, same as installing any other Mac app.
+**macOS** — download the `.dmg`, open it, and drag **ClassDash** into
+your **Applications** folder, same as installing any other Mac app.
 
 > [!WARNING]
 > **macOS builds are not code-signed or notarized by Apple.** Gatekeeper
@@ -125,28 +76,58 @@ the latest `.dmg`, open it, and drag **ClassDash** into your
 > scroll down, and click **Open Anyway** after your first blocked
 > attempt. You only need to do this once; after that it opens normally.
 
-**Building it yourself** is the other option, if you'd rather not run a
-downloaded binary or want to modify the code — see
+**Windows** — download the `.exe` and run it. It's a real installer
+(not one-click) that asks where to install, same as any other Windows
+program — defaults to `Program Files`, needs admin rights to install
+there.
+
+> [!WARNING]
+> **Windows builds aren't code-signed either** (same reason as
+> macOS — no paid certificate). SmartScreen will say "Windows protected
+> your PC." Click **More info**, then **Run anyway**. Same one-time
+> thing as Gatekeeper above, not a sign anything's actually wrong.
+
+**Building either one yourself** is the other option, if you'd rather
+not run a downloaded binary or want to modify the code — see
 [CONTRIBUTING.md](CONTRIBUTING.md#building-from-source).
 
-**On Linux or Windows**, or if you'd simply rather not install an app at
-all: the collector, the summary page, and the home API are plain Node and
-run fine without ClassDash.app — open `summary.html` in any browser to
-view it. Be aware this is view-only, though: buttons like "hide" and
-saving settings from the page rely on a URL scheme that only
-`ClassDash.app` (macOS-only) registers, so without it those clicks won't
-actually do anything. Full interactivity currently needs macOS and the
-app built or downloaded.
+**On Linux**, or if you'd simply rather not install an app at all: the
+collector, the summary page, and the home API are plain Node and run
+fine without either native wrapper — open `summary.html` in any browser
+to view it. Be aware this is view-only, though: buttons like "hide" and
+saving settings from the page depend on a bridge only the real Mac or
+Windows app provides, so without one those clicks won't actually do
+anything. Setting up the project folder by hand this way still needs
+Terminal — see [Doing it by hand](#doing-it-by-hand) below.
 
-### 3. Launch it
+### 2. Launch it — first run sets everything up
 
-Open **ClassDash** from Applications (or Spotlight). **The very first
-launch may ask you to locate the project folder** — the one from step 1,
-the one with `settings.json` in it. Pick it once; ClassDash remembers
-the choice from then on. (This only happens for a downloaded `.dmg`
-build; building it yourself skips this entirely.)
+Open **ClassDash**. If it doesn't already know about a project folder,
+it asks: **set up a new one, or point it at an existing one** — pick the
+first option for an actual first run. From there it walks you through
+the rest itself:
 
-Two permissions to grant, both in **System Settings → Privacy & Security**:
+- creates the project folder wherever you choose
+- offers to install **Brave** (recommended — more privacy-focused,
+  and this installs a separate, isolated copy just for ClassDash,
+  never touching your everyday browser) or lets you use Chrome instead,
+  or pick a different browser by hand
+- opens Settings so you can fill in your school email and (if your
+  school uses it) your Canvas address — everything else has a default
+  and can stay as-is
+- offers to sign you in — a real browser window opens and you log in
+  by hand, the same as logging into any site. That session is saved and
+  lasts for weeks; when it eventually expires, ClassDash tells you with
+  a notification instead of silently showing stale data (macOS only for
+  now — see [Troubleshooting](#troubleshooting))
+
+Skipped a step, or want to redo one later — a different browser,
+signing in again? Both are still reachable any time afterward from the
+app's own menu (**Choose Browser…**, **Sign In to Google Classroom…**),
+not just during that first run.
+
+**On macOS specifically**, two permissions still need granting, both in
+**System Settings → Privacy & Security**:
 
 - **App Management / Data Access** — needed to actually read Classroom
   and Canvas. macOS will prompt for this the first time it's needed.
@@ -155,16 +136,51 @@ Two permissions to grant, both in **System Settings → Privacy & Security**:
   for this one on its own; without doing it manually, notifications will
   just silently never arrive.
 
-### 4. Keep it running automatically
+Windows doesn't have an equivalent permission step — nothing extra to
+grant there.
 
-Right now, ClassDash checks on its own schedule only while it's told to.
-The simplest way: leave the app open, and use `launchd` (macOS's
-built-in scheduler) to run a check periodically even when it's closed.
-There's no ready-made schedule file in this repo — it needs your own
-computer's absolute file paths baked in, so this part's covered in
-[CONTRIBUTING.md](CONTRIBUTING.md) rather than here. In the meantime,
-opening the app and clicking the reload button (or holding it down for a
-full check) works fine on its own.
+### 3. Keep it running automatically
+
+Right now, ClassDash checks on its own schedule only while it's open.
+
+**On macOS**, the alternative is `launchd` (the built-in scheduler) to
+run a check periodically even while the app's closed. There's no
+ready-made schedule file in this repo — it needs your own computer's
+absolute file paths baked in, so this part's covered in
+[CONTRIBUTING.md](CONTRIBUTING.md) rather than here.
+
+**On Windows**, there's no equivalent built yet — leaving the app open
+is the only option for now.
+
+Either way, opening the app and clicking the reload button (or holding
+it down for a full check) works fine on its own in the meantime.
+
+### Doing it by hand
+
+Prefer Terminal, want to modify the code, or you're on Linux where the
+app-based setup above isn't available at all? The manual path still
+works exactly like it always has:
+
+**Requirements:** [Node.js](https://nodejs.org) 18 or newer.
+
+```bash
+git clone https://github.com/vemboy200/ClassDash.git
+cd ClassDash
+npm install
+npm run setup-browser
+cp settings.example.json settings.json    # then edit it
+npm run login
+```
+
+(No `git`? Download the ZIP from the green "Code" button on
+[the GitHub page](https://github.com/vemboy200/ClassDash) instead, unzip
+it, and `cd` into that folder.)
+
+`setup-browser` only works on macOS — checks whether Google Chrome is
+already installed (if so, nothing else happens, since Chrome already
+works safely for this), and only downloads its own isolated copy of
+Brave if Chrome's missing. On Windows or Linux, install Chrome yourself
+first, or fill in `browserPath` in `settings.json` by hand.
 
 ---
 
@@ -203,8 +219,9 @@ full check) works fine on its own.
   them for the full breakdown, timestamps and error detail included.
 - ClassDash checks for a new release automatically, once a day, and
   shows a dismissable banner if one's out. **Check for Updates…** in
-  the menu bar (right under About ClassDash) checks on demand instead
-  of waiting — and if there's something newer, offers to download and
+  the menu bar (under **ClassDash** on macOS, right at the top on
+  Windows) checks on demand instead of waiting — and if there's
+  something newer, offers to download and
   install it right there, no need to go find the `.dmg` yourself.
 
 ## Home API
@@ -244,16 +261,31 @@ what to send each one, is in
 ## Troubleshooting
 
 **macOS says the app is "damaged" or from an "unidentified developer."**
-Expected — see [Get the app](#2-get-the-app) above for the right-click →
-Open workaround.
+Expected — see [Download and install](#1-download-and-install) above for
+the right-click → Open workaround.
 
-**Notifications never show up.** This almost always means the manual
-System Settings grant above hasn't been done — macOS doesn't prompt for
-it on its own.
+**Windows says "Windows protected your PC."** Also expected, same
+underlying reason (no paid signing certificate) — click **More info**
+→ **Run anyway**.
 
-**A full check or a save is stuck / did nothing.** The first one after
-install may be waiting on the App Management permission prompt — check
-System Settings → Privacy & Security.
+**Notifications never show up.** On macOS, this almost always means the
+manual System Settings grant hasn't been done — macOS doesn't prompt
+for it on its own. **On Windows, this is currently expected, not a
+bug to chase**: desktop notifications (new assignments, a "you got
+signed out, sign in again" alert) haven't been built for Windows yet —
+the app still works and collects normally, there's just nothing that
+pops up to tell you about it. Check the page itself, or the little
+status dots next to the gear icon, instead.
+
+**A full check or a save is stuck / did nothing (macOS).** The first
+one after install may be waiting on the App Management permission
+prompt — check System Settings → Privacy & Security.
+
+**On Windows, the home API shows as enabled but doesn't seem to be
+running** — most likely after reinstalling the app or letting it
+self-update. Toggle **Enable home API** off, Save, back on, Save again
+— that forces a fresh restart of the server process. A real fix for
+this is planned but not built yet.
 
 **Something in the code itself is misbehaving**, or you want to
 understand *why* something works the way it does — that detail lives in
