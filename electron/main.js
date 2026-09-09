@@ -403,8 +403,20 @@ async function presentBrowserSetup(completion) {
 
   if (response === 0) {
     const busy = showBusyWindow('Installing Brave…');
-    await installBraveWindows();
+    const installed = await installBraveWindows();
     busy.close();
+    // Found live testing this: the install can genuinely fail (wrong
+    // installer variant downloaded a small stub instead of the full
+    // browser — see BRAVE_INSTALLER_URL's own comment) with NO error at
+    // all if this isn't checked — completion() would run regardless,
+    // making the whole step silently look like it worked.
+    if (!installed) {
+      dialog.showErrorBox(
+        "Brave didn't install correctly",
+        'Something went wrong installing Brave. Try "Choose Browser…" from the menu to ' +
+        'install it again, use Chrome instead, or pick a different browser manually.'
+      );
+    }
     completion();
   } else if (response === 2) {
     await chooseCustomBrowser(completion);
@@ -423,13 +435,17 @@ async function presentBrowserSetup(completion) {
 // profile) comes from Playwright's own --user-data-dir flag, not from
 // the install being physically separate.
 //
-// LOWER CONFIDENCE THAN THE REST OF THIS FILE: the exact download URL
-// and silent-install flags below are a best-effort guess (following
-// laptop-updates.brave.com's own URL pattern, already verified working
-// for the Mac endpoints in 20-browser.js) rather than something
-// verified live — this is the single most likely spot in the whole
-// Windows wizard to need adjusting after an actual test run.
-const BRAVE_INSTALLER_URL = 'https://laptop-updates.brave.com/latest/winx64';
+// LOWER CONFIDENCE THAN THE REST OF THIS FILE, AND ALREADY WRONG ONCE:
+// the first URL tried here (laptop-updates.brave.com/latest/winx64)
+// downloaded quickly and "succeeded" with no error, but braveExePath()
+// never existed afterward — that's the signature of Brave's small
+// *online* installer stub, which fetches the real ~150MB browser in a
+// SEPARATE background step this code never waits for, rather than the
+// full browser in one synchronous download. Switched to Brave's
+// standalone/offline installer instead, which is meant to bundle the
+// whole thing into one download — still not confirmed working, the
+// same "single most likely spot to need adjusting" as before.
+const BRAVE_INSTALLER_URL = 'https://referrals.brave.com/latest/BraveBrowserStandaloneSilentSetup.exe';
 
 function braveExePath() {
   return path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware', 'Brave-Browser',
@@ -487,13 +503,16 @@ function installBraveWindows() {
     };
 
     function runInstaller() {
-      // /silent /install: the commonly-documented flags for this
-      // Omaha-style (Google-Update-derived) installer family Brave's
-      // own Windows build uses — not confirmed against this exact
-      // build, see this function's own header comment.
+      // No arguments — "Silent" is already what this specific installer
+      // variant (BraveBrowserStandaloneSilentSetup.exe) is FOR, per its
+      // own name, rather than a generic Brave installer needing /silent
+      // /install flags to behave that way (which is what the previous,
+      // wrong installer variant would have needed). Passing flags this
+      // one doesn't expect seemed like unnecessary extra risk on top of
+      // an already-uncertain guess, so this one's kept plain.
       let child;
       try {
-        child = spawn(installerPath, ['/silent', '/install'], { stdio: 'ignore' });
+        child = spawn(installerPath, [], { stdio: 'ignore' });
       } catch {
         resolve(false);
         return;
