@@ -443,8 +443,28 @@ async function presentBrowserSetup(completion) {
   // the browserPath this step just set. A reload here means the panel,
   // whenever it's next opened, renders from the real current disk
   // state instead.
-  const reloadThenComplete = () => {
-    if (win && !win.isDestroyed()) win.webContents.reload();
+  const reloadThenComplete = async () => {
+    // AWAITS THE RELOAD ACTUALLY FINISHING — a genuine, separate bug
+    // from the one described above it, found live in a second round of
+    // testing: webContents.reload() only ever STARTS a navigation, it
+    // doesn't wait for it. Firing completion() (which opens the
+    // settings panel) right away meant that panel was still running
+    // against the OLD, pre-reload page — so it rendered the same stale
+    // browserPath the reload was supposed to fix, and the very next
+    // save re-clobbered it right back to empty. Confirmed exactly by
+    // its own signature: the wizard's OWN immediate login (before any
+    // save had a chance to run) correctly used the new browser, but
+    // sign-in from the menu afterward — after anything got saved from
+    // that stale-panel window — reverted to Chrome every time.
+    if (win && !win.isDestroyed()) {
+      await new Promise((resolve) => {
+        win.webContents.once('did-finish-load', resolve);
+        win.webContents.reload();
+        // Safety net, not the expected path — did-finish-load should
+        // always fire for a same-origin file:// reload like this one.
+        setTimeout(resolve, 5000);
+      });
+    }
     completion();
   };
 
