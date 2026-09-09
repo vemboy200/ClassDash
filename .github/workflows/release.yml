@@ -26,6 +26,16 @@
 # hdiutil is already part of macOS (20-browser.js already shells out to
 # it, extracting Brave's own .dmg) — no new dependency to install or trust
 # just to build one.
+#
+# ── The Windows build, alongside this one ──
+#
+# electron/ is a separate wrapper around the exact same 08-page.js /
+# 21-notifier-actions.js this app already uses — see electron/main.js's
+# own header comment. Packaged here with electron-builder into an NSIS
+# installer (the standard choice for a Windows Electron app), same
+# ad-hoc/unsigned posture as the macOS build above: no code-signing
+# certificate for Windows either, so expect a SmartScreen warning on
+# first run, same story as Gatekeeper's above.
 name: Release
 
 on:
@@ -36,8 +46,15 @@ on:
 permissions:
   contents: write
 
+# THREE JOBS, NOT ONE, SINCE THE WINDOWS WRAPPER (electron/) SHIPPED —
+# the two builds run on different runner OSes and can't share a job. Each
+# build job only uploads its artifact as a workflow artifact rather than
+# publishing anything itself; a final `publish` job that needs both does
+# the one real `gh release create`, so nothing races to create the same
+# release twice or attaches an incomplete pair of assets if one
+# platform's build is slower than the other's.
 jobs:
-  build-and-release:
+  build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,12 +89,67 @@ jobs:
           hdiutil create -volname "ClassDash" -srcfolder dmg-staging \
             -ov -format UDZO "ClassDash-${GITHUB_REF_NAME}.dmg"
 
+      - name: Upload the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ClassDash-${{ github.ref_name }}.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      # Matches the macOS job's bash syntax (${GITHUB_REF_NAME#v})
+      # instead of the runner's own default of PowerShell — one shell
+      # dialect to maintain across both jobs, not two.
+      run:
+        shell: bash
+        working-directory: electron
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      # electron-builder reads the version to embed from package.json by
+      # default; -c.extraMetadata.version overrides that with the actual
+      # release tag instead — the same authoritative source build.sh's
+      # own VERSION uses above, not electron/package.json's placeholder
+      # "1.0.0".
+      - name: Build the installer
+        run: npx electron-builder --win nsis -c.extraMetadata.version="${GITHUB_REF_NAME#v}"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: electron/dist/*.exe
+
+  publish:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: artifacts
+
       # --generate-notes: auto-built from commits since the last tag —
       # good enough by default, no changelog file to hand-maintain here.
+      # No actions/checkout here — gh infers which repo from GH_REPO
+      # below instead, since nothing else in this job needs a working
+      # tree.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "ClassDash-${GITHUB_REF_NAME}.dmg" \
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
             --title "ClassDash ${GITHUB_REF_NAME}" \
             --generate-notes

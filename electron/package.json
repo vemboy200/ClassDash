@@ -1,0 +1,35 @@
+{
+  "name": "classdash-windows",
+  "version": "1.0.0",
+  "description": "Windows wrapper for ClassDash — the Electron equivalent of the macOS app's 16-summary.swift",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.artem.svodka",
+    "productName": "ClassDash",
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "artifactName": "ClassDash-v${version}.${ext}",
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ]
+  }
+}

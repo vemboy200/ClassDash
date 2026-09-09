@@ -35,7 +35,20 @@ const https = require('https');
 const path = require('path');
 
 const FILE = path.join(__dirname, 'update-status.json');
-const DMG_PATH = path.join(__dirname, 'update-download.dmg');
+
+// Named for the extension the release actually shipped (.dmg on macOS,
+// .exe on Windows), not hardcoded to one platform — this file is the one
+// piece of the update flow shared by both native wrappers (see
+// 16-summary.swift and electron/main.js), so it can't assume which one
+// called it. Falls back to .dmg only if a URL genuinely has no extension
+// at all, which no real release asset should ever hit.
+function destPathFor(downloadURL) {
+  let ext = '.dmg';
+  try {
+    ext = path.extname(new URL(downloadURL).pathname) || ext;
+  } catch { /* keep the fallback */ }
+  return path.join(__dirname, 'update-download' + ext);
+}
 
 /**
  * One word for "what's it doing right now" — computed fresh from the
@@ -191,7 +204,8 @@ function downloadUpdate() {
   // error field never got cleared by anything.
   writeFields({ downloading: true, error: null });
 
-  fetchToFile(status.downloadURL, DMG_PATH, 5, (err) => {
+  const destPath = destPathFor(status.downloadURL);
+  fetchToFile(status.downloadURL, destPath, 5, (err) => {
     if (err) {
       writeFields({ downloading: false, error: err.message });
       return;
@@ -200,7 +214,7 @@ function downloadUpdate() {
       downloading: false,
       readyToInstall: true,
       readyVersion: latestVersion,
-      downloadedPath: DMG_PATH,
+      downloadedPath: destPath,
       error: null,
     });
   });
@@ -208,4 +222,4 @@ function downloadUpdate() {
   return { ok: true, started: true };
 }
 
-module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, FILE, DMG_PATH };
+module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, FILE };
