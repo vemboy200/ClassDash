@@ -1113,6 +1113,23 @@ function writePage(data, outputPath) {
      </div>`
     : '';
 
+  // Not dismissable, unlike updateBanner above — an unset email isn't an
+  // FYI, it's the reason 05-playwright-draft.js can't correctly build
+  // Classroom links yet (see AUTHUSER there), so this keeps showing every
+  // reload until it's actually fixed, the same "repeat until fixed, not
+  // once and done" rule COOKIES_EXPIRED's own notification already
+  // follows. Only checks the placeholder EMAIL, not canvas — canvas is
+  // legitimately optional (plenty of schools don't use it, and an empty
+  // string there already means "don't read it" correctly on its own),
+  // so a still-placeholder canvas alone isn't something to nag about.
+  const setupSettings = readSettings();
+  const setupBanner = setupSettings.email === 'your.school@email.example'
+    ? `  <div class="warn setup-banner">
+       <span>${escapeHtml(t('setupIncomplete'))} — ${escapeHtml(t('setupIncompleteHint'))}</span>
+       <a href="#" onclick="toggleSettingsPanel(); return false;">${escapeHtml(t('setupOpenSettings'))}</a>
+     </div>`
+    : '';
+
   const html = `<!doctype html>
 <html lang="ru">
 <head>
@@ -1316,8 +1333,8 @@ function writePage(data, outputPath) {
     background: var(--warnbg); color: var(--warn); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px;
   }
-  .update-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .update-banner a { color: inherit; text-decoration: underline; }
+  .update-banner, .setup-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .update-banner a, .setup-banner a { color: inherit; text-decoration: underline; }
   .update-dismiss {
     background: none; border: none; color: inherit; opacity: .6;
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
@@ -1605,6 +1622,7 @@ function writePage(data, outputPath) {
 ${checkStatusPanel()}
   </header>
 ${inProgress}
+${setupBanner}
 ${updateBanner}
 ${warning}
   <div class="columns">

@@ -126,6 +126,30 @@ if command -v swiftc >/dev/null; then
   # resampling, specifically to keep the pixel art crisp instead of
   # blurring it at the larger sizes macOS actually needs (up to 1024x1024).
   cp AppIcon.icns "$APP_NAME.app/Contents/Resources/AppIcon.icns"
+
+  # ── Project template, bundled for the new-project setup wizard ──
+  #
+  # A pristine copy of the runtime source — no git history, no generated
+  # data. setUpNewProject() in 16-summary.swift copies this into wherever
+  # the user picks when they don't already have a project folder to point
+  # at, so a first-time setup never needs git or npm by hand. Deliberately
+  # NOT the whole repo: no .git, no .browser (Brave itself — the wizard's
+  # own browser-install step downloads that fresh into wherever this
+  # template lands, not here), no browser-profile (a login session is
+  # inherently per-install, never something to ship), no docs (not needed
+  # at runtime), and none of the gitignored generated files (summary.html,
+  # settings.json, etc.) — a fresh setup is supposed to start with none of
+  # those. node_modules IS included (small, ~18MB) so the wizard's first
+  # --redraw pass, and everything after it, works without the user ever
+  # running "npm install" themselves.
+  TEMPLATE_DIR="$APP_NAME.app/Contents/Resources/ProjectTemplate"
+  rm -rf "$TEMPLATE_DIR"
+  mkdir -p "$TEMPLATE_DIR"
+  cp ./*.js "$TEMPLATE_DIR/"
+  cp package.json settings.example.json freshcheck-icon.png "$TEMPLATE_DIR/"
+  cp -R node_modules "$TEMPLATE_DIR/node_modules"
+  echo "  project template bundled ($(du -sh "$TEMPLATE_DIR" | cut -f1))"
+
   cat > "$APP_NAME.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

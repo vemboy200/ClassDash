@@ -251,9 +251,171 @@ func promptForProjectFolder() -> String? {
     return chosen
 }
 
+// THE ALTERNATIVE TO promptForProjectFolder() ABOVE: creates a new
+// project folder instead of locating an existing one, so a first-time
+// setup never needs git or npm run by hand.
+//
+// Copies the pristine template build.sh bundles into
+// Contents/Resources/ProjectTemplate (see its own comment there — no git
+// history, no generated data, node_modules included) into wherever the
+// user picks, then runs one collection-less --redraw pass so there's a
+// real summary.html to load before anything's actually been collected.
+// Verified this works against a fully empty project before writing this.
+// Everything AFTER the folder is created (browser setup, settings,
+// login) happens later, in continueNewProjectSetupIfNeeded() below —
+// this function's only job is getting a loadable project folder to
+// exist at all.
+func setUpNewProject() -> String? {
+    let panel = NSOpenPanel()
+    panel.title = "Set Up a New ClassDash Project"
+    panel.message = "Choose where to create your ClassDash project folder — pick an " +
+        "empty folder, or use \"New Folder\" to make one."
+    panel.prompt = "Choose"
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+
+    guard panel.runModal() == .OK, let chosen = panel.url?.path else { return nil }
+
+    // Only a build.sh-built app has this — a plain `swiftc` compile of
+    // just this one file (e.g. for quick local testing) never bundles
+    // Contents/Resources at all. Failing here with a clear message is
+    // better than copying nothing and leaving a broken half-empty folder.
+    guard let resourcePath = Bundle.main.resourcePath else { return nil }
+    let templateDir = resourcePath + "/ProjectTemplate"
+    guard FileManager.default.fileExists(atPath: templateDir) else {
+        let alert = NSAlert()
+        alert.messageText = "Can't set up a new project from this copy"
+        alert.informativeText = "This build doesn't have the project template bundled in " +
+            "it. Use \"I Already Have a Project Folder\" instead, or build ClassDash with " +
+            "build.sh, which bundles one."
+        alert.alertStyle = .warning
+        alert.runModal()
+        return nil
+    }
+
+    do {
+        for item in try FileManager.default.contentsOfDirectory(atPath: templateDir) {
+            let dst = chosen + "/" + item
+            if FileManager.default.fileExists(atPath: dst) {
+                try FileManager.default.removeItem(atPath: dst)
+            }
+            try FileManager.default.copyItem(atPath: templateDir + "/" + item, toPath: dst)
+        }
+        try FileManager.default.copyItem(atPath: chosen + "/settings.example.json",
+                                          toPath: chosen + "/settings.json")
+
+        // settings.example.json's own canvas field is a fake-but-valid-
+        // looking URL ("https://your-school.instructure.com"), not an
+        // empty string — and 05-playwright-draft.js's CANVAS_ENABLED
+        // check treats ANY non-empty value as "yes, read this", not just
+        // a real one. Left as-is, a fresh setup would try to actually
+        // read that fake domain and fail, instead of correctly starting
+        // in the already-supported "Canvas off" state (an empty string)
+        // until the user provides a real one or leaves it blank on
+        // purpose — not everyone's school even uses Canvas.
+        let settingsPath = chosen + "/settings.json"
+        if let data = FileManager.default.contents(atPath: settingsPath),
+           var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            obj["canvas"] = ""
+            if let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]) {
+                try? out.write(to: URL(fileURLWithPath: settingsPath))
+            }
+        }
+    } catch {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't set up the project folder"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
+        return nil
+    }
+
+    runNodeScriptSync("05-playwright-draft.js", args: ["--redraw"], in: chosen)
+
+    UserDefaults.standard.set(chosen, forKey: projectPathDefaultsKey)
+    return chosen
+}
+
+// Runs a node script from the given project folder, blocking until it
+// exits — for one-shot setup steps (the --redraw pass above, installing
+// Brave below) where the next step genuinely can't start until this one
+// has actually finished. Same PATH fix runAction() (in Delegate, below)
+// already needs: a Dock/Finder-launched app inherits a minimal PATH that
+// doesn't include Homebrew's node.
+func runNodeScriptSync(_ script: String, args: [String], in dir: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", dir + "/" + script] + args
+    var env = ProcessInfo.processInfo.environment
+    let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+    process.environment = env
+    try? process.run()
+    process.waitUntilExit()
+}
+
+// Same, but genuinely fire-and-forget — for --login below, which needs
+// to keep running (and its real, visible browser window needs to keep
+// existing) for as long as the user takes to actually log in, completely
+// independent of anything else happening in this app. Same "started, not
+// finished" contract fullCheck() in 21-notifier-actions.js already uses
+// for a real collection pass.
+//
+// UNLIKE fullCheck()'s own fire-and-forget, this reports back whether it
+// crashed almost immediately — found the hard way testing this wizard: a
+// machine with neither Brave nor a real Chrome install makes login()'s
+// own chromium.launchPersistentContext() throw right away, and with no
+// feedback at all that silently looked exactly like nothing had
+// happened. checkAfter gives it a few seconds (a real login run keeps
+// the process alive far longer than that, waiting on the browser window
+// closing) before checking process.isRunning — long enough to catch a
+// launch failure, short enough not to meaningfully delay the normal case.
+func runNodeScriptDetached(_ script: String, args: [String], in dir: String,
+                            checkAfter: TimeInterval = 3, completion: @escaping (_ crashed: Bool) -> Void) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", dir + "/" + script] + args
+    var env = ProcessInfo.processInfo.environment
+    let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+    process.environment = env
+
+    // NOT process.isRunning, checked after the fact — found live testing
+    // this: a genuinely still-running login() (independently confirmed
+    // via `ps` — a real Brave window was open and working) got reported
+    // as crashed anyway. isRunning reads unreliably unless something
+    // actually registers to observe the real exit first; a
+    // terminationHandler does that, so this tracks the exit directly
+    // instead of trusting a poll. Both sides touch hasExited only on the
+    // main queue — terminationHandler itself runs on an arbitrary one.
+    var hasExited = false
+    process.terminationHandler = { _ in
+        DispatchQueue.main.async { hasExited = true }
+    }
+
+    do {
+        try process.run()
+    } catch {
+        DispatchQueue.main.async { completion(true) }
+        return
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + checkAfter) {
+        completion(hasExited)
+    }
+}
+
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
+
+    // Set true only by setUpNewProject() succeeding — gates
+    // continueNewProjectSetupIfNeeded() so an existing-folder launch
+    // (the ordinary case, every time after the very first) never sees
+    // the browser/settings/login prompts meant for a brand new setup.
+    var isNewProjectSetup = false
 
     // Whether the DISPLAY is currently asleep — not whether the whole
     // Mac is. Full system sleep freezes this process entirely,
@@ -378,9 +540,25 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // needs a running app with a real activation policy behind it,
         // which doesn't exist yet at the top of this file where
         // resolveProjectDir() itself runs.
-        if !hasValidProjectDir, let chosen = promptForProjectFolder() {
-            projectDir = chosen
-            hasValidProjectDir = true
+        if !hasValidProjectDir {
+            let welcome = NSAlert()
+            welcome.messageText = "Welcome to ClassDash"
+            welcome.informativeText = "ClassDash needs a project folder to work from — the " +
+                "folder that does the actual collecting and stores your data. If you don't " +
+                "have one yet, ClassDash can set one up for you, no Terminal needed."
+            welcome.addButton(withTitle: "Set Up New Project")
+            welcome.addButton(withTitle: "I Already Have a Project Folder")
+
+            if welcome.runModal() == .alertFirstButtonReturn {
+                if let chosen = setUpNewProject() {
+                    projectDir = chosen
+                    hasValidProjectDir = true
+                    isNewProjectSetup = true
+                }
+            } else if let chosen = promptForProjectFolder() {
+                projectDir = chosen
+                hasValidProjectDir = true
+            }
         }
 
         buildMainMenu()
@@ -470,6 +648,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
 
         setupAutoFreshCheck()
         setupUpdateCheck()
+        continueNewProjectSetupIfNeeded()
     }
 
     // MARK: - Menu bar
@@ -506,6 +685,17 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // discovered from the menu first.
         let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
+        // Both reachable any time, not just during the one-time new-
+        // project wizard — added after testing that wizard live turned
+        // up a real gap: skipping (or wanting to redo) either one left
+        // no way back in short of deleting the project folder and
+        // starting over. Same underlying functions the wizard itself
+        // calls (presentBrowserSetup()/attemptLogin() below), just
+        // reachable from here too.
+        let browserItem = appMenu.addItem(withTitle: "Choose Browser…", action: #selector(chooseBrowserFromMenu), keyEquivalent: "")
+        browserItem.target = self
+        let signInItem = appMenu.addItem(withTitle: "Sign In to Google Classroom…", action: #selector(signInFromMenu), keyEquivalent: "")
+        signInItem.target = self
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu()
@@ -935,6 +1125,281 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // one that just finished downloading via the API.
         maybeShowInstallPrompt()
         setupInstallPromptCheck()
+    }
+
+    // MARK: - New-project setup wizard (continued)
+    //
+    // setUpNewProject() (top of this file) only gets a project folder to
+    // exist and load — everything past that needs the real window/web
+    // view to already be up, which is why this runs from the END of
+    // applicationDidFinishLaunching instead of being part of that
+    // function directly. Guarded by isNewProjectSetup so this is a
+    // complete no-op on every ordinary launch after the first.
+    func continueNewProjectSetupIfNeeded() {
+        guard isNewProjectSetup else { return }
+        isNewProjectSetup = false // only ever runs once, right after creation
+        presentBrowserSetup { [weak self] in
+            self?.promptForSettingsThenLogin()
+        }
+    }
+
+    // The browser-choice step — the wizard's own, but also reachable any
+    // time afterward from the menu bar's "Choose Browser…" (see
+    // chooseBrowserFromMenu() below). Testing the wizard live turned up
+    // a real gap: skipping this (or wanting to redo it later) left no
+    // way back short of deleting the project folder and starting the
+    // whole wizard over. `completion` runs once a choice has actually
+    // been made or declined — the wizard chains into settings+login
+    // there; a menu-triggered run just does nothing further.
+    func presentBrowserSetup(completion: @escaping () -> Void) {
+        let browserAlert = NSAlert()
+        browserAlert.messageText = "Set Up a Browser for Collection"
+        browserAlert.informativeText = "ClassDash needs a real Chromium-based browser to " +
+            "log in and collect your assignments. Brave is recommended — more " +
+            "privacy-focused than Chrome, and this installs a separate, isolated copy just " +
+            "for ClassDash, never touching your everyday browser. About 150 MB, one time " +
+            "only — ClassDash will continue automatically once it's done."
+        browserAlert.addButton(withTitle: "Install Brave (Recommended)")
+        browserAlert.addButton(withTitle: "I Already Have Chrome")
+        browserAlert.addButton(withTitle: "Choose a Different Browser…")
+        browserAlert.addButton(withTitle: "Skip for Now")
+
+        switch browserAlert.runModal() {
+        case .alertFirstButtonReturn:
+            // --force: install Brave even though 20-browser.js would
+            // otherwise skip it if Chrome's already present (see its own
+            // hasSystemChrome() comment) — the whole point of defaulting
+            // to this button is Brave over Chrome, not "whichever's less
+            // work." Off the main thread so the ~150MB download doesn't
+            // freeze the app; completion only runs once this has
+            // actually finished.
+            let dir = projectDir
+            // Found live testing this: with nothing visible on screen
+            // during the (potentially real, ~150MB) download, there was
+            // no way to tell "still working" from "silently stuck" —
+            // this closes the exact same gap the update-check fix
+            // (v1.3.2) closed for a different silent step.
+            let busy = showBusyPanel("Installing Brave…")
+            DispatchQueue.global(qos: .userInitiated).async {
+                runNodeScriptSync("20-browser.js", args: ["--force"], in: dir)
+                DispatchQueue.main.async {
+                    busy.close()
+                    completion()
+                }
+            }
+        case .alertThirdButtonReturn:
+            chooseCustomBrowser(completion: completion)
+        default: // "I Already Have Chrome" or "Skip for Now" — nothing to do
+            completion()
+        }
+    }
+
+    // Manual browser selection — for anyone whose real browser is
+    // neither Brave nor Chrome. Written straight into settings.json's
+    // browserPath, the SAME field 05-playwright-draft.js's own BROWSER
+    // resolution already checks first (see its own comment there) — no
+    // new plumbing needed on the Node side, this only ever writes to an
+    // existing, already-read setting.
+    //
+    // THE WARNING BELOW IS NOT DECORATIVE. See 20-browser.js's own header
+    // comment: Arc silently ignored --user-data-dir once, ran ClassDash's
+    // automation against a REAL everyday profile instead of an isolated
+    // one, and the real cookies/extensions in that profile didn't survive
+    // the next normal launch — no backup, no way back. Detected by name
+    // here specifically because it already happened for real, not as a
+    // hypothetical.
+    func chooseCustomBrowser(completion: @escaping () -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a Browser"
+        panel.message = "Pick the browser app ClassDash should use to log in and collect " +
+            "your assignments."
+        panel.prompt = "Choose"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        if #available(macOS 11.0, *) {
+            panel.allowedContentTypes = [.application]
+        }
+
+        guard panel.runModal() == .OK, let chosenApp = panel.url else {
+            completion()
+            return
+        }
+
+        let bundle = Bundle(path: chosenApp.path)
+        let displayName = (bundle?.infoDictionary?["CFBundleName"] as? String) ??
+            chosenApp.deletingPathExtension().lastPathComponent
+        // company.thebrowser.Browser is Arc's real bundle identifier —
+        // checked alongside the display name so this still catches it
+        // even if a future Arc version changes either one on its own.
+        let bundleID = (bundle?.bundleIdentifier ?? "").lowercased()
+        let isKnownUnsafe = bundleID.contains("thebrowser") || displayName.lowercased() == "arc"
+
+        let warning = NSAlert()
+        if isKnownUnsafe {
+            warning.messageText = "⚠️ \(displayName) Is Not Safe to Use Here"
+            warning.informativeText = "\(displayName) does not respect the isolated " +
+                "profile folder ClassDash asks for. This already happened for real once: " +
+                "it silently used the REAL, everyday \(displayName) profile instead of a " +
+                "separate one, and once ClassDash's automation touched it, the real " +
+                "cookies and extensions in that profile did not survive the next normal " +
+                "launch — no backup, no way to undo it. This is not a \"probably fine\" " +
+                "warning. Use Chrome or Brave instead."
+            warning.alertStyle = .critical
+            warning.addButton(withTitle: "Choose a Different Browser Instead")
+            warning.addButton(withTitle: "Use \(displayName) Anyway (Not Recommended)")
+        } else {
+            warning.messageText = "Use \(displayName)?"
+            warning.informativeText = "Only choose a browser you know respects an " +
+                "isolated profile folder (a \"--user-data-dir\" launch flag) — Chrome and " +
+                "Brave are confirmed safe. If \(displayName) doesn't, it could use your " +
+                "REAL everyday profile instead of a separate one, with no way to undo any " +
+                "damage that causes. If you're not sure, use Chrome or Brave instead."
+            warning.alertStyle = .warning
+            warning.addButton(withTitle: "Use \(displayName)")
+            warning.addButton(withTitle: "Cancel")
+        }
+
+        let response = warning.runModal()
+        let confirmed = isKnownUnsafe
+            ? response == .alertSecondButtonReturn  // "Use anyway" is the 2nd button there
+            : response == .alertFirstButtonReturn   // "Use X" is the 1st button there
+
+        guard confirmed, let executablePath = bundle?.executableURL?.path else {
+            chooseCustomBrowser(completion: completion) // declined/cancelled — try another
+            return
+        }
+
+        writeBrowserPathSetting(executablePath)
+        completion()
+    }
+
+    // Menu-bar entry points — same underlying functions the wizard uses,
+    // just reachable any time instead of gated behind isNewProjectSetup.
+    @objc func chooseBrowserFromMenu() {
+        presentBrowserSetup {
+            let done = NSAlert()
+            done.messageText = "Browser Updated"
+            done.informativeText = "Takes effect on the next check — right away if you " +
+                "start one now (the reload button, or Check Now)."
+            done.runModal()
+        }
+    }
+
+    @objc func signInFromMenu() {
+        attemptLogin()
+    }
+
+    private func writeBrowserPathSetting(_ path: String) {
+        let settingsPath = projectDir + "/settings.json"
+        guard let data = FileManager.default.contents(atPath: settingsPath),
+              var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        obj["browserPath"] = path
+        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]) else { return }
+        try? out.write(to: URL(fileURLWithPath: settingsPath))
+    }
+
+    // A small floating "still working" indicator — not an NSAlert, since
+    // those need at least one button and this specifically has nothing
+    // for the user to click yet. Non-activating so it doesn't steal
+    // focus from whatever else the user's doing while a real download
+    // runs in the background. Caller closes it themselves once the
+    // actual work finishes; nothing here times out or auto-dismisses.
+    private func showBusyPanel(_ message: String) -> NSPanel {
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 70),
+                             styleMask: [.titled, .nonactivatingPanel, .utilityWindow],
+                             backing: .buffered, defer: false)
+        panel.title = ""
+        panel.isFloatingPanel = true
+        panel.center()
+
+        let spinner = NSProgressIndicator(frame: NSRect(x: 20, y: 25, width: 20, height: 20))
+        spinner.style = .spinning
+        spinner.startAnimation(nil)
+
+        let label = NSTextField(labelWithString: message)
+        label.frame = NSRect(x: 50, y: 25, width: 210, height: 20)
+
+        panel.contentView?.addSubview(spinner)
+        panel.contentView?.addSubview(label)
+        panel.makeKeyAndOrderFront(nil)
+        return panel
+    }
+
+    // Opens the real, already-built settings panel (same bridge and page
+    // every ordinary launch uses — no new settings UI needed for the
+    // wizard) so the user fills in their email/Canvas domain, then offers
+    // to start the interactive login. Login itself is unavoidably manual
+    // — the user has to actually type their password somewhere real, not
+    // something this wizard could or should do for them.
+    private func promptForSettingsThenLogin() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        web.evaluateJavaScript("toggleSettingsPanel()", completionHandler: nil)
+
+        let loginAlert = NSAlert()
+        loginAlert.messageText = "Sign In to Google Classroom"
+        loginAlert.informativeText = "Fill in your settings above, then click Sign In — a " +
+            "real browser window will open for you to log in normally, the same as logging " +
+            "into any site. Come back here once you're done."
+        loginAlert.addButton(withTitle: "Sign In")
+        loginAlert.addButton(withTitle: "I'll Do This Later")
+        guard loginAlert.runModal() == .alertFirstButtonReturn else { return }
+
+        attemptLogin()
+    }
+
+    // Split out from promptForSettingsThenLogin() so a failed attempt can
+    // retry itself directly — see its own alert below. Waits a few
+    // seconds before saying anything at all: see runNodeScriptDetached's
+    // own comment on why, and the real crash (no compatible browser
+    // installed at all) this was written against.
+    private func attemptLogin() {
+        // Found live testing this: without any warning, macOS's own
+        // Privacy & Security block (App Management/Automation, Files
+        // and Folders — see the README's own step 3) shows up as an
+        // unexplained system notification with no connection back to
+        // what ClassDash was doing. Saying so upfront, every attempt —
+        // cheap (one click) against genuinely confusing otherwise, and
+        // the permission can need re-granting after some rebuilds too
+        // (see build.sh's own comment on the stable local cert).
+        let headsUp = NSAlert()
+        headsUp.messageText = "One More Thing Before Signing In"
+        headsUp.informativeText = "The first time, macOS may show a notification saying " +
+            "ClassDash was blocked from accessing files or automating another app — " +
+            "that's expected, not an error. If it happens: System Settings → Privacy & " +
+            "Security → allow ClassDash under both App Management (or Automation) and " +
+            "Files and Folders, then try Sign In again."
+        headsUp.addButton(withTitle: "OK, Continue")
+        headsUp.runModal()
+
+        runNodeScriptDetached("05-playwright-draft.js", args: ["--login"], in: projectDir) { [weak self] crashed in
+            guard let self = self else { return }
+            if crashed {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't open a browser to sign in"
+                alert.informativeText = "Two common causes: no compatible browser is " +
+                    "installed (Install Google Chrome, or run \"npm run setup-browser\" for " +
+                    "a separate Brave install), or macOS just blocked the permission this " +
+                    "needs — check System Settings → Privacy & Security → App Management " +
+                    "and Files and Folders for ClassDash there. Then try again."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Try Again")
+                alert.addButton(withTitle: "Cancel")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    self.attemptLogin()
+                }
+                return
+            }
+            let doneAlert = NSAlert()
+            doneAlert.messageText = "Signing In"
+            doneAlert.informativeText = "A browser window should now be open. Log in with " +
+                "your school account, then come back and click Done."
+            doneAlert.addButton(withTitle: "Done")
+            doneAlert.runModal()
+            self.runAction("check", "") { _ in }
+        }
     }
 
     // A download that's already sitting there ready doesn't need
