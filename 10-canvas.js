@@ -31,7 +31,22 @@ const fs = require('fs');
 const path = require('path');
 
 // The school's Canvas address comes from settings: every school has its own.
-const SITE = require('./19-settings.js').read().canvas;
+//
+// NORMALIZED HERE, NOT LEFT RAW — confirmed live: someone typing just
+// "theirschool.instructure.com" (no scheme, the way you'd type it into
+// an actual browser's address bar, which quietly assumes https:// for
+// you) crashed page.goto() outright with "Cannot navigate to invalid
+// URL", since goto() needs a real absolute URL, not something a browser
+// UI would still resolve. It also broke the startsWith(SITE) checks
+// below more quietly, before that: page.url() always includes a scheme,
+// so a schemeless SITE could never match it, silently, without an error
+// at all. One fix at the source covers both.
+function normalizeCanvasSite(raw) {
+  const trimmed = (raw || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return trimmed;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+const SITE = normalizeCanvasSite(require('./19-settings.js').read().canvas);
 const { isClassStale } = require('./22-class-activity.js');
 
 // The last successfully read list of active courses. Written here, not

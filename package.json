@@ -18,6 +18,7 @@
     "build": "./build.sh"
   },
   "dependencies": {
-    "playwright": "^1.62.1"
+    "playwright": "^1.62.1",
+    "selfsigned": "4.0.1"
   }
 }

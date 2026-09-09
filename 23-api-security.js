@@ -27,7 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const selfsigned = require('selfsigned');
 
 const CERT_FILE = path.join(__dirname, 'api-cert.pem');
 const KEY_FILE = path.join(__dirname, 'api-key.pem');
@@ -36,14 +36,29 @@ const PID_FILE = path.join(__dirname, 'api-server.pid');
 
 /** Generates the self-signed cert + key on first run only — never
  *  regenerated after, since a client pins the fingerprint of whatever
- *  it first saw, and a silent replacement would just lock them out. */
+ *  it first saw, and a silent replacement would just lock them out.
+ *
+ *  USED TO SHELL OUT TO openssl, MATCHING THIS EXACT COMMAND:
+ *  `openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes
+ *  -subj /CN=classdash-local -keyout KEY_FILE -out CERT_FILE`. That's a
+ *  real dependency macOS happens to have around (Xcode Command Line
+ *  Tools) but Windows never ships at all — confirmed live: enabling the
+ *  home API there failed outright ("node exited with status 1") because
+ *  execFileSync('openssl', ...) couldn't find it. selfsigned (built on
+ *  node-forge, pure JS, no native compilation) generates the exact same
+ *  shape of cert without needing anything external — pinned to 4.x
+ *  specifically, not ^4 or later: 5.0 made generate() async-only, which
+ *  would ripple into making this whole file's caller chain
+ *  (startApiServer() → main()'s 'config' case → both call sites that
+ *  invoke main()) async too, for no benefit here. */
 function ensureCert() {
   if (fs.existsSync(CERT_FILE) && fs.existsSync(KEY_FILE)) return;
-  execFileSync('openssl', [
-    'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-days', '3650',
-    '-nodes', '-subj', '/CN=classdash-local',
-    '-keyout', KEY_FILE, '-out', CERT_FILE,
-  ], { stdio: 'ignore' });
+  const pems = selfsigned.generate(
+    [{ name: 'commonName', value: 'classdash-local' }],
+    { algorithm: 'sha256', days: 3650, keySize: 2048 }
+  );
+  fs.writeFileSync(KEY_FILE, pems.private);
+  fs.writeFileSync(CERT_FILE, pems.cert);
 }
 
 /** The fingerprint a client pins — same value openssl itself would

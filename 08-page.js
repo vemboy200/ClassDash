@@ -1335,6 +1335,17 @@ function writePage(data, outputPath) {
   }
   .update-banner, .setup-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .update-banner a, .setup-banner a { color: inherit; text-decoration: underline; }
+  /* A REAL, PRE-EXISTING BUG, CAUGHT DURING WINDOWS TESTING — every
+     other hideable element here (.post, section, .settings-panel,
+     .settings-section) already has its own [hidden] { display: none; }
+     counter-rule; this one never did. Without it, dismissUpdateBanner()
+     setting .hidden = true had zero visual effect: an ordinary author
+     rule like the plain "display: flex" above always beats the
+     browser's own [hidden] default, regardless of specificity — same
+     cascade tier, source order decides, and this rule came first. Not
+     Electron-specific; would misbehave identically on the Mac app too,
+     just apparently never actually clicked on there. */
+  .update-banner[hidden] { display: none; }
   .update-dismiss {
     background: none; border: none; color: inherit; opacity: .6;
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;

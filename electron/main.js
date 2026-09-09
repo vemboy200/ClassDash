@@ -427,6 +427,27 @@ function showBusyWindow(message) {
 // declined — the wizard chains into settings+login there; a
 // menu-triggered run just shows a confirmation instead.
 async function presentBrowserSetup(completion) {
+  // Reloads the page BEFORE running completion() — only for a path that
+  // actually wrote browserPath (a successful Brave install, or a
+  // confirmed custom-browser pick), never for Chrome/Skip/a failed
+  // install, which didn't change anything worth re-reading.
+  //
+  // Found live testing this, and it's a real bug, not a nice-to-have:
+  // 08-page.js's settingsPanel() renders browserPath's value into the
+  // Advanced section's input field ONCE, when the page loads — it has
+  // no idea this file just wrote a new value straight to settings.json
+  // underneath it. saveSettings() then sends EVERY visible field on
+  // every save, by design (see its own comment on why) — so the very
+  // next ordinary Settings save (adjusting email, say) would resend
+  // that field's still-stale, still-empty value and silently overwrite
+  // the browserPath this step just set. A reload here means the panel,
+  // whenever it's next opened, renders from the real current disk
+  // state instead.
+  const reloadThenComplete = () => {
+    if (win && !win.isDestroyed()) win.webContents.reload();
+    completion();
+  };
+
   const { response } = await dialog.showMessageBox({
     type: 'question',
     message: 'Set Up a Browser for Collection',
@@ -453,10 +474,12 @@ async function presentBrowserSetup(completion) {
         'Something went wrong installing Brave. Try "Choose Browser…" from the menu to ' +
         'install it again, use Chrome instead, or pick a different browser manually.'
       );
+      completion();
+      return;
     }
-    completion();
+    reloadThenComplete();
   } else if (response === 2) {
-    await chooseCustomBrowser(completion);
+    await chooseCustomBrowser(reloadThenComplete);
   } else {
     completion();
   }
