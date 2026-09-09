@@ -234,20 +234,57 @@ async function setUpNewProject() {
 
 // ── Bridge — the Electron side of 21-notifier-actions.js ──
 //
-// 17-api.js already calls main(action, arg) as a plain in-process
-// function instead of spawning 21-notifier-actions.js as a subprocess
-// (see its own header comment on why that's safe: nothing here calls
-// process.exit(), so nothing here would tear down a long-lived host
-// process early). This does the same thing 16-summary.swift's runAction()
-// does over a spawned `node 21-notifier-actions.js` — just without the
-// spawn, since this process already IS Node.
+// A REAL SPAWNED SUBPROCESS, deliberately NOT an in-process require()
+// call the way 17-api.js does it (see its own header comment on why
+// that's safe there — nothing it calls ever calls process.exit()).
+// That would be safe here too by the same reasoning, but 21-notifier-
+// actions.js's own redraw()/fullCheck()/quickCheck()/startApiServer()
+// all re-spawn further work via `process.execPath` — which, called
+// in-process from an Electron app, IS ClassDash.exe itself, not a
+// plain node binary. Found live testing this: settings genuinely saved
+// to disk correctly (applyBatch() runs before the broken part), but
+// the redraw() a save triggers afterward silently failed to actually
+// re-render the page, making a real save look like it hadn't happened
+// at all. Spawning this exactly like 16-summary.swift's own runAction()
+// does — with ELECTRON_RUN_AS_NODE set — means that same env var
+// propagates down to any further child process THIS spawns too,
+// fixing every one of those internal re-spawns at once without
+// touching 21-notifier-actions.js itself, which has no idea it's ever
+// running under Electron at all and shouldn't need to.
 function runAction(action, arg) {
-  try {
-    const notifierActions = require(path.join(projectDir, '21-notifier-actions.js'));
-    return notifierActions.main(action, arg || '');
-  } catch (e) {
-    return { ok: false, action, why: e.message };
-  }
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(process.execPath,
+        [path.join(projectDir, '21-notifier-actions.js'), action, arg || ''],
+        { cwd: projectDir, env: nodeEnv() });
+    } catch (e) {
+      resolve({ ok: false, action, why: e.message });
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('error', (e) => resolve({ ok: false, action, why: e.message }));
+    child.on('close', (code) => {
+      // 21-notifier-actions.js's own contract: one JSON object as the
+      // LAST line of stdout, always, success or failure — see its CLI
+      // entry point's own comment on why. Mirrors exactly how
+      // 16-summary.swift's runAction() reads its spawned child's output.
+      const lines = stdout.split('\n').filter(Boolean);
+      const lastLine = lines[lines.length - 1];
+      if (code !== 0 || !lastLine) {
+        resolve({ ok: false, action, why: stderr.trim() || `node exited with status ${code}` });
+        return;
+      }
+      try {
+        resolve(JSON.parse(lastLine));
+      } catch (e) {
+        resolve({ ok: false, action, why: 'could not parse result: ' + e.message });
+      }
+    });
+  });
 }
 
 // Mirrors deliver() in 16-summary.swift exactly: runs in the page's own
@@ -260,11 +297,11 @@ function deliverResult(requestId, result) {
   win.webContents.executeJavaScript(script).catch(() => {});
 }
 
-ipcMain.on('classdash-action', (_event, body) => {
+ipcMain.on('classdash-action', async (_event, body) => {
   if (!body || typeof body !== 'object') return;
   const { id, action, arg } = body;
   if (!id || !action) return;
-  const result = runAction(action, arg);
+  const result = await runAction(action, arg);
   deliverResult(id, result);
 });
 
@@ -435,17 +472,19 @@ async function presentBrowserSetup(completion) {
 // profile) comes from Playwright's own --user-data-dir flag, not from
 // the install being physically separate.
 //
-// LOWER CONFIDENCE THAN THE REST OF THIS FILE, AND ALREADY WRONG ONCE:
-// the first URL tried here (laptop-updates.brave.com/latest/winx64)
-// downloaded quickly and "succeeded" with no error, but braveExePath()
-// never existed afterward — that's the signature of Brave's small
-// *online* installer stub, which fetches the real ~150MB browser in a
-// SEPARATE background step this code never waits for, rather than the
-// full browser in one synchronous download. Switched to Brave's
-// standalone/offline installer instead, which is meant to bundle the
-// whole thing into one download — still not confirmed working, the
-// same "single most likely spot to need adjusting" as before.
-const BRAVE_INSTALLER_URL = 'https://referrals.brave.com/latest/BraveBrowserStandaloneSilentSetup.exe';
+// WRONG TWICE BEFORE THIS — both laptop-updates.brave.com and
+// referrals.brave.com were guesses (the first downloaded a small online
+// stub instead of the real browser; the second just didn't work at
+// all). This one instead comes from Brave's OWN real winget package
+// manifest (microsoft/winget-pkgs, Brave.Brave, checked directly via
+// `gh api`) — the actual InstallerUrl their x64/user-scope entry uses,
+// which needs no InstallerSwitches at all (already silent by design,
+// matching this file's own choice to run it with no arguments below).
+// /latest/download/ is GitHub's own stable "always the newest release"
+// redirect, confirmed live via curl to land on a real ~156MB asset —
+// not a hardcoded version number that would go stale.
+const BRAVE_INSTALLER_URL =
+  'https://github.com/brave/brave-browser/releases/latest/download/BraveBrowserStandaloneSilentSetup.exe';
 
 function braveExePath() {
   return path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware', 'Brave-Browser',
@@ -503,13 +542,11 @@ function installBraveWindows() {
     };
 
     function runInstaller() {
-      // No arguments — "Silent" is already what this specific installer
-      // variant (BraveBrowserStandaloneSilentSetup.exe) is FOR, per its
-      // own name, rather than a generic Brave installer needing /silent
-      // /install flags to behave that way (which is what the previous,
-      // wrong installer variant would have needed). Passing flags this
-      // one doesn't expect seemed like unnecessary extra risk on top of
-      // an already-uncertain guess, so this one's kept plain.
+      // No arguments — confirmed via the real winget manifest (see
+      // BRAVE_INSTALLER_URL's own comment): this exact installer's
+      // user-scope entry has no InstallerSwitches at all, unlike the
+      // machine-scope one (which needs /silent /install and admin
+      // elevation) — "Silent" is already what this specific exe is for.
       let child;
       try {
         child = spawn(installerPath, [], { stdio: 'ignore' });
@@ -552,7 +589,15 @@ async function chooseCustomBrowser(completion) {
     message: 'Pick the browser ClassDash should use to log in and collect your assignments.',
     properties: ['openFile'],
     filters: [{ name: 'Applications', extensions: ['exe'] }],
-    defaultPath: process.env.LOCALAPPDATA || undefined,
+    // %LOCALAPPDATA% was wrong here — confirmed live it left the picker
+    // starting somewhere unhelpful (Program Files (x86)), and Chrome
+    // and Arc aren't there. %ProgramFiles% (the real, 64-bit one — not
+    // the x86 copy) is where a per-machine Chrome install actually
+    // lives, confirmed against the user's own real machine. A per-user
+    // install (some Chrome/Arc setups use %LOCALAPPDATA%\Programs
+    // instead) still just means one extra click to navigate there —
+    // not the dead end the wrong default was.
+    defaultPath: process.env.ProgramFiles || undefined,
   });
   if (result.canceled || !result.filePaths[0]) {
     completion();
