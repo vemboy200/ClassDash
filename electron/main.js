@@ -1006,14 +1006,46 @@ function checkForUpdatesManually() {
 // nothing running as a normal user process can suppress or pre-answer
 // that prompt. The dialog just above this (Install & Relaunch) is
 // followed by a SECOND, OS-level one neither this file nor NSIS controls.
-function installReadyUpdate(installerPath) {
-  try {
-    spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore' }).unref();
-  } catch (e) {
-    dialog.showErrorBox('Install failed', `Couldn't launch the installer: ${e.message}`);
-    return;
-  }
-  app.quit();
+// CONFIRMED LIVE: a real user hit `spawn ...update-download.exe EACCES`
+// here, and it crashed the whole app — "A JavaScript error occurred in
+// the main process". The try/catch above only ever caught a SYNCHRONOUS
+// throw from spawn() itself (a bad path, missing binary); EACCES from
+// Windows actually arrives later, as an async 'error' event on the
+// returned ChildProcess. With nothing listening for it, an unhandled
+// 'error' event throws on its own — Electron's main process has no
+// surrounding try/catch for that, so it took the whole app down instead
+// of showing the same error dialog the synchronous case already had.
+//
+// The EACCES itself, separately: that user's project folder lived at
+// C:\Users\...\OneDrive\Documents\classdash — OneDrive is well known
+// for briefly locking a file it's about to sync right after it's
+// written, which races this function's own call right after the
+// download finishes (see downloadUpdate() in 26-update-check.js). A
+// few retries with a short, increasing wait clears that almost every
+// time; the user only ever sees an error dialog if it's still failing
+// after that.
+function installReadyUpdate(installerPath, attempt = 1) {
+  const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore' });
+
+  child.once('error', (e) => {
+    if (e.code === 'EACCES' && attempt < 5) {
+      setTimeout(() => installReadyUpdate(installerPath, attempt + 1), 750 * attempt);
+      return;
+    }
+    const oneDriveHint = /onedrive/i.test(installerPath)
+      ? '\n\nYour ClassDash folder is inside OneDrive, which can briefly lock a just-downloaded file while it syncs. Try Install & Relaunch again in a moment — if this keeps happening, moving the project folder outside OneDrive will fix it for good.'
+      : '';
+    dialog.showErrorBox('Install failed', `Couldn't launch the installer: ${e.message}${oneDriveHint}`);
+  });
+
+  // 'spawn' only fires once the OS has actually launched the process —
+  // the earlier code quit right after calling spawn() itself, which is
+  // exactly the race that let this crash happen unnoticed: nothing had
+  // confirmed the child was really running yet.
+  child.once('spawn', () => {
+    child.unref();
+    app.quit();
+  });
 }
 
 function setupUpdateCheck() {
