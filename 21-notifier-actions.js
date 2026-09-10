@@ -103,6 +103,26 @@ function quickCheck() {
   child.unref();
 }
 
+/** Opens the real, visible sign-in browser window — same script and
+ *  flag the "Sign In to Google Classroom…" menu item and `npm run
+ *  login` both already use. Detached and fire-and-forget like
+ *  fullCheck()/quickCheck() above, but for a different reason: this one
+ *  isn't waiting on a result that'll be ready in a minute, it's waiting
+ *  on a PERSON, who might take anywhere from ten seconds to however
+ *  long their school's SSO/MFA takes. There's nothing useful this
+ *  process could do with a result even if it waited for one.
+ *
+ *  Reachable from the page itself (see 08-page.js's sign-in banner,
+ *  shown when 25-check-status.js records Classroom's "cookies expired"
+ *  or Canvas's "stuck on sign-in") as well as from the native menu —
+ *  the same underlying flow either way, just two different triggers. */
+function signIn() {
+  const child = spawn(process.execPath,
+    [path.join(__dirname, '05-playwright-draft.js'), '--login'],
+    { detached: true, stdio: 'ignore', cwd: __dirname });
+  child.unref();
+}
+
 /** Starts 17-api.js as a detached background process, if it isn't
  *  already running — called when the settings-panel toggle turns
  *  apiEnabled on. Generates the cert/token FIRST, synchronously, in
@@ -300,6 +320,9 @@ function main(action, arg) {
     // 'check': this returns immediately, the pass runs detached.
     case 'reload':
       quickCheck();
+      return { ok: true, action };
+    case 'signIn':
+      signIn();
       return { ok: true, action };
     case 'rollApiToken':
       // No restart needed: 17-api.js's isAuthorized() reads the token

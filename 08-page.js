@@ -1130,6 +1130,28 @@ function writePage(data, outputPath) {
      </div>`
     : '';
 
+  // Not dismissable, same reasoning as setupBanner above: this only
+  // shows for a currently-true problem, not a one-time event, so it
+  // keeps nagging every reload until it's actually fixed. The two
+  // conditions checked here are the ones 05-playwright-draft.js/
+  // 10-canvas.js already tag with a specific, recognizable message when
+  // the failure really is "the browser session needs a person to sign
+  // back in" — not just any Classroom/Canvas problem (a timeout, a
+  // broken page) gets this banner, only ones confirmed to be that.
+  // A click opens the real, visible sign-in browser window directly —
+  // no more figuring out there's a terminal command, or that a headless
+  // scheduled check has no window a person could even sign into.
+  const liveStatus = checkStatus();
+  const signInNeeded =
+    (liveStatus.classroom.status === 'problem' && /cookies expired/.test(liveStatus.classroom.detail || '')) ||
+    (liveStatus.canvas.status === 'problem' && /stuck on sign-in/.test(liveStatus.canvas.detail || ''));
+  const signInBanner = signInNeeded
+    ? `  <div class="warn sign-in-banner">
+       <span>${escapeHtml(t('signInNeeded'))}</span>
+       <a href="#" id="sign-in-banner-link" onclick="triggerSignIn(this); return false;">${escapeHtml(t('signInNow'))}</a>
+     </div>`
+    : '';
+
   const html = `<!doctype html>
 <html lang="ru">
 <head>
@@ -1333,8 +1355,8 @@ function writePage(data, outputPath) {
     background: var(--warnbg); color: var(--warn); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px;
   }
-  .update-banner, .setup-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .update-banner a, .setup-banner a { color: inherit; text-decoration: underline; }
+  .update-banner, .setup-banner, .sign-in-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .update-banner a, .setup-banner a, .sign-in-banner a { color: inherit; text-decoration: underline; }
   /* A REAL, PRE-EXISTING BUG, CAUGHT DURING WINDOWS TESTING — every
      other hideable element here (.post, section, .settings-panel,
      .settings-section) already has its own [hidden] { display: none; }
@@ -1634,6 +1656,7 @@ ${checkStatusPanel()}
   </header>
 ${inProgress}
 ${setupBanner}
+${signInBanner}
 ${updateBanner}
 ${warning}
   <div class="columns">
@@ -1712,6 +1735,9 @@ const WORDS = ${JSON.stringify({
   showing: t('filterShowingCount'),
   checking: t('checking'),
   checkFailed: t('checkFailed'),
+  signInNow: t('signInNow'),
+  signInOpening: t('signInOpening'),
+  signInFailed: t('signInFailed'),
   saving: t('settingsSaving'),
   saveFailed: t('settingsSaveFailed'),
   saved: t('settingsSaved'),
@@ -2301,6 +2327,24 @@ function dismissUpdateBanner(btn) {
   dispatchAction('dismissUpdate', version);
   var banner = document.getElementById('update-banner');
   if (banner) banner.hidden = true;
+}
+
+// The banner itself isn't dismissable (see its own comment above, in
+// signInBanner) — it comes back on the next reload regardless, once a
+// real check confirms the problem is still there. This only gives
+// feedback on the click itself: a real sign-in browser window takes a
+// beat to open (a fresh Brave/Chrome launch isn't instant), and without
+// this the link would just sit there looking unresponsive in the
+// meantime. Reverts on failure so it's obvious the click didn't work,
+// rather than silently doing nothing.
+function triggerSignIn(link) {
+  var original = link.textContent;
+  link.textContent = WORDS.signInOpening;
+  dispatchAction('signIn', '', function (res) {
+    if (res && res.ok) return;
+    link.textContent = (res && res.why) || WORDS.signInFailed;
+    setTimeout(function () { link.textContent = original; }, 4000);
+  });
 }
 
 // Switches which settings section is visible. Sections that aren't

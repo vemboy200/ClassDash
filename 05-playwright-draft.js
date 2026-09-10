@@ -178,7 +178,7 @@ const QUIET_FILE = path.join(__dirname, 'не-срочно.txt');
 // Can be restored from the same place.
 const HIDDEN_FILE = path.join(__dirname, 'скрытые.txt');
 const { writePage, daysUntil } = require('./08-page.js');
-const { collectCanvas } = require('./10-canvas.js');
+const { collectCanvas, SITE: CANVAS_SITE } = require('./10-canvas.js');
 const { collectEdpuzzle } = require('./11-edpuzzle.js');
 const { collectFeed, setFeedEmail } = require('./12-feed.js');
 const { t, locale } = require('./18-language.js');
@@ -366,8 +366,30 @@ async function login() {
   const edpuzzlePage = await ctx.newPage();
   await edpuzzlePage.goto('https://edpuzzle.com/');
 
-  console.log('\nTwo tabs opened: sign into your school Google account in one,');
-  console.log('and into Edpuzzle in the other (skip the Edpuzzle tab if you');
+  // A third tab for Canvas — only when a real school address is
+  // actually configured. Unlike Classroom (always required to run at
+  // all) and Edpuzzle (always opened here regardless of its own
+  // enabled toggle, since it's a separate login from Google's), an
+  // unconfigured Canvas has no real URL to open at all — SITE would
+  // just be whatever normalizeCanvasSite() does with an empty string.
+  //
+  // Before this, a Canvas-only school with no Google Classroom had no
+  // discoverable way to ever sign into Canvas — it shares this same
+  // persistent profile/cookie jar (confirmed live: Playwright's
+  // launchPersistentContext() keeps state for the whole context, not
+  // per tab or per origin), so the only way in was a person figuring
+  // out on their own to navigate to Canvas manually inside this same
+  // window. This makes that the default, not a workaround someone has
+  // to be told about.
+  if (CANVAS_ENABLED) {
+    const canvasPage = await ctx.newPage();
+    await canvasPage.goto(CANVAS_SITE + '/');
+  }
+
+  console.log(`\n${CANVAS_ENABLED ? 'Three' : 'Two'} tabs opened: sign into your school Google account,`);
+  console.log(CANVAS_ENABLED
+    ? 'your school Canvas, and Edpuzzle (skip the Edpuzzle tab if you'
+    : 'and into Edpuzzle in the other (skip the Edpuzzle tab if you');
   console.log('don\'t use it — nothing reads it unless you run --full).');
   console.log('Once you\'re signed in — close the window.\n');
 
