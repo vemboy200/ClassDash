@@ -195,6 +195,22 @@ const DEFAULTS = {
   // 05-playwright-draft.js) — since "I don't need Edpuzzle" means just
   // that, not "except when I click the button myself".
   edpuzzleEnabled: true,
+
+  // Diagnostics forwarding — purely a development aid, off by default
+  // (empty URL) and deliberately NOT exposed in the settings panel UI:
+  // nothing an ordinary user needs to see or toggle, just two raw
+  // settings.json fields a developer sets by hand (or `node
+  // 19-settings.js --set`, or a direct /api/settings call) when they
+  // want a specific install's own console output showing up on another
+  // computer's ClassDash in real time — see 27-diagnostics-forward.js
+  // and /api/diagnostics/logs in 17-api.js. diagnosticsForwardUrl is
+  // the OTHER computer's own Home API address (e.g.
+  // https://192.168.1.50:8734); diagnosticsForwardToken is THAT
+  // computer's bearer token, not this one's — a separate credential
+  // this install needs to authenticate itself as an outbound client,
+  // same as any other Home API caller would.
+  diagnosticsForwardUrl: '',
+  diagnosticsForwardToken: '',
 };
 
 const TYPES = {
@@ -208,6 +224,7 @@ const TYPES = {
   freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
+  diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
 };
 
 function read() {

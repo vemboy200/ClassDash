@@ -21,6 +21,7 @@ api-token.txt
 api-server.pid
 notification-log.json
 notifier-log.txt
+diagnostics-received.txt
 не-срочно.txt
 скрытые.txt
 уведомление.txt

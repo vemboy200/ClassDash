@@ -97,6 +97,7 @@ const STATE_FILE = path.join(__dirname, 'last-collection.json');
 const STREAM_FILE = path.join(__dirname, 'messages.json');
 const CERT_FILE = path.join(__dirname, 'api-cert.pem');
 const KEY_FILE = path.join(__dirname, 'api-key.pem');
+const DIAGNOSTICS_LOG_FILE = path.join(__dirname, 'diagnostics-received.txt');
 
 const DEFAULT_PORT = require('./19-settings.js').read().apiPort;
 
@@ -581,6 +582,41 @@ const WRITE_HANDLERS = {
   '/api/update-status/download': () => ({
     status: 200, body: notifierActions.main('downloadUpdate', ''),
   }),
+
+  // The receiving side of 27-diagnostics-forward.js — a development
+  // aid, not something an ordinary client ever calls. Gets NO special
+  // auth treatment of its own: it's an entry in WRITE_HANDLERS like any
+  // other, so it goes through the exact same isAuthorized() check as
+  // every other route above, before dispatch even reaches here. A
+  // remote install only reaches this at all once someone has
+  // deliberately pointed diagnosticsForwardUrl/diagnosticsForwardToken
+  // at this computer — never reachable by anything that doesn't already
+  // have this server's own bearer token.
+  //
+  // Appends rather than overwrites, and caps the file the same way
+  // 21-notifier-actions.js's own notifier-log.txt does — a log that
+  // grows forever is as much a liability as one that vanishes.
+  '/api/diagnostics/logs': (body) => {
+    if (!body || typeof body.line !== 'string') {
+      return {
+        status: 400,
+        body: { error: 'expected a JSON body: {"source": "...", "level": "...", "line": "..."}' },
+      };
+    }
+    const source = typeof body.source === 'string' && body.source ? body.source : 'unknown';
+    const level = typeof body.level === 'string' && body.level ? body.level : 'log';
+    const at = typeof body.at === 'string' && body.at ? body.at : new Date().toISOString();
+    try {
+      if (fs.existsSync(DIAGNOSTICS_LOG_FILE) &&
+          fs.statSync(DIAGNOSTICS_LOG_FILE).size > 2 * 1024 * 1024) {
+        fs.writeFileSync(DIAGNOSTICS_LOG_FILE, '');
+      }
+      fs.appendFileSync(DIAGNOSTICS_LOG_FILE, `${at}  [${source}] ${level}: ${body.line}\n`);
+    } catch (e) {
+      return { status: 500, body: { error: e.message } };
+    }
+    return { status: 200, body: { ok: true } };
+  },
 };
 
 /** Root: a list of handles, so no one has to dig through the source for addresses. */

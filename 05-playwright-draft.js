@@ -184,6 +184,15 @@ const { collectFeed, setFeedEmail } = require('./12-feed.js');
 const { t, locale } = require('./18-language.js');
 const SETTINGS = require('./19-settings.js').read();
 
+// Development aid, off unless explicitly configured — see
+// 27-diagnostics-forward.js's own header comment. Placed right after
+// SETTINGS itself since that's all it needs; a no-op the moment
+// diagnosticsForwardUrl is empty, which is the default. Every process
+// that loads this file gets it — both the interactive --login path
+// and the ordinary scheduled collection pass, since a real bug has
+// shown up in either one this same week.
+require('./27-diagnostics-forward.js').install();
+
 // This used to be channel: 'chrome' directly everywhere — only worked
 // with a system-installed Google Chrome, and on other Chromium forks
 // (confirmed with Arc) risked touching a person's real, everyday profile.

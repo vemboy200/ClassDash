@@ -80,6 +80,15 @@ function runNodeScriptSync(script, args, dir) {
 // single-threaded event loop, so — unlike the Swift version, which had
 // to explicitly redirect a cross-thread terminationHandler callback
 // onto the main queue — there's no equivalent race to guard against here.
+// stderr is now piped and captured, not ignored — found live testing a
+// real "no compatible browser" report: the dialog that crash detection
+// feeds into could only ever show a GUESS at why ("this usually means…"),
+// never the actual reason, because stdio: 'ignore' threw away whatever
+// Playwright itself printed on the way down. Playwright's own launch
+// failures are normally specific and diagnosable (e.g. "Executable
+// doesn't exist at ..." or a channel-resolution failure naming exactly
+// what it looked for) — worth keeping instead of discarding. stdout
+// stays ignored; login() has nothing on stdout worth surfacing here.
 function runNodeScriptDetached(script, args, dir, checkAfterMs, completion) {
   let child;
   try {
@@ -87,17 +96,19 @@ function runNodeScriptDetached(script, args, dir, checkAfterMs, completion) {
       cwd: dir,
       env: nodeEnv(),
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
-  } catch {
-    completion(true);
+  } catch (e) {
+    completion(true, e.message);
     return;
   }
   let hasExited = false;
+  let stderr = '';
+  child.stderr.on('data', (d) => { stderr += d; });
   child.on('exit', () => { hasExited = true; });
   child.on('error', () => { hasExited = true; });
   child.unref();
-  setTimeout(() => completion(hasExited), checkAfterMs);
+  setTimeout(() => completion(hasExited, stderr.trim()), checkAfterMs);
 }
 
 // ── Project folder resolution ──
@@ -498,6 +509,39 @@ async function presentBrowserSetup(completion) {
       return;
     }
     reloadThenComplete();
+  } else if (response === 1) {
+    // A REAL BUG, FOUND FROM A LIVE REPORT THAT LOOKED LIKE SOMETHING
+    // ELSE ENTIRELY: "I Already Have Chrome" used to fall straight into
+    // the same completion()-only branch as "Skip for Now" below — it
+    // never wrote anything to browserPath at all. That left BROWSER
+    // resolution in 05-playwright-draft.js falling through every single
+    // time to Playwright's own channel: 'chrome' auto-detection, with
+    // no way to tell whether that detection had actually succeeded
+    // until a login attempt crashed. The person hitting this described
+    // it as the browser choice "forgetting what's selected" — an
+    // understandable read of the symptom, but nothing was ever
+    // remembered here to forget; this button simply never saved
+    // anything, silently, every time.
+    //
+    // Now actually looks for Chrome at its real, well-known Windows
+    // install locations (the same kind of direct, verifiable check
+    // braveExePath() already does for Brave, rather than trusting an
+    // opaque auto-detection this project has no visibility into) and
+    // writes the real path straight into browserPath when found — the
+    // same deterministic, diagnosable path every other browser choice
+    // here already gets.
+    const found = chromeExePath();
+    if (found) {
+      writeBrowserPathSetting(found);
+      reloadThenComplete();
+    } else {
+      dialog.showErrorBox(
+        "Couldn't find Chrome",
+        "Chrome isn't in any of its usual install locations. Use \"Choose Browser…\" from " +
+        'the menu to point directly at chrome.exe, or install Brave instead.'
+      );
+      completion();
+    }
   } else if (response === 2) {
     await chooseCustomBrowser(reloadThenComplete);
   } else {
@@ -532,6 +576,24 @@ const BRAVE_INSTALLER_URL =
 function braveExePath() {
   return path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware', 'Brave-Browser',
     'Application', 'brave.exe');
+}
+
+// The three real, well-known places a Windows Chrome install actually
+// puts chrome.exe — checked directly and in this order (per-machine
+// 64-bit, per-machine 32-bit, per-user) rather than trusting
+// Playwright's own opaque channel: 'chrome' resolution, which this
+// project has no visibility into when it fails. Returns the first one
+// that actually exists on disk, or null if none do — same shape as
+// braveExePath() being a known, verifiable path, except Chrome (unlike
+// this project's own Brave install) could genuinely be in any of the
+// three depending on how it was installed.
+function chromeExePath() {
+  const candidates = [
+    path.join(process.env.ProgramFiles || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  ];
+  return candidates.find((p) => fs.existsSync(p)) || null;
 }
 
 function installBraveWindows() {
@@ -729,13 +791,27 @@ async function promptForSettingsThenLogin() {
 // to App Management/Automation here), so unlike 16-summary.swift's
 // attemptLogin() this goes straight to spawning the login script.
 function attemptLogin() {
-  runNodeScriptDetached('05-playwright-draft.js', ['--login'], projectDir, 3000, async (crashed) => {
+  runNodeScriptDetached('05-playwright-draft.js', ['--login'], projectDir, 3000, async (crashed, errorText) => {
     if (crashed) {
+      // Leads with Playwright's OWN error text when there is any —
+      // "no compatible browser is installed" was always a guess at the
+      // cause, and a real report showed it guessing wrong: the person
+      // had picked "I Already Have Chrome" (which writes nothing to
+      // browserPath at all — see presentBrowserSetup()'s response===1
+      // branch — it just leaves BROWSER resolution in
+      // 05-playwright-draft.js to fall through to Playwright's own
+      // channel: 'chrome' auto-detection every time), and it kept
+      // failing there in a way that looked exactly like "it forgot what
+      // I picked", because nothing was ever actually saved to forget.
+      const detail = errorText
+        ? `Here's exactly what happened:\n\n${errorText.slice(-800)}\n\nUse "Choose Browser…" ` +
+          'from the menu to install Brave or point directly at a browser\'s .exe, then try again.'
+        : 'This usually means no compatible browser is installed. Use "Choose ' +
+          'Browser…" from the menu to install Brave or pick one, then try again.';
       const { response } = await dialog.showMessageBox(win, {
         type: 'warning',
         message: "Couldn't open a browser to sign in",
-        detail: 'This usually means no compatible browser is installed. Use "Choose ' +
-          'Browser…" from the menu to install Brave or pick one, then try again.',
+        detail,
         buttons: ['Try Again', 'Cancel'],
         defaultId: 0,
       });
