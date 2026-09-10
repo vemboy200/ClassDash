@@ -373,8 +373,14 @@ func runNodeScriptSync(_ script: String, args: [String], in dir: String) {
 // the process alive far longer than that, waiting on the browser window
 // closing) before checking process.isRunning — long enough to catch a
 // launch failure, short enough not to meaningfully delay the normal case.
+// onExit (optional) fires exactly once, the moment the process actually
+// terminates — whenever that turns out to be, not just at the fixed
+// checkAfter deadline. Added for attemptLogin()'s own Done button,
+// which needs to know the real moment --login's browser window has
+// actually closed, not just whether it survived the first few seconds.
 func runNodeScriptDetached(_ script: String, args: [String], in dir: String,
-                            checkAfter: TimeInterval = 3, completion: @escaping (_ crashed: Bool) -> Void) {
+                            checkAfter: TimeInterval = 3, completion: @escaping (_ crashed: Bool) -> Void,
+                            onExit: (() -> Void)? = nil) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = ["node", dir + "/" + script] + args
@@ -393,7 +399,12 @@ func runNodeScriptDetached(_ script: String, args: [String], in dir: String,
     // main queue — terminationHandler itself runs on an arbitrary one.
     var hasExited = false
     process.terminationHandler = { _ in
-        DispatchQueue.main.async { hasExited = true }
+        DispatchQueue.main.async {
+            if !hasExited {
+                hasExited = true
+                onExit?()
+            }
+        }
     }
 
     do {
@@ -1374,7 +1385,22 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         headsUp.addButton(withTitle: "OK, Continue")
         headsUp.runModal()
 
-        runNodeScriptDetached("05-playwright-draft.js", args: ["--login"], in: projectDir) { [weak self] crashed in
+        // FOUND LIVE, TWICE IN ONE EVENING: "Done" below used to just
+        // dismiss its own alert and kick off a background check — it
+        // never actually touched the running --login process or the
+        // browser window it opened. Someone who'd already finished
+        // signing in had no way to end the flow short of hunting down
+        // and manually closing a browser window they might not even
+        // remember seeing.
+        //
+        // The real fix lives in 05-playwright-draft.js's own login(),
+        // which polls for a plain file flag and calls ctx.close() itself
+        // — not a process signal sent from here. This side's job is
+        // just to write that flag and then actually wait (via onExit,
+        // the real moment it happens) for the process to exit, instead
+        // of assuming Done means done.
+        var hasFinished = false
+        runNodeScriptDetached("05-playwright-draft.js", args: ["--login"], in: projectDir, completion: { [weak self] crashed in
             guard let self = self else { return }
             if crashed {
                 let alert = NSAlert()
@@ -1395,11 +1421,34 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             let doneAlert = NSAlert()
             doneAlert.messageText = "Signing In"
             doneAlert.informativeText = "A browser window should now be open. Log in with " +
-                "your school account, then come back and click Done."
+                "your school account, then click Done — this closes the browser and " +
+                "finishes signing in."
             doneAlert.addButton(withTitle: "Done")
             doneAlert.runModal()
-            self.runAction("check", "") { _ in }
-        }
+
+            // Already closed on its own (a person closing the window
+            // manually still works exactly like before) — nothing left
+            // to wait for.
+            if hasFinished {
+                self.runAction("check", "") { _ in }
+                return
+            }
+
+            let flagPath = projectDir + "/login-finish-request.txt"
+            try? "".write(toFile: flagPath, atomically: true, encoding: .utf8)
+
+            let busy = self.showBusyPanel("Finishing sign-in…")
+            let deadline = Date().addingTimeInterval(8)
+            func poll() {
+                if hasFinished || Date() >= deadline {
+                    busy.close()
+                    self.runAction("check", "") { _ in }
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: poll)
+            }
+            poll()
+        }, onExit: { hasFinished = true })
     }
 
     // A download that's already sitting there ready doesn't need

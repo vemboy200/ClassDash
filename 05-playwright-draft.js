@@ -400,10 +400,40 @@ async function login() {
     ? 'your school Canvas, and Edpuzzle (skip the Edpuzzle tab if you'
     : 'and into Edpuzzle in the other (skip the Edpuzzle tab if you');
   console.log('don\'t use it — nothing reads it unless you run --full).');
-  console.log('Once you\'re signed in — close the window.\n');
+  console.log('Once you\'re signed in — close the window, or click Done in ClassDash.\n');
 
-  // Wait for the person to finish. Just keep the process alive.
+  // Lets the wrapper app (16-summary.swift/electron/main.js) actually
+  // finish this flow instead of only ever being able to watch it run.
+  //
+  // FOUND LIVE, TWICE IN ONE EVENING: both wrappers' "Done" button used
+  // to just dismiss its own dialog and kick off a background check,
+  // never touching this process or the browser it opened at all — so
+  // someone who'd already finished signing in had no way to actually
+  // END the flow short of hunting down and manually closing a browser
+  // window they might not even remember seeing. This file is the one
+  // place that can close it correctly (ctx.close(), the same thing a
+  // manual window-close triggers), so it's the one place this belongs.
+  //
+  // A plain file flag, not a process signal: SIGTERM/SIGKILL sent to
+  // THIS process from the wrapper would, on Windows, just force-kill it
+  // outright — Windows has no real POSIX signal delivery, so a handler
+  // registered here would never actually run, and the real browser
+  // window would be orphaned instead of closed. Polling a file works
+  // identically on both platforms and needs nothing OS-specific, the
+  // same reasoning already behind every other cross-process signal in
+  // this project (не-срочно.txt, скрытые.txt, check-status.json, …).
+  const finishFlag = path.join(__dirname, 'login-finish-request.txt');
+  try { fs.unlinkSync(finishFlag); } catch { /* nothing stale to clear */ }
+  const finishPoll = setInterval(() => {
+    if (!fs.existsSync(finishFlag)) return;
+    try { fs.unlinkSync(finishFlag); } catch { /* fine either way */ }
+    ctx.close().catch(() => {});
+  }, 500);
+
+  // Wait for the person to finish — either by closing the window
+  // themselves, or by the poll above closing it on the wrapper's behalf.
   await new Promise(resolve => ctx.on('close', resolve));
+  clearInterval(finishPoll);
   console.log('Profile saved to', PROFILE_DIR);
 }
 

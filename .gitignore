@@ -22,6 +22,7 @@ api-server.pid
 notification-log.json
 notifier-log.txt
 diagnostics-received.txt
+login-finish-request.txt
 не-срочно.txt
 скрытые.txt
 уведомление.txt

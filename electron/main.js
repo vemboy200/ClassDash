@@ -89,7 +89,12 @@ function runNodeScriptSync(script, args, dir) {
 // doesn't exist at ..." or a channel-resolution failure naming exactly
 // what it looked for) — worth keeping instead of discarding. stdout
 // stays ignored; login() has nothing on stdout worth surfacing here.
-function runNodeScriptDetached(script, args, dir, checkAfterMs, completion) {
+// onExit (optional) fires exactly once, the moment the process actually
+// terminates — whenever that turns out to be, not just at the fixed
+// checkAfterMs deadline. Added for attemptLogin()'s own Done button,
+// which needs to know the real moment --login's browser window has
+// actually closed, not just whether it survived the first few seconds.
+function runNodeScriptDetached(script, args, dir, checkAfterMs, completion, onExit) {
   let child;
   try {
     child = spawn(process.execPath, [path.join(dir, script), ...args], {
@@ -105,8 +110,13 @@ function runNodeScriptDetached(script, args, dir, checkAfterMs, completion) {
   let hasExited = false;
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += d; });
-  child.on('exit', () => { hasExited = true; });
-  child.on('error', () => { hasExited = true; });
+  const markExited = () => {
+    if (hasExited) return;
+    hasExited = true;
+    if (onExit) onExit();
+  };
+  child.on('exit', markExited);
+  child.on('error', markExited);
   child.unref();
   setTimeout(() => completion(hasExited, stderr.trim()), checkAfterMs);
 }
@@ -790,7 +800,24 @@ async function promptForSettingsThenLogin() {
 // warn about first on Windows (there's no Privacy & Security equivalent
 // to App Management/Automation here), so unlike 16-summary.swift's
 // attemptLogin() this goes straight to spawning the login script.
+// FOUND LIVE, TWICE IN ONE EVENING: "Done" below used to just dismiss
+// its own dialog and kick off a background check — it never actually
+// touched the running --login process or the browser window it opened.
+// Someone who'd already finished signing in had no way to end the flow
+// short of hunting down and manually closing a browser window they
+// might not even remember seeing.
+//
+// The actual fix lives in 05-playwright-draft.js's own login(), which
+// polls for a plain file flag and calls ctx.close() itself — not a
+// process signal sent from here: SIGTERM/SIGKILL on Windows just force-
+// kills the target process outright (no real POSIX signal delivery),
+// so a handler over there would never get the chance to run, and the
+// real browser window would be orphaned instead of closed. This side's
+// job is just to write that flag and then actually wait for the
+// process to exit — via onExit, the real moment it happens, not a
+// fixed guess at how long that should take.
 function attemptLogin() {
+  let hasFinished = false;
   runNodeScriptDetached('05-playwright-draft.js', ['--login'], projectDir, 3000, async (crashed, errorText) => {
     if (crashed) {
       // Leads with Playwright's OWN error text when there is any —
@@ -821,11 +848,37 @@ function attemptLogin() {
     await dialog.showMessageBox(win, {
       message: 'Signing In',
       detail: 'A browser window should now be open. Log in with your school account, ' +
-        'then come back and click Done.',
+        'then click Done — this closes the browser and finishes signing in.',
       buttons: ['Done'],
     });
+
+    // Already closed on its own (a person closing the window manually
+    // still works exactly like before) — nothing left to wait for.
+    if (hasFinished) {
+      runAction('check', '');
+      return;
+    }
+
+    try {
+      fs.writeFileSync(path.join(projectDir, 'login-finish-request.txt'), '');
+    } catch {
+      // Can't ask it to close itself — fall through to the wait below
+      // anyway; the person can still close the window by hand.
+    }
+
+    const busy = showBusyWindow('Finishing sign-in…');
+    await new Promise((resolve) => {
+      const deadline = Date.now() + 8000;
+      const poll = () => {
+        if (hasFinished || Date.now() > deadline) { resolve(); return; }
+        setTimeout(poll, 300);
+      };
+      poll();
+    });
+    busy.close();
+
     runAction('check', '');
-  });
+  }, () => { hasFinished = true; });
 }
 
 // Menu-bar entry points — same underlying functions the wizard uses,
