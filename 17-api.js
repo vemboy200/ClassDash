@@ -648,12 +648,30 @@ function snapshot() {
 
 // ── Push, for /api/stream ──
 //
-// Watches the two files a collection pass actually rewrites, rather than
-// the collector telling this process anything directly — there's no
-// coupling between the two beyond files, same as everywhere else in this
+// Watches the files that can actually change what a client sees, rather
+// than something telling this process directly — there's no coupling
+// between the two beyond files, same as everywhere else in this
 // project, and it means the API doesn't care whether the collector is
 // running right now, was launched five minutes ago, or isn't running at
 // all yet.
+//
+// virtual-assignments.json belongs in this list for the exact same
+// reason the other two do: it's real data /api/virtual (and therefore
+// snapshot()) reads straight off. Missing until a real Home Assistant
+// integration report traced it: marking a virtual reminder done,
+// editing one, or hiding one FROM CLASSDASH'S OWN PAGE never pushed to
+// a connected client at all — only a real collection pass or an
+// integration reconnect happened to trigger a broadcast afterward, by
+// coincidence, not because anything watched this file.
+//
+// A change made THROUGH one of the API's own /api/virtual/* write
+// handles was never actually affected by this gap, but not because of
+// anything here — those handles' own HTTP response already carries the
+// fresh entry straight back (see WRITE_HANDLERS above, result.entry), so
+// a caller acting on its own response never needed the SSE push to
+// begin with. redraw() (called after every one of those writes) only
+// ever regenerates summary.html; it doesn't touch STATE_FILE/STREAM_FILE
+// either, so it was never what made that path work.
 //
 // fs.watch fires more than once for a single write on some platforms
 // (temp-file-then-rename is a common pattern that trips it), so this
@@ -694,11 +712,12 @@ function watchForChanges() {
     clearTimeout(timer);
     timer = setTimeout(broadcastIfChanged, 400);
   };
-  // Watching the files, not the directory: STATE_FILE/STREAM_FILE may not
-  // exist yet on a fresh install (no collection has run), and fs.watch
-  // throws immediately on a path that isn't there. Falls back to polling
-  // every 5s until the file shows up, then switches to the real watch.
-  for (const file of [STATE_FILE, STREAM_FILE]) {
+  // Watching the files, not the directory: none of these are guaranteed
+  // to exist yet on a fresh install (no collection has run, no virtual
+  // reminder ever created), and fs.watch throws immediately on a path
+  // that isn't there. Falls back to polling every 5s until the file
+  // shows up, then switches to the real watch.
+  for (const file of [STATE_FILE, STREAM_FILE, virtualAssignments.FILE]) {
     const tryWatch = () => {
       if (!fs.existsSync(file)) { setTimeout(tryWatch, 5000); return; }
       try {
