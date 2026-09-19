@@ -1741,11 +1741,25 @@ function writePage(data, outputPath) {
     width: 22px !important; transition: none;
     animation: checkScan 1.2s steps(12) infinite alternate;
   }
-  @keyframes checkScan { from { margin-left: 0; } to { margin-left: calc(100% - 22px); } }
+  /* The icon turns round with the block. Going right it leads from the
+     block's right end, dashes trailing behind; going left it's mirrored and
+     leads from the left end. Its own 2.4s cycle is the block's out-and-back
+     (1.2s each way), started at the same moment, flipping at each turn.
+     The block starts 26px in, the icon's reach past its end, so the
+     left-facing icon at the far left still fits inside the bar. */
+  .check-progress.indeterminate .check-progress-runner {
+    animation: dashCycle .6s steps(1) infinite, runnerFace 2.4s steps(1) infinite;
+  }
+  @keyframes checkScan { from { margin-left: 26px; } to { margin-left: calc(100% - 22px); } }
+  @keyframes runnerFace {
+    0% { left: 100%; margin-left: -6px; transform: scaleX(1); }
+    50% { left: 0; margin-left: -26px; transform: scaleX(-1); }
+  }
   @media (prefers-reduced-motion: reduce) {
     .loading-icon { animation: none; }
     .check-progress-fill { transition: none; }
-    .check-progress.indeterminate .check-progress-fill { animation: none; }
+    .check-progress.indeterminate .check-progress-fill,
+    .check-progress.indeterminate .check-progress-runner { animation: none; }
   }
   /* The gear grows to say "Saving…" and then "Saved." — closing the panel
      is what saves, and this is where the eye already is. The glyph keeps
