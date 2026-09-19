@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /**
  * Builds electron/build/icon.ico — the Windows app icon — from the 32x32
- * pixel-art icon (../../icon-source.png).
+ * pixel-art icon next to this script (icon-source.png).
+ *
+ * That's the ROUNDED version of the icon: the same art as the repo root's
+ * icon-source.png (which the macOS icon is made from), with the four corners
+ * cut in a 3-2-1 pixel step and left transparent, the way a Windows icon is
+ * expected to look.
  *
  *     node electron/build/make-icon.js
  *
@@ -43,7 +48,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
-const SOURCE = path.join(__dirname, '..', '..', 'icon-source.png');
+const SOURCE = path.join(__dirname, 'icon-source.png');
 const OUTPUT = path.join(__dirname, 'icon.ico');
 const SIZES = [16, 24, 32, 48, 64, 128, 256];
 
@@ -124,7 +129,10 @@ function nearest(src, n) {
 }
 
 /** Each output pixel is the average of the source pixels it covers. Right
- *  for flat areas; used only on the art with its dashes taken out. */
+ *  for flat areas; used only on the art with its dashes taken out. Colours
+ *  are weighted by alpha, so a transparent pixel (whose colour is meaningless)
+ *  contributes nothing to its neighbours' colour, only to how see-through the
+ *  result is. */
 function boxDown(src, n) {
   const out = blank(n), f = src.w / n;
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
@@ -133,19 +141,49 @@ function boxDown(src, n) {
       const y0 = Math.floor(yy + 1e-9), ye = Math.min(y0 + 1, (y + 1) * f), wy = ye - yy;
       for (let xx = x * f; xx < (x + 1) * f - 1e-9;) {
         const x0 = Math.floor(xx + 1e-9), xe = Math.min(x0 + 1, (x + 1) * f), wgt = wy * (xe - xx), c = getPx(src, x0, y0);
-        for (let k = 0; k < 4; k++) sum[k] += c[k] * wgt; wsum += wgt; xx = xe;
+        const al = c[3] / 255;
+        sum[0] += c[0] * al * wgt; sum[1] += c[1] * al * wgt; sum[2] += c[2] * al * wgt; sum[3] += c[3] * wgt; wsum += wgt; xx = xe;
       }
       yy = ye;
     }
-    setPx(out, x, y, sum.map(v => Math.round(v / wsum)));
+    // sum[0..2] are colours already multiplied by alpha, so dividing by the
+    // total alpha weight (sum[3] / 255) gives back the true average colour.
+    const cover = sum[3] / 255;
+    setPx(out, x, y, cover > 0
+      ? [Math.round(sum[0] / cover), Math.round(sum[1] / cover), Math.round(sum[2] / cover), Math.round(sum[3] / wsum)]
+      : [0, 0, 0, 0]);
   }
   return out;
+}
+
+/** The most common fully-opaque colour — the icon's background. (Not read from
+ *  a fixed pixel: the corners are transparent.) */
+function dominantColour(src) {
+  const counts = new Map();
+  for (let i = 0; i < src.px.length; i += 4) {
+    if (src.px[i + 3] !== 255) continue;
+    const k = src.px[i] + ',' + src.px[i + 1] + ',' + src.px[i + 2];
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return [...best.split(',').map(Number), 255];
+}
+
+/** Snaps every pixel to fully clear or fully solid. Shrinking blends the
+ *  rounded corners' edge pixels into half-see-through ones; pixel art wants
+ *  the corner to stay a clean step. */
+function hardenAlpha(img) {
+  for (let i = 3; i < img.px.length; i += 4) {
+    if (img.px[i] >= 128) img.px[i] = 255;
+    else { img.px[i - 3] = img.px[i - 2] = img.px[i - 1] = img.px[i] = 0; }
+  }
+  return img;
 }
 
 /** The art with its speed-dashes painted over in the background colour: the
  *  white pixels left of the tile (column 12 and below). */
 function withoutDashes(src) {
-  const out = { w: src.w, h: src.h, px: Buffer.from(src.px) }, bg = getPx(src, 0, 0);
+  const out = { w: src.w, h: src.h, px: Buffer.from(src.px) }, bg = dominantColour(src);
   for (let y = 0; y < src.h; y++) for (let x = 0; x <= 12; x++) {
     const c = getPx(src, x, y);
     if (c[0] === 255 && c[1] === 255 && c[2] === 255 && c[3] > 0) setPx(out, x, y, bg);
@@ -162,7 +200,7 @@ function drawDashes(img, spec) {
 function generate(src, n) {
   if (n === 256 || n === 128 || n === 64 || n === 32) return nearest(src, n);
   if (n === 48) return nearest(src, 48);
-  const img = boxDown(withoutDashes(src), n);
+  const img = hardenAlpha(boxDown(withoutDashes(src), n));
   drawDashes(img, DASHES[n]);
   return img;
 }
@@ -196,7 +234,7 @@ function imagesFor(src) {
   });
 }
 
-module.exports = { decodePng, encodePng, nearest, boxDown, withoutDashes, drawDashes, generate, imagesFor, buildIco, DASHES, SIZES, SOURCE, OUTPUT };
+module.exports = { decodePng, encodePng, nearest, boxDown, hardenAlpha, dominantColour, withoutDashes, drawDashes, generate, imagesFor, buildIco, DASHES, SIZES, SOURCE, OUTPUT };
 
 if (require.main === module) {
   const src = decodePng(fs.readFileSync(SOURCE));
