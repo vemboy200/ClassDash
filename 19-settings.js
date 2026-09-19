@@ -221,6 +221,15 @@ const DEFAULTS = {
   // Not shown in the settings panel — the toggles themselves are the UI.
   filterShowHidden: false,
   filterShowRemoved: false,
+
+  // Which class / type / due-range boxes in the filter panel are UNCHECKED.
+  // The unchecked ones, not the checked ones, on purpose: the options on
+  // offer change with the data (a new class appears, a range empties), and
+  // "everything is on unless you turned it off" is the only shape that
+  // still means the right thing when they do — a class that shows up next
+  // week starts checked, instead of silently missing from a saved list of
+  // what was checked. See the filterState kind in validate() below.
+  filterUnchecked: { cls: [], type: [], days: [] },
 };
 
 const TYPES = {
@@ -236,6 +245,7 @@ const TYPES = {
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
+  filterUnchecked: 'filterState',
 };
 
 function read() {
@@ -263,6 +273,30 @@ function validate(key, raw) {
   if (!(key in DEFAULTS)) return { ok: false, why: `no such setting: ${key}` };
   const kind = TYPES[key];
 
+  if (kind === 'filterState') {
+    // {cls: [...], type: [...], days: [...]} — each a list of the values
+    // left unchecked. Anything else is refused rather than trimmed: this
+    // arrives from the page, and the caps keep a broken or hostile one
+    // from making settings.json enormous. A string is parsed first so
+    // `--set filterUnchecked '{"cls":[]}'` works from the command line.
+    let obj = raw;
+    if (typeof raw === 'string') {
+      try { obj = JSON.parse(raw); } catch { return { ok: false, why: 'needs to be JSON like {"cls":[],"type":[],"days":[]}' }; }
+    }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+      return { ok: false, why: 'needs to be an object of lists' };
+    }
+    const out = { cls: [], type: [], days: [] };
+    for (const group of Object.keys(out)) {
+      const list = obj[group] === undefined ? [] : obj[group];
+      if (!Array.isArray(list) || list.length > 500 ||
+          list.some(v => typeof v !== 'string' || v.length > 300)) {
+        return { ok: false, why: group + ' needs to be a list of up to 500 short strings' };
+      }
+      out[group] = list;
+    }
+    return { ok: true, value: out };
+  }
   if (kind === 'staleMonths') {
     // A whole number of months, 1–12 — matching the settings panel's
     // own slider exactly, so nothing outside what the UI can even

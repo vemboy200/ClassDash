@@ -872,9 +872,16 @@ function filtersPanel(allItems, announcements, now, rawItems) {
   // The mechanism stays the same: an empty group means "everything
   // matches". So "all checked" and "none checked" give the same result —
   // the first one just looks more honest.
+  //
+  // REMEMBERED ACROSS REFRESHES: the boxes the user unchecked last time
+  // start unchecked (settings.filterUnchecked); everything else — including
+  // an option that's new since — starts checked, as before.
+  const savedOff = readSettings().filterUnchecked || {};
+  const isOff = (group, value) => (savedOff[group] || []).includes(value);
   const checkRow = (group, value, label, count) =>
     `        <label class="check-row"><input type="checkbox" data-group="${group}"` +
-    ` value="${escapeHtml(value)}" onchange="applyFilters()" checked>` +
+    ` value="${escapeHtml(value)}" onchange="rememberFilters(); applyFilters()"` +
+    `${isOff(group, value) ? '' : ' checked'}>` +
     `<span class="label-text">${escapeHtml(label)}</span>` +
     `<span class="count-badge">${count}</span></label>`;
 
@@ -969,9 +976,9 @@ ${content.join('\n')}
   // A separate checkbox: not a value filter, but "show what's been removed".
   parts.push(`    <div class="filter-group">
       <div class="group-name">${escapeHtml(t('filterHidden'))}</div>
-        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden"${filterSettings.filterShowHidden ? ' checked' : ''} onchange="rememberFilterToggles(); applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden"${filterSettings.filterShowHidden ? ' checked' : ''} onchange="rememberFilters(); applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowHiddenMuted'))}</span></label>
-        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed"${filterSettings.filterShowRemoved ? ' checked' : ''} onchange="rememberFilterToggles(); applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed"${filterSettings.filterShowRemoved ? ' checked' : ''} onchange="rememberFilters(); applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowRemoved'))}</span></label>
       <button onclick="resetFilters()">${escapeHtml(t('filterResetAll'))}</button>
       <div class="result" id="f-result"></div>
@@ -2867,19 +2874,61 @@ function saveSettings() {
   setTimeout(function () { location.reload(); }, 30000);
 }
 
-// Remembers the two view toggles across refreshes — through the same
-// config bridge the settings panel uses, so it lands in settings.json and
-// the next page (the app reloads it whenever it comes back to the front)
-// starts with them where they were left. Fire-and-forget: the toggle has
+// Remembers the filter panel across refreshes — the two view toggles and
+// which class/type/due boxes are unchecked — through the same config
+// bridge the settings panel uses, so it lands in settings.json and the
+// next page (the app reloads it whenever it comes back to the front)
+// starts with them where they were left. Fire-and-forget: the filter has
 // already taken effect on screen, and a save that fails just means it
 // resets on the next refresh, as it always did.
-function rememberFilterToggles() {
-  var hidden = document.getElementById('f-hidden');
-  var removed = document.getElementById('f-removed');
-  dispatchAction('config', toBase64Url(JSON.stringify({
-    filterShowHidden: !!(hidden && hidden.checked),
-    filterShowRemoved: !!(removed && removed.checked),
-  })));
+//
+// The unchecked lists as this page was built, so a save can keep choices
+// about options this page doesn't happen to list right now.
+var savedFilterState = ${JSON.stringify(readSettings().filterUnchecked || {}).split('<').join('\\u003c')};
+var rememberTimer = null;
+
+// What's unchecked now, per group. Options that aren't on this page at the
+// moment (a class with nothing due this week isn't listed) keep whatever
+// was saved for them: unchecking a class, then having it drop off the
+// panel for a week, shouldn't quietly turn it back on.
+function collectUnchecked() {
+  var groups = ['cls', 'type', 'days'];
+  var out = {};
+  for (var g = 0; g < groups.length; g++) {
+    var fields = document.querySelectorAll('.filters input[data-group="' + groups[g] + '"]');
+    var offered = {};
+    var off = [];
+    for (var i = 0; i < fields.length; i++) {
+      offered[fields[i].value] = true;
+      if (!fields[i].checked) off.push(fields[i].value);
+    }
+    var kept = savedFilterState[groups[g]] || [];
+    for (var k = 0; k < kept.length; k++) {
+      if (!offered[kept[k]] && off.indexOf(kept[k]) === -1) off.push(kept[k]);
+    }
+    out[groups[g]] = off;
+  }
+  return out;
+}
+
+// clearAll: "reset all" forgets everything, including choices about
+// options this page isn't listing.
+//
+// Debounced: ticking several boxes in a row is one save, not one per
+// click — every save regenerates the page file.
+function rememberFilters(clearAll) {
+  clearTimeout(rememberTimer);
+  rememberTimer = setTimeout(function () {
+    var hidden = document.getElementById('f-hidden');
+    var removed = document.getElementById('f-removed');
+    var unchecked = clearAll === true ? { cls: [], type: [], days: [] } : collectUnchecked();
+    savedFilterState = unchecked;
+    dispatchAction('config', toBase64Url(JSON.stringify({
+      filterShowHidden: !!(hidden && hidden.checked),
+      filterShowRemoved: !!(removed && removed.checked),
+      filterUnchecked: unchecked,
+    })));
+  }, 500);
 }
 
 function resetFilters() {
@@ -2894,7 +2943,7 @@ function resetFilters() {
   var removedField = document.getElementById('f-removed');
   if (removedField) removedField.checked = false;
 
-  rememberFilterToggles();
+  rememberFilters(true);
   applyFilters();
 }
 
