@@ -1708,7 +1708,6 @@ function writePage(data, outputPath) {
     width: 16px; height: 16px; border-radius: 50%; background: #fff;
     transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,.3);
   }
-  input[type="checkbox"].toggle:checked { background: var(--new); }
   input[type="checkbox"].toggle:checked::before { transform: translateX(14px); }
   /* Email and Canvas address start masked like a password field — a
      screen share or a screenshot for a bug report shouldn't leak either
@@ -1854,16 +1853,24 @@ function writePage(data, outputPath) {
     cursor: pointer; flex: 0 0 auto;
   }
 
-  /* Toggle switch: stepped track, square knob, snaps instead of sliding. */
+  /* Toggle switch: stepped track, square knob. The knob hops across in
+     five 4px steps in 0.05s — 20px of travel, a multiple of the 2px cell, so it
+     lands on the pixel grid every frame — instead of gliding. The
+     track's colour can't animate (it's a sprite swap), so it changes
+     the instant the knob starts moving. */
   input[type="checkbox"].toggle {
     width: 40px; height: 22px; border: 2px solid var(--ink); transition: none;
   }
   input[type="checkbox"].toggle::before {
     top: 3px; left: 2px; width: 12px; height: 12px; border-radius: 0;
-    background: var(--ink); box-shadow: none; transition: none;
+    background: var(--ink); box-shadow: none;
+    transition: transform 0.05s steps(5);
   }
   input[type="checkbox"].toggle:checked::before {
     transform: translateX(20px); background: var(--card);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    input[type="checkbox"].toggle::before { transition: none; }
   }
 
   /* Selected settings section reads like a highlighted DOS menu row. */
