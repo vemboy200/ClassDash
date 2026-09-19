@@ -368,11 +368,75 @@ function validate(key, raw) {
   return { ok: true, value: String(raw).trim() };
 }
 
+// ── What the last collection actually used ──
+//
+// Two settings only take effect when the next collection runs: which
+// classes are skipped (exclusions) and where Canvas lives (canvas). Saving
+// them changes settings.json at once, but nothing on the page — the
+// collection is what purges an excluded class's data or starts reading a
+// new Canvas. So the page needs to know when the file and the data have
+// drifted apart, to offer a fresh check instead of leaving the person
+// wondering why the class is still there.
+//
+// The collection records what it READ at the start (not what the file says
+// by the time it finishes), and "pending" is just the difference. A
+// difference, not a flag set on save, so putting a setting back the way it
+// was makes the notice go away by itself, and a setting changed while a
+// collection is mid-run correctly stays pending.
+const APPLIED_FILE = path.join(__dirname, 'fetch-applied.json');
+const FETCH_AFFECTING = ['exclusions', 'canvas'];
+
+// Compared as values: the order exclusions were ticked in doesn't matter,
+// nor does stray whitespace around an address.
+const normalizeForCompare = (key, v) =>
+  key === 'exclusions' ? [...(v || [])].sort() : String(v || '').trim();
+
+function readApplied() {
+  try {
+    const own = JSON.parse(fs.readFileSync(APPLIED_FILE, 'utf8'));
+    const out = {};
+    for (const key of FETCH_AFFECTING) out[key] = own[key] !== undefined ? own[key] : DEFAULTS[key];
+    return out;
+  } catch { return null; }
+}
+
+/** Called by the collection once it has really read with these values. */
+function markApplied(values) {
+  const out = {};
+  for (const key of FETCH_AFFECTING) out[key] = values[key];
+  fs.writeFileSync(APPLIED_FILE, JSON.stringify(out, null, 2));
+}
+
+// A project that has never recorded a collection has nothing to compare
+// against, and a page that treated "no record" as "everything pending"
+// would nag every existing install the day it updates. So the record is
+// started from the file as it is BEFORE the first change — which is what
+// the last collection used, as far as anyone can tell.
+function seedApplied(current) {
+  if (fs.existsSync(APPLIED_FILE)) return;
+  try { markApplied(current); } catch { /* not fatal: no notice, same as before this existed */ }
+}
+
+/** The fetch-affecting settings as the collected data reflects them. */
+function appliedFetchSettings(settings = read()) {
+  return readApplied() || settings;
+}
+
+/** Which of them differ from what the last collection used. */
+function pendingFetchKeys(settings = read()) {
+  const applied = readApplied();
+  if (!applied) return [];
+  return FETCH_AFFECTING.filter(key =>
+    JSON.stringify(normalizeForCompare(key, settings[key])) !==
+    JSON.stringify(normalizeForCompare(key, applied[key])));
+}
+
 function write(key, raw) {
   const v = validate(key, raw);
   if (!v.ok) return v;
 
   const current = read();
+  seedApplied(current);
   current[key] = v.value;
   fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
   return { ok: true, value: v.value };
@@ -432,6 +496,7 @@ function applyBatch(chunk) {
   const changed = [];
   const rejected = [];
   const current = read();
+  seedApplied(current);
 
   for (const [key, value] of Object.entries(parsed)) {
     const v = validate(key, value);
@@ -456,6 +521,7 @@ function applyBatch(chunk) {
 }
 
 module.exports = { read, write, validate, writeExample, applyBatch,
+                   markApplied, appliedFetchSettings, pendingFetchKeys,
                    DEFAULTS, TYPES, FILE };
 
 if (require.main === module) {

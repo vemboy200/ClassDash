@@ -2002,6 +2002,25 @@ if (require.main !== module) return;
   console.log(`Total collected: ${all.length} · new: ${fresh.length} · ` +
               `undated: ${undated.length} · past: ${past}`);
 
+  // RECORD WHAT THIS PASS ACTUALLY READ WITH, BEFORE THE PAGE IS WRITTEN.
+  //
+  // Exclusions and the Canvas address only take effect through a
+  // collection, and the page compares them against this record to decide
+  // whether to show "some settings need a fresh check" (see
+  // pendingFetchKeys in 19-settings.js). It has to land before the page
+  // below, or the page this very pass writes would still carry the
+  // notice it just cleared. SETTINGS is what was read when this process
+  // started, not whatever the file says by now, so a setting changed
+  // mid-pass correctly stays pending. Not when the cookies expired: that
+  // pass reached nothing, so nothing was applied.
+  if (!COOKIES_EXPIRED) {
+    try {
+      require('./19-settings.js').markApplied({ exclusions: EXCLUSIONS, canvas: SETTINGS.canvas });
+    } catch (e) {
+      console.warn('failed to record the applied settings:', e.message);
+    }
+  }
+
   // The page is written on EVERY run, even when there won't be a popup:
   // it needs to be fresh at any moment someone clicks it.
   writePage({

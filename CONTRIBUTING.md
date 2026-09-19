@@ -370,11 +370,11 @@ icon on the summary page) — this table exists for anyone editing
 | key | meaning |
 |---|---|
 | `email` | your school email — goes into assignment links as `?authuser=` |
-| `canvas` | your school's Canvas address; leave empty to skip Canvas |
+| `canvas` | your school's Canvas address; leave empty to skip Canvas. Like `exclusions`, saving a change doesn't apply it: it takes effect on the next collection (see below the table) |
 | `account` | Google multi-login index inside the browser profile; usually `0` |
 | `language` | `ru` or `en` |
 | `summaryHours` | hours for the full daily reminder, e.g. `[8, 18]` |
-| `exclusions` | class names to skip — applies to both Classroom and Edpuzzle |
+| `exclusions` | class names to skip — applies to both Classroom and Edpuzzle. Takes effect on the next collection, not when saved |
 | `edpuzzleEnabled` | `true` (default) — `false` skips Edpuzzle entirely, overriding both of its normal triggers (digest hours and a manual Fresh check alike): no tab opened, no visible browser window. Meant for a school where teachers already re-post every Edpuzzle assignment through Google Classroom, making the separate fetch redundant |
 | `treatUndatedAsUrgent` | `true` (default) treats an assignment with no due date as due tomorrow; `false` treats it like a material instead — shown once, never due soon |
 | `skipStaleClasses` | `true` (default) — a class with no assignment or announcement in `staleMonths` gets treated as done and stops being checked, on Classroom and Canvas as well as Edpuzzle. Edpuzzle has a real `updatedAt` per class to check directly; Classroom and Canvas don't, so staleness there is judged from this project's own memory of what it's ever seen for that class instead (see `22-class-activity.js`) |
@@ -388,6 +388,8 @@ icon on the summary page) — this table exists for anyone editing
 | `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms — Advanced |
 | `passLimitMs` | a pass longer than this is treated as hung and killed, ms — Advanced |
 | `browserPath` | advanced override for which browser binary to automate; leave empty — Advanced |
+
+**How the settings panel saves.** There's no Save button: closing the panel (its Done button, the gear, or the app's Settings… menu item) saves, and only if something actually changed. Most settings just redraw the page. `exclusions` and `canvas` are different — they change what gets *fetched*, so they only take effect when the next collection runs (a manual check, an automatic one, or the "Check now" button on the notice the page shows meanwhile). Until then nothing on the page changes. `fetch-applied.json` records the values the last collection actually read with, and the page compares the file against it, so putting a setting back the way it was makes the notice go away by itself. Home API toggles are the other kind of side effect (they start, stop or rebind the server) but are instantly reversible, so they apply on save.
 
 ---
 
@@ -552,7 +554,10 @@ integration, a script, a phone shortcut).
   — body `{"id": "..."}`, the same id `/api/due-soon` etc. hand out.
   `/api/settings` — body is any subset of the settings table below (a
   partial update, not a full snapshot); `apiEnabled` and `apiNetwork` are
-  refused with a 400 specifically (see below). `/api/reload` and
+  refused with a 400 specifically (see below). Saving never starts a
+  collection: `exclusions` and `canvas` only take effect on the next one,
+  and the response's `pending` lists which saved values are still waiting
+  for it. `/api/reload` and
   `/api/check` take no body — `reload` is the quick pass (Classroom +
   Canvas, ~17s), `check` is the full one (~1 min, Edpuzzle included).
   Both only START the pass and answer right away; `/api/status`'s

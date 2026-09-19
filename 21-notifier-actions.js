@@ -92,10 +92,10 @@ function fullCheck() {
 }
 
 /** Same idea as fullCheck(), but the quick pass (Classroom + Canvas,
- *  no Edpuzzle window, ~17 seconds) — enough to make a saved setting
- *  actually apply. A saved exclusion only changes what gets fetched on
- *  the NEXT collection; a redraw just re-renders what's already there,
- *  which is why saving used to look like it did nothing at all. */
+ *  no Edpuzzle window, ~17 seconds) — enough to make a saved exclusion
+ *  or Canvas address actually apply. Those only change what gets fetched
+ *  on the NEXT collection; a redraw just re-renders what's already there.
+ *  The page's "some settings need a fresh check" notice starts this. */
 function quickCheck() {
   const child = spawn(process.execPath,
     [path.join(__dirname, '05-playwright-draft.js')],
@@ -232,7 +232,7 @@ function main(action, arg) {
       logAction(`  applied: ${result.accepted.join(', ')}` +
         (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
 
-      // NOT EVERY SAVED SETTING NEEDS A REAL FETCH TO TAKE EFFECT.
+      // SAVING NEVER STARTS A COLLECTION ITSELF.
       //
       // Most of what's on the settings panel only changes how ALREADY-
       // COLLECTED data gets displayed — treatUndatedAsUrgent is a
@@ -243,18 +243,17 @@ function main(action, arg) {
       // it needs a browser launched — which is also the ONLY reason
       // saving settings needs the App Management permission at all.
       //
-      // Only two settings actually change what gets FETCHED: exclusions
-      // (a class has to stop being read, and its old data purged — see
-      // the diffWithPrevious comment on EXCLUDED CLASSES for why that
+      // Two settings do change what gets FETCHED: exclusions (a class has
+      // to stop being read, and its old data purged — see the
+      // diffWithPrevious comment on EXCLUDED CLASSES for why that
       // specifically needs a real pass) and canvas (a different data
-      // source entirely). Only those two get the slow path.
-      // result.changed, NOT result.accepted: the page sends every field
-      // on every save, whether the user touched it or not, so
-      // "exclusions was accepted" is true on essentially every save —
-      // changed is specifically "this value is actually different from
-      // what settings.json already had" (see applyBatch's own comment).
-      const NEEDS_REAL_FETCH = ['exclusions', 'canvas'];
-      const needsFetch = result.changed.some(key => NEEDS_REAL_FETCH.includes(key));
+      // source entirely). They used to start a quick collection right
+      // here, which meant closing the settings panel could launch a
+      // browser and purge a class's data on an accidental click. Now they
+      // just wait: the page shows a "some settings need a fresh check"
+      // notice (see pendingFetchKeys in 19-settings.js) and the next
+      // collection — that button, a manual check, or an automatic one —
+      // picks them up, since it reads settings.json when it starts.
 
       // apiEnabled/apiNetwork start, stop, or rebind a whole separate
       // background process — orthogonal to needsFetch above (neither
@@ -280,16 +279,17 @@ function main(action, arg) {
         }
       }
 
-      if (needsFetch) {
-        quickCheck();
-        logAction('  quick collection started (fetch-affecting setting changed)');
-      } else {
-        redraw();
-        logAction('  redrawn only (no fetch-affecting setting changed)');
-      }
+      redraw();
+      const pending = require('./19-settings.js').pendingFetchKeys();
+      logAction(pending.length
+        ? `  redrawn; waiting for a fresh check to apply: ${pending.join(', ')}`
+        : '  redrawn');
+      // mode stays for pages generated before this changed, which read it
+      // to decide how long to wait before reloading; 'redraw' is the short
+      // wait, and it's now always the right one.
       return {
         ok: true, action, accepted: result.accepted, rejected: result.rejected,
-        mode: needsFetch ? 'quick' : 'redraw',
+        pending, mode: 'redraw',
       };
     }
     case 'quiet':
@@ -312,12 +312,11 @@ function main(action, arg) {
       fullCheck();
       return { ok: true, action };
     // The quick pass (Classroom + Canvas, ~17s, no Edpuzzle window) —
-    // 'config' above already starts one internally when a fetch-
-    // affecting setting changes, but wasn't reachable as its own
-    // action. Added for the home API's /api/reload, which needs the
-    // same "lighter than a full check" option 'check' already gives it
-    // for a real full one. Same "started, not finished" contract as
-    // 'check': this returns immediately, the pass runs detached.
+    // what the page's "some settings need a fresh check" notice starts,
+    // and what the home API's /api/reload uses: the same "lighter than a
+    // full check" option 'check' already gives it for a real full one.
+    // Same "started, not finished" contract as 'check': this returns
+    // immediately, the pass runs detached.
     case 'reload':
       quickCheck();
       return { ok: true, action };

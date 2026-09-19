@@ -69,7 +69,10 @@ function record(platform, ok, detail = null) {
 function checkStatus() {
   const settings = require('./19-settings.js').read();
   const raw = readRaw();
-  const canvasConfigured = !!(settings.canvas || '').trim();
+  // The address the last collection actually used, not what's just been
+  // typed: until a check has run with a new one, the recorded status
+  // still describes the old one.
+  const canvasConfigured = !!(require('./19-settings.js').appliedFetchSettings(settings).canvas || '').trim();
   return {
     classroom: raw.classroom || UNKNOWN,
     canvas: canvasConfigured ? (raw.canvas || UNKNOWN) : UNKNOWN,

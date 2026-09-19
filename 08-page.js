@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const { t, locale } = require('./18-language.js');
-const { read: readSettings } = require('./19-settings.js');
+const { read: readSettings, appliedFetchSettings, pendingFetchKeys } = require('./19-settings.js');
 const path = require('path');
 // The API's token/fingerprint aren't settings — nothing here writes
 // them, 23-api-security.js is the only writer — just values this page
@@ -339,7 +339,10 @@ function remindersSection(now) {
   // class means "stop reading and showing this one", so suggesting it
   // here would offer something that isn't actually shown anywhere else
   // on the page right now.
-  const excludedClasses = new Set(settings.exclusions);
+  // appliedFetchSettings, not the file: a class excluded a moment ago is
+  // still in the data until the next collection purges it, and this list
+  // should change at that moment along with everything else.
+  const excludedClasses = new Set(appliedFetchSettings(settings).exclusions);
   const classOptions = allKnownClasses()
     .filter(name => !excludedClasses.has(name))
     .map(name => `<option value="${escapeHtml(name)}">`).join('');
@@ -812,8 +815,7 @@ ${sectionBlocks}
       </div>
       </div>
       <div class="settings-actions">
-        <button onclick="saveSettings()">${escapeHtml(t('settingsSave'))}</button>
-        <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsClose'))}</button>
+        <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsDone'))}</button>
         <span class="result" id="settings-result"></span>
       </div>
   </div>`;
@@ -911,7 +913,7 @@ ${content.join('\n')}
   const filterSettings = readSettings();
   if (filterSettings.showEmptyClasses) {
     const present = new Set(classCounts.map(([name]) => name));
-    const excluded = new Set(filterSettings.exclusions);
+    const excluded = new Set(appliedFetchSettings(filterSettings).exclusions);
 
     // HIDEINACTIVECLASSES IS A NARROWER CUT OF THE SAME LIST.
     //
@@ -1190,7 +1192,7 @@ function pixelCornerCss() {
   .item.overdue-item { ${src('large', 'hot', 'card')} }
   a.item:hover, .post:hover { ${src('large', 'new', 'card')} }
   ${BUTTONS} { ${src('medium', 'ink', 'card')} }
-  ${each(BUTTONS, ':hover')}, .reload.spinning { ${src('medium', 'new', 'card')} }
+  ${each(BUTTONS, ':hover')}, .reload.spinning, .reload.expanded { ${src('medium', 'new', 'card')} }
   ${FIELDS} { ${src('medium', 'ink', 'bg')} }
   ${PILLS} { ${src('pill', 'ink', 'line')} }
   .badge { ${src('pill', 'ink', 'new')} }
@@ -1373,6 +1375,21 @@ function writePage(data, outputPath) {
     ? `  <div class="warn sign-in-banner">
        <span>${escapeHtml(t('signInNeeded'))}</span>
        <a href="#" id="sign-in-banner-link" onclick="triggerSignIn(this); return false;">${escapeHtml(t('signInNow'))}</a>
+     </div>`
+    : '';
+
+  // Saved settings that only a collection can apply (which classes are
+  // read, the Canvas address) sit in settings.json until the next check
+  // runs — see pendingFetchKeys in 19-settings.js. Nothing on the page
+  // has changed yet, so this says so, and offers to start the check now
+  // instead of leaving it to the next automatic or manual one. Not
+  // dismissable, same as the banners above: it's true until a collection
+  // has actually read the new values, and puts the setting back the way
+  // it was and it goes away by itself.
+  const pendingBanner = pendingFetchKeys(setupSettings).length
+    ? `  <div class="warn pending-banner" id="pending-banner">
+       <span>${escapeHtml(t('pendingFetchText'))}</span>
+       <a href="#" id="pending-banner-link" onclick="startPendingCheck(this); return false;">${escapeHtml(t('pendingFetchNow'))}</a>
      </div>`
     : '';
 
@@ -1593,8 +1610,8 @@ function writePage(data, outputPath) {
     background: var(--warnbg); color: var(--warn); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px;
   }
-  .update-banner, .setup-banner, .sign-in-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .update-banner a, .setup-banner a, .sign-in-banner a { color: inherit; text-decoration: underline; }
+  .update-banner, .setup-banner, .sign-in-banner, .pending-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .update-banner a, .setup-banner a, .sign-in-banner a, .pending-banner a { color: inherit; text-decoration: underline; }
   /* A REAL, PRE-EXISTING BUG, CAUGHT DURING WINDOWS TESTING — every
      other hideable element here (.post, section, .settings-panel,
      .settings-section) already has its own [hidden] { display: none; }
@@ -1606,6 +1623,15 @@ function writePage(data, outputPath) {
      Electron-specific; would misbehave identically on the Mac app too,
      just apparently never actually clicked on there. */
   .update-banner[hidden] { display: none; }
+  /* The gear grows to say "Saving…" and then "Saved." — closing the panel
+     is what saves, and this is where the eye already is. The glyph keeps
+     its size; only the width changes, like Refresh and Fresh check. */
+  .reload.expanded {
+    width: auto; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px;
+    color: var(--new); border-color: var(--new);
+  }
+  .settings-status { font-size: 12px; font-family: inherit; }
+  .settings-status:empty { display: none; }
   .update-dismiss {
     background: none; border: none; color: inherit; opacity: .6;
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
@@ -1992,13 +2018,14 @@ function writePage(data, outputPath) {
          id="freshcheck-button"
          title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon freshcheck-icon"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
-         title="${escapeHtml(t('settingsTitle'))}">&#9881;</button>${checkStatusIndicator()}</div>
+         title="${escapeHtml(t('settingsTitle'))}">&#9881;<span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
 ${checkStatusPanel()}
   </header>
 ${inProgress}
 ${setupBanner}
 ${signInBanner}
+${pendingBanner}
 ${updateBanner}
 ${warning}
   <div class="columns">
@@ -2077,6 +2104,7 @@ const WORDS = ${JSON.stringify({
   showing: t('filterShowingCount'),
   checking: t('checking'),
   checkFailed: t('checkFailed'),
+  pendingChecking: t('pendingFetchStarting'),
   signInNow: t('signInNow'),
   signInOpening: t('signInOpening'),
   signInFailed: t('signInFailed'),
@@ -2562,7 +2590,6 @@ function updateCounts(showHidden, showRemoved) {
       var r = rows[j];
       if (!showRemoved && r.getAttribute('data-removed') === 'yes') continue;
       if (!showHidden && r.classList.contains('hidden-row')) continue;
-      if (optimisticExclusions.indexOf(r.getAttribute('data-cls')) !== -1) continue;
       // Done/hidden reminders aren't on screen until their own button is
       // clicked, and no checkbox here can bring them out — counting them
       // made a class read "1" while ticking it showed nothing.
@@ -2575,23 +2602,6 @@ function updateCounts(showHidden, showRemoved) {
     label.textContent = count;
   }
 }
-
-// Classes just excluded via Save, before a real collection has actually
-// caught up. saveSettings() sets this and re-runs the two filter
-// functions below, which is what makes excluding a class feel instant
-// instead of a 20-second wait: the data is already on the page, so
-// there's no real reason to wait for a fresh fetch just to stop
-// showing it.
-//
-// A SEPARATE VARIABLE, NOT JUST A ONE-OFF DOM HIDE, because a filter
-// checkbox click re-runs applyFilters()/filterAnnouncements() and would
-// otherwise un-hide anything this doesn't know to keep excluding. Both
-// functions AND this in with their own checks, so it survives being
-// re-run for any other reason. It only ever needs to live until the
-// next real reload, at which point the excluded class isn't in the
-// fetched data at all anymore and this array is moot (the reload wipes
-// all page state, this included).
-var optimisticExclusions = [];
 
 function applyFilters() {
   var cls = getSelectedValues('cls');
@@ -2610,7 +2620,6 @@ function applyFilters() {
     // A section made entirely of them hides itself — it'll have zero
     // visible cards.
     if (!showRemoved && r.getAttribute('data-removed') === 'yes') ok = false;
-    if (ok && optimisticExclusions.indexOf(r.getAttribute('data-cls')) !== -1) ok = false;
 
     // REMINDERS BEHIND A "SHOW DONE" / "SHOW HIDDEN" BUTTON SKIP THE
     // CHECKBOXES BELOW. Clicking that button IS the request to see them —
@@ -2619,8 +2628,7 @@ function applyFilters() {
     // nothing else on the page, "no due date" was the only one offered),
     // so it was tagged filtered-out at page load, while its wrapper was
     // still hidden. "Show done (1)" then un-hid an empty box — the click
-    // worked, the card stayed display:none !important. Excluded classes
-    // (above) still apply: that means "stop showing this class at all".
+    // worked, the card stayed display:none !important.
     var inReminderGroup = r.closest('#reminders-done, #reminders-hidden') !== null;
 
     // A reminder with no class ("Class (optional)" in the add form) has
@@ -2680,11 +2688,45 @@ function restoreUrgency(e, link) {
 // no "dollar-curly-brace" interpolations — they would break the outer
 // string.
 
+// Closing the panel IS saving it: there's no Save button. Only when
+// something actually changed since the page loaded, so opening it to look
+// and closing again does nothing at all — no request, no reload. The
+// settings that matter most to get right by accident (which classes are
+// read, the Canvas address) don't act on being saved either, they wait
+// for a fresh check; see pendingBanner and startPendingCheck below.
 function toggleSettingsPanel() {
   var panel = document.getElementById('settings-panel');
   if (!panel) return;
-  panel.hidden = !panel.hidden;
-  if (!panel.hidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (panel.hidden) {
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+  panel.hidden = true;
+  if (settingsDirty()) saveSettings();
+}
+
+// The "some settings need a fresh check" notice's button. Starts the same
+// quick pass the home API's reload does (Classroom and Canvas, no
+// Edpuzzle window). The pass runs detached and takes about 17 seconds, so
+// nothing can report back when it's done; the page reloads after a
+// margin, and the notice is gone from that reload if the pass finished
+// and read the new values. Reverts on failure so it's obvious the click
+// didn't go anywhere, same as triggerSignIn.
+function startPendingCheck(link) {
+  var original = link.textContent;
+  link.textContent = WORDS.pendingChecking;
+  var reloadSoon = function () { setTimeout(function () { location.reload(); }, 30000); };
+  if (!hasNativeBridge()) {
+    dispatchAction('reload', '');
+    reloadSoon();
+    return;
+  }
+  dispatchAction('reload', '', function (res) {
+    if (res && res.ok) { reloadSoon(); return; }
+    link.textContent = (res && res.why) || WORDS.checkFailed;
+    setTimeout(function () { link.textContent = original; }, 4000);
+  });
 }
 
 function toggleCheckStatusDetail() {
@@ -2774,11 +2816,11 @@ function updateStaleMonthsLabel(slider) {
 
 // Shows/hides the token+fingerprint block the instant the "enable home
 // API" checkbox is clicked — same "don't make the person wait for a
-// save round-trip just to see the UI react" idea as optimisticExclusions
-// elsewhere on this page. The actual server only starts or stops once
-// Save is clicked and the setting really changes; this is purely about
-// not showing a key section for an API that (as far as the page can
-// tell right now) isn't turned on.
+// save round-trip just to see the UI react" idea as the filter panel's
+// own instant checkboxes. The actual server only starts or stops once
+// the settings panel is closed and the setting really changed; this is
+// purely about not showing a key section for an API that (as far as the
+// page can tell right now) isn't turned on.
 function toggleApiKeySection(checkbox) {
   var row = document.querySelector('.api-key-row');
   if (row) row.hidden = !checkbox.checked;
@@ -2855,10 +2897,14 @@ function updateSelectionCount() {
   if (label) label.textContent = count;
 }
 
-function saveSettings() {
+// Everything on the settings panel, in the shape saveSettings() sends.
+// Its own function so "did anything change since the page loaded?" asks
+// exactly what a save would send, and can't drift from it.
+function collectSettings() {
   var panel = document.getElementById('settings-panel');
-  var fields = panel.querySelectorAll('[data-key]');
   var payload = {};
+  if (!panel) return payload;
+  var fields = panel.querySelectorAll('[data-key]');
   var lists = {};
   for (var i = 0; i < fields.length; i++) {
     var key = fields[i].getAttribute('data-key');
@@ -2881,74 +2927,111 @@ function saveSettings() {
   for (var b = 0; b < boolFields.length; b++) {
     payload[boolFields[b].getAttribute('data-bool-key')] = boolFields[b].checked;
   }
+  return payload;
+}
 
-  // INSTANT, using data already on the page — no reason to make an
-  // exclusion feel like it takes 20 seconds just because the real fetch
-  // that makes it permanent does. Same idea hide/quiet already use:
-  // update what's on screen right now, let the actual persistence catch
-  // up in the background afterward.
-  //
-  // This only ever COVERS what's visibly on the page already, not
-  // bucket placement (treatUndatedAsUrgent) or the class list's own
-  // 0-counts (showEmptyClasses) — those come from server-side logic in
-  // 05-playwright-draft.js that isn't duplicated here, and still only
-  // change once the background collection below actually runs.
-  if (payload.exclusions) {
-    optimisticExclusions = payload.exclusions;
-    applyFilters();
-    filterAnnouncements();
-  }
+// What the panel held when the page loaded, or when it was last saved.
+var settingsBaseline = JSON.stringify(collectSettings());
 
+function settingsDirty() {
+  return JSON.stringify(collectSettings()) !== settingsBaseline;
+}
+
+// Where save progress shows. The panel's own line while it's open; once
+// it's closed (closing is what saves) that line can't be seen, so the gear
+// button grows to say it instead. If the page is scrolled so the gear is
+// out of view, it's scrolled back in: a message nobody can see might as
+// well not exist, and the panel that was just closed sat right below it.
+var settingsStatusTimer = null;
+function announceSettings(text) {
   var result = document.getElementById('settings-result');
-  var encoded = toBase64Url(JSON.stringify(payload));
+  if (result) result.textContent = text;
+  var panel = document.getElementById('settings-panel');
+  var button = document.getElementById('settings-button');
+  var status = document.getElementById('settings-status');
+  if (!button || !status) return;
+  clearTimeout(settingsStatusTimer);
+  if (panel && !panel.hidden) {
+    status.textContent = '';
+    button.classList.remove('expanded');
+    return;
+  }
+  status.textContent = text;
+  button.classList.add('expanded');
+  var box = button.getBoundingClientRect();
+  if (box.top < 0 || box.bottom > window.innerHeight) {
+    button.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  settingsStatusTimer = setTimeout(function () {
+    status.textContent = '';
+    button.classList.remove('expanded');
+  }, 2500);
+}
 
-  // A saved exclusion still needs to reach settings.json and, to be
-  // PERMANENT (surviving a reload, actually stopping the class from
-  // being fetched at all), still needs the notifier's own quick
-  // collection to run — the optimistic update above only ever touched
-  // this one page's DOM. What changed is that nothing here asks the
-  // user to wait around for that anymore; the reload below is just a
-  // quiet background sync; the page already looks right before it fires.
+// Puts the panel back in front of the person, with the reason. Used when
+// a save that started as the panel closed didn't take: without this the
+// error would land in a panel that's no longer on screen and the person
+// would believe it worked.
+function reopenSettingsWith(message) {
+  var panel = document.getElementById('settings-panel');
+  if (panel) {
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  announceSettings(message);
+}
+
+function saveSettings() {
+  var sent = JSON.stringify(collectSettings());
+  var encoded = toBase64Url(sent);
+
+  // NOTHING ON THE PAGE CHANGES HERE, INCLUDING FOR EXCLUDED CLASSES. An
+  // exclusion used to hide the class from the page at once and start a
+  // collection to make it permanent. Now it's saved and waits: the
+  // "some settings need a fresh check" notice appears after the redraw
+  // below, and the class goes away when a check has actually run.
   //
   // WITH A BRIDGE, "Saved" only appears once dispatchAction's onResult
   // actually reports success — not on a blind assumption. That matters
-  // on its own, apart from the instant update above: this used to
-  // assume success unconditionally, and a rejected setting, or the
-  // notifier never being reached at all (which is exactly what happened
-  // for one whole evening — see 21-notifier-actions.js's own PATH
-  // comment), looked identical to a working save.
+  // on its own: this used to assume success unconditionally, and a
+  // rejected setting, or the notifier never being reached at all (which
+  // is exactly what happened for one whole evening — see
+  // 21-notifier-actions.js's own PATH comment), looked identical to a
+  // working save.
   if (hasNativeBridge()) {
-    if (result) result.textContent = WORDS.saving;
+    announceSettings(WORDS.saving);
     dispatchAction('config', encoded, function (res) {
       if (!res || !res.ok) {
         var why = res && (res.why ||
           (res.rejected && res.rejected.length && res.rejected.join('; ')));
-        if (result) result.textContent = WORDS.saveFailed + (why ? ': ' + why : '');
+        reopenSettingsWith(WORDS.saveFailed + (why ? ': ' + why : ''));
         return;
       }
-      if (result) result.textContent = WORDS.saved;
-      // 21-notifier-actions.js only runs the slow, browser-launching
-      // quick collection when a setting that actually changes what gets
-      // FETCHED was touched (exclusions, canvas) — see its own comment
-      // on NEEDS_REAL_FETCH. Everything else (treatUndatedAsUrgent,
-      // showEmptyClasses, language, ...) only needed a redraw, which
-      // finishes in well under a second, and previously still made the
-      // page wait out the full 30-second quick-collection margin for
-      // no reason — the exact same "looks like it's doing nothing"
-      // shape as the original bug, just for a different set of settings.
-      var wait = res.mode === 'redraw' ? 1500 : 30000;
-      setTimeout(function () { location.reload(); }, wait);
+      // Accepted, but some fields refused (a fresh-check interval under
+      // its minimum, say). The rest were written; the panel comes back so
+      // the refused ones can be fixed, and doesn't reload — that would
+      // throw away what was typed. The baseline stays put, so closing
+      // again tries once more.
+      if (res.rejected && res.rejected.length) {
+        reopenSettingsWith(WORDS.saveFailed + ': ' + res.rejected.join('; '));
+        return;
+      }
+      settingsBaseline = sent;
+      announceSettings(WORDS.saved);
+      // The config action only ever redraws now (a browser is never
+      // launched by a save), which finishes in well under a second.
+      setTimeout(function () { location.reload(); }, 1500);
     });
     return;
   }
 
   // No bridge (a plain browser tab): there's no way to ask whether this
   // worked, so this keeps behaving exactly as it always has — assume it
-  // did, and quietly sync up on the same timer. The instant update above
-  // still applies here too; it's plain DOM/JS, nothing bridge-specific.
-  if (result) result.textContent = WORDS.saved;
+  // did, and quietly sync up after a moment.
+  settingsBaseline = sent;
+  announceSettings(WORDS.saved);
   dispatchAction('config', encoded);
-  setTimeout(function () { location.reload(); }, 30000);
+  setTimeout(function () { location.reload(); }, 3000);
 }
 
 // Remembers the filter panel across refreshes — the two view toggles and
@@ -3038,7 +3121,6 @@ function filterAnnouncements() {
   for (var i = 0; i < posts.length; i++) {
     var p = posts[i];
     var ok = true;
-    if (optimisticExclusions.indexOf(p.getAttribute('data-cls')) !== -1) ok = false;
     if (ok && classes.length && classes.indexOf(p.getAttribute('data-cls')) === -1) ok = false;
     if (ok && newOnly && p.getAttribute('data-new') !== 'yes') ok = false;
     p.hidden = !ok;

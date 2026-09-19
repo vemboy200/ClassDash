@@ -239,7 +239,10 @@ function classRoster(d) {
 
   const settings = require('./19-settings.js').read();
   if (settings.showEmptyClasses) {
-    const excluded = new Set(settings.exclusions);
+    // The applied value, not the file: an exclusion saved a moment ago only
+    // takes effect at the next collection, and the page's own fill-in
+    // (which this mirrors) reads it the same way.
+    const excluded = new Set(require('./19-settings.js').appliedFetchSettings(settings).exclusions);
     const hideInactive = settings.hideInactiveClasses;
     // d.items/d.announcements are the FULL history (straight off
     // last-collection.json/messages.json), not the page's own
