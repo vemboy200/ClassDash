@@ -1169,6 +1169,9 @@ function pixelCornerCss() {
     '.reminder-add input[type="datetime-local"], .class-picker';
   const PILLS = '.count, .plat, .removed-badge, .check-row .count-badge';
   const CHECK = 'input[type="checkbox"]:not(.toggle)';
+  const SLIDER = '.field-with-value input[type="range"]';
+  const TRACK = SLIDER + '::-webkit-slider-runnable-track';
+  const THUMB = SLIDER + '::-webkit-slider-thumb';
   const TOGGLE = 'input[type="checkbox"].toggle';
 
   // Slice and width are both the corner's size in CSS pixels, so the
@@ -1193,6 +1196,8 @@ function pixelCornerCss() {
   .badge { ${src('pill', 'ink', 'new')} }
   ${CHECK}, ${TOGGLE} { ${src('mini', 'ink', 'card')} }
   ${CHECK}:checked, ${TOGGLE}:checked { ${src('mini', 'ink', 'new')} }
+  ${TRACK}, ${THUMB} { ${src('mini', 'ink', 'card')} }
+  ${SLIDER}:hover::-webkit-slider-thumb, ${SLIDER}:active::-webkit-slider-thumb { ${src('mini', 'ink', 'new')} }
   .status-dot.status-ok, .dot { background-image: ${pixelDot(t.ink, t.new)}; }
   .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
   .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }`;
@@ -1225,6 +1230,16 @@ function pixelCornerCss() {
   ${FIELDS} { ${geometry('medium')} }
   ${PILLS}, .badge { ${geometry('pill')} }
   ${CHECK}, ${TOGGLE} { ${geometry('mini')} }
+  /* No "fill" on the track's slice: only its frame comes from the sprite,
+     so the progress gradient behind it stays visible. The 4px notch sits
+     inside the 2px border, which is why padding-box clipping is enough. */
+  ${TRACK} {
+    border-radius: 0; border-image-slice: 4; border-image-width: 4px; border-image-repeat: stretch;
+  }
+  ${THUMB} {
+    border-radius: 0; background: transparent;
+    border-image-slice: 4 fill; border-image-width: 4px; border-image-repeat: stretch;
+  }
   /* Status lights: a fixed 12px rounded square. Every status variant is
      listed because each one's original background shorthand has the
      same specificity as this rule and would otherwise paint a square
@@ -1898,12 +1913,57 @@ function writePage(data, outputPath) {
     top: 3px; left: 2px; width: 12px; height: 12px; border-radius: 0;
     background: var(--ink); box-shadow: none;
     transition: transform 0.05s steps(5);
+    /* A little rounded, still pixels: each corner loses one 2px cell. */
+    clip-path: polygon(2px 0, 10px 0, 10px 2px, 12px 2px, 12px 10px, 10px 10px,
+      10px 12px, 2px 12px, 2px 10px, 0 10px, 0 2px, 2px 2px);
   }
   input[type="checkbox"].toggle:checked::before {
     transform: translateX(20px); background: var(--card);
   }
   @media (prefers-reduced-motion: reduce) {
     input[type="checkbox"].toggle::before { transition: none; }
+  }
+
+  /* The class picker's disclosure arrow: the browser's own triangle is a
+     smooth vector, so it's swapped for a stepped one — a right-pointing
+     staircase of 2px cells that turns into a down-pointing one when the
+     list is open. Drawn with clip-path (no border or shadow on it to
+     lose) in the text colour, so it dims and brightens with the label. */
+  .class-picker summary { list-style: none; display: flex; align-items: center; gap: 8px; }
+  .class-picker summary::-webkit-details-marker { display: none; }
+  .class-picker summary::before {
+    content: ''; flex: none; width: 6px; height: 10px; background: currentColor;
+    clip-path: polygon(0 0, 2px 0, 2px 2px, 4px 2px, 4px 4px, 6px 4px, 6px 6px,
+      4px 6px, 4px 8px, 2px 8px, 2px 10px, 0 10px);
+  }
+  .class-picker[open] summary::before {
+    width: 10px; height: 6px;
+    clip-path: polygon(0 0, 10px 0, 10px 2px, 8px 2px, 8px 4px, 6px 4px, 6px 6px,
+      4px 6px, 4px 4px, 2px 4px, 2px 2px, 0 2px);
+  }
+
+  /* The slider: a square track that fills with the accent colour up to
+     the thumb, and a framed block for a thumb. WebKit can't colour the
+     travelled part of a native slider, so the fill is a gradient driven
+     by --pct (0 to 1), which syncSliderFill() in the page script keeps
+     current. Thumb travel is 14px narrower than the track, hence the
+     7px-and-14px arithmetic: it puts the edge of the fill under the
+     thumb's centre. box-sizing is set by hand because the page-wide
+     border-box rule doesn't reach these pseudo-elements. The frames
+     (border-image) are in the generated block at the end. */
+  .field-with-value input[type="range"] {
+    -webkit-appearance: none; appearance: none; background: transparent;
+    height: 22px; margin: 0; cursor: pointer;
+  }
+  .field-with-value input[type="range"]::-webkit-slider-runnable-track {
+    box-sizing: border-box; height: 12px; border: 2px solid var(--ink);
+    background-clip: padding-box;
+    background-image: linear-gradient(to right,
+      var(--new) calc(7px + (100% - 14px) * var(--pct, 0)), var(--card) 0);
+  }
+  .field-with-value input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; box-sizing: border-box;
+    width: 14px; height: 22px; margin-top: -7px; border: 2px solid var(--ink);
   }
 
   /* Selected settings section reads like a highlighted DOS menu row. */
@@ -2688,7 +2748,21 @@ function toggleReveal(button) {
 // both singular and plural in Russian on purpose (see the comment on
 // them in 18-language.js) — this stays a plain singular/plural check
 // either way, it just happens to pick the identical string in Russian.
+// Where the slider's filled part ends, as 0..1 — read by the track's
+// gradient (see the slider CSS). No regexes: this rides in a template
+// string, where an escape would be mangled at build time.
+function syncSliderFill(slider) {
+  var span = Number(slider.max) - Number(slider.min);
+  slider.style.setProperty('--pct', span > 0 ? (Number(slider.value) - Number(slider.min)) / span : 0);
+}
+
+(function () {
+  var sliders = document.querySelectorAll('input[type="range"]');
+  for (var i = 0; i < sliders.length; i++) syncSliderFill(sliders[i]);
+})();
+
 function updateStaleMonthsLabel(slider) {
+  syncSliderFill(slider);
   var label = slider.nextElementSibling;
   if (!label) return;
   var n = slider.value;
