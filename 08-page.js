@@ -2454,6 +2454,10 @@ function updateCounts(showHidden, showRemoved) {
       if (!showRemoved && r.getAttribute('data-removed') === 'yes') continue;
       if (!showHidden && r.classList.contains('hidden-row')) continue;
       if (optimisticExclusions.indexOf(r.getAttribute('data-cls')) !== -1) continue;
+      // Done/hidden reminders aren't on screen until their own button is
+      // clicked, and no checkbox here can bring them out — counting them
+      // made a class read "1" while ticking it showed nothing.
+      if (r.closest('#reminders-done, #reminders-hidden') !== null) continue;
       if (group === 'cls' && r.getAttribute('data-cls') !== value) continue;
       if (group === 'type' && r.getAttribute('data-type') !== value) continue;
       if (group === 'days' && !matchesDueFilter([value], r.getAttribute('data-days'))) continue;
@@ -2499,9 +2503,20 @@ function applyFilters() {
     if (!showRemoved && r.getAttribute('data-removed') === 'yes') ok = false;
     if (ok && optimisticExclusions.indexOf(r.getAttribute('data-cls')) !== -1) ok = false;
 
-    if (ok && cls.length && cls.indexOf(r.getAttribute('data-cls')) === -1) ok = false;
-    if (ok && types.length && types.indexOf(r.getAttribute('data-type')) === -1) ok = false;
-    if (ok && dueRanges.length) ok = matchesDueFilter(dueRanges, r.getAttribute('data-days'));
+    // REMINDERS BEHIND A "SHOW DONE" / "SHOW HIDDEN" BUTTON SKIP THE
+    // CHECKBOXES BELOW. Clicking that button IS the request to see them —
+    // the class/type/due panel doesn't get a second say. Caught live: a
+    // done reminder due four days ago matched no checked due range (with
+    // nothing else on the page, "no due date" was the only one offered),
+    // so it was tagged filtered-out at page load, while its wrapper was
+    // still hidden. "Show done (1)" then un-hid an empty box — the click
+    // worked, the card stayed display:none !important. Excluded classes
+    // (above) still apply: that means "stop showing this class at all".
+    var inReminderGroup = r.closest('#reminders-done, #reminders-hidden') !== null;
+
+    if (ok && !inReminderGroup && cls.length && cls.indexOf(r.getAttribute('data-cls')) === -1) ok = false;
+    if (ok && !inReminderGroup && types.length && types.indexOf(r.getAttribute('data-type')) === -1) ok = false;
+    if (ok && !inReminderGroup && dueRanges.length) ok = matchesDueFilter(dueRanges, r.getAttribute('data-days'));
 
     r.classList.toggle('filtered-out', !ok);
   }
