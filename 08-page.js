@@ -1736,10 +1736,15 @@ function writePage(data, outputPath) {
     transition: width .25s steps(4);
   }
   /* Before the class list is known there's no fraction to show, so a block
-     sweeps back and forth instead. */
+     sweeps back and forth instead: 12 segments wide (94px — eleven whole
+     6px blocks with their 2px gaps and a twelfth, so it ends on a filled
+     one). steps(12, jump-none), not plain steps(12): a plain one never
+     reaches its final position, so the block stopped a twelfth of the bar
+     short of the end; jump-none takes twelve positions from the very first
+     to the very last. */
   .check-progress.indeterminate .check-progress-fill {
-    width: 22px !important; transition: none;
-    animation: checkScan 1.2s steps(12) infinite alternate;
+    width: 94px !important; transition: none;
+    animation: checkScan 1.2s steps(12, jump-none) infinite alternate;
   }
   /* The icon turns round with the block. Going right it leads from the
      block's right end, dashes trailing behind; going left it's mirrored and
@@ -1750,7 +1755,7 @@ function writePage(data, outputPath) {
   .check-progress.indeterminate .check-progress-runner {
     animation: dashCycle .6s steps(1) infinite, runnerFace 2.4s steps(1) infinite;
   }
-  @keyframes checkScan { from { margin-left: 26px; } to { margin-left: calc(100% - 22px); } }
+  @keyframes checkScan { from { margin-left: 26px; } to { margin-left: max(26px, calc(100% - 94px)); } }
   @keyframes runnerFace {
     0% { left: 100%; margin-left: -6px; transform: scaleX(1); }
     50% { left: 0; margin-left: -26px; transform: scaleX(-1); }
