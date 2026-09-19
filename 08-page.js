@@ -1913,9 +1913,12 @@ function writePage(data, outputPath) {
     top: 3px; left: 2px; width: 12px; height: 12px; border-radius: 0;
     background: var(--ink); box-shadow: none;
     transition: transform 0.05s steps(5);
-    /* A little rounded, still pixels: each corner loses one 2px cell. */
-    clip-path: polygon(2px 0, 10px 0, 10px 2px, 12px 2px, 12px 10px, 10px 10px,
-      10px 12px, 2px 12px, 2px 10px, 0 10px, 0 2px, 2px 2px);
+    /* A little rounded, still pixels — and in proportion with the track.
+       The track loses a 2px cell from each corner of a 40x22 frame; the
+       same 2px off this 12x12 knob was three times as round and read as a
+       disc next to it, so the cut is 1px here: about the same fraction. */
+    clip-path: polygon(1px 0, 11px 0, 11px 1px, 12px 1px, 12px 11px, 11px 11px,
+      11px 12px, 1px 12px, 1px 11px, 0 11px, 0 1px, 1px 1px);
   }
   input[type="checkbox"].toggle:checked::before {
     transform: translateX(20px); background: var(--card);
