@@ -1029,6 +1029,182 @@ ${CHECK_STATUS_ENTRIES.map(([k, l]) => row(k, l)).join('\n')}
   </div>`;
 }
 
+// ── Pixel-stepped corners ──
+//
+// The app icon's tile has corners cut in a little staircase — rounded,
+// but still 8-bit. border-radius can only draw smooth curves, and
+// clip-path would clip away the border and the hard shadow with it, so
+// each frame is a tiny pixel-art sprite used as a border-image: the
+// corners are drawn pixel by pixel, the edges stretch, the middle fills.
+// A hard drop-shadow (filter, which follows the sprite's own transparent
+// corners instead of the rectangle) goes on top.
+//
+// Single source of truth for the colours the sprites bake in — the
+// :root tokens in the stylesheet are built from these too, because an
+// SVG in a border-image can't read CSS variables, so the two have to be
+// generated from the same place or they'd drift apart.
+const PIXEL_THEME = {
+  light: { bg: '#f6f7f9', card: '#ffffff', line: '#e5e7eb', dim: '#6b7280', warnbg: '#fffaeb', ink: '#101018', new: '#0004ff', hot: '#d40000' },
+  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', ink: '#cfefff', new: '#00ffff', hot: '#ff6b6b' },
+};
+
+// A corner is described the way pixel artists draw a round one: for each
+// row from the top, how many cells are missing before the shape starts.
+// A cell is 2 CSS pixels. Each list is a pixel-circle's staircase, and
+// each is symmetric top-to-side (read as columns it gives the same list)
+// so a corner never looks lopsided.
+//   large  — cards and panels: a 12px-radius arc
+//   medium — buttons and fields: 10px
+//   pill   — count badges and labels: 6px
+//   mini   — checkboxes and toggles: 4px, a single notch
+const PIXEL_CORNERS = {
+  large:  [4, 2, 1, 1, 0],
+  medium: [3, 1, 1, 0],
+  pill:   [2, 1, 0],
+  mini:   [1, 0],
+};
+const PIXEL_CELL = 2;
+
+/**
+ * One frame sprite as a data: URL, drawn 1:1 with CSS pixels so every
+ * sprite pixel is exactly one on the page and stays sharp. The shape is
+ * the corner staircase mirrored into all four corners; a cell is outline
+ * if any side-neighbour falls outside the shape, fill otherwise, so the
+ * outline is always one cell (2px) thick and follows the steps.
+ */
+function pixelSprite(size, edge, fill) {
+  const insets = PIXEL_CORNERS[size];
+  const R = insets.length;
+  const N = 2 * R + 1; // corner + one stretchable middle cell + corner
+  return rasterSprite(N, (x, y) => {
+    const fx = Math.min(x, N - 1 - x), fy = Math.min(y, N - 1 - y);
+    return fx >= (fy < R ? insets[fy] : 0);
+  }, edge, fill);
+}
+
+// A rounded square, 6 cells (12px) across: only the four corner cells
+// are missing, so the sides stay straight. (An earlier version cut 2
+// cells off the top row and 1 off the next — a proper pixel circle —
+// but at this size it read as a diamond.)
+const PIXEL_DOT = [1, 0, 0];
+const PIXEL_DOT_CELLS = PIXEL_DOT.length * 2;
+
+/** A status light: the same outlined-cell drawing as the frames, but a
+ *  fixed 12x12 rounded square instead of a stretchable box. */
+function pixelDot(edge, fill) {
+  const N = PIXEL_DOT_CELLS;
+  return rasterSprite(N, (x, y) => {
+    const fx = Math.min(x, N - 1 - x), fy = Math.min(y, N - 1 - y);
+    return fx >= PIXEL_DOT[fy];
+  }, edge, fill);
+}
+
+/** Draws an N x N grid of 2px cells into an SVG data: URL. inShape says
+ *  which cells are part of the shape; those with a side-neighbour outside
+ *  it are outline, the rest fill. */
+function rasterSprite(N, shapeAt, edge, fill) {
+  const inShape = (x, y) => x >= 0 && y >= 0 && x < N && y < N && shapeAt(x, y);
+  let body = '';
+  for (let y = 0; y < N; y++) {
+    // Merge each row into runs of one colour: a handful of rects, not N*N.
+    let x = 0;
+    while (x < N) {
+      if (!inShape(x, y)) { x++; continue; }
+      const isEdge = (cx) => !inShape(cx - 1, y) || !inShape(cx + 1, y) ||
+                             !inShape(cx, y - 1) || !inShape(cx, y + 1);
+      const colour = isEdge(x) ? edge : fill;
+      let end = x + 1;
+      while (end < N && inShape(end, y) && (isEdge(end) ? edge : fill) === colour) end++;
+      body += `<rect x='${x * PIXEL_CELL}' y='${y * PIXEL_CELL}' width='${(end - x) * PIXEL_CELL}' height='${PIXEL_CELL}' fill='${colour}'/>`;
+      x = end;
+    }
+  }
+  const W = N * PIXEL_CELL;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${W}' shape-rendering='crispEdges'>${body}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+/** The stepped-corner rules — shared geometry once, then the sprite each
+ *  kind of element uses, generated for both themes. */
+function pixelCornerCss() {
+  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn';
+  const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, ' +
+    '.settings-actions button, .show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
+  const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
+  const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
+    '.setting-row select, .reminder-add input[type="text"], ' +
+    '.reminder-add input[type="datetime-local"], .class-picker';
+  const PILLS = '.count, .plat, .removed-badge, .check-row .count-badge';
+  const CHECK = 'input[type="checkbox"]:not(.toggle)';
+  const TOGGLE = 'input[type="checkbox"].toggle';
+
+  // Slice and width are both the corner's size in CSS pixels, so the
+  // corners are drawn 1:1 and only the middle stretches.
+  const geometry = (size) => {
+    const n = PIXEL_CORNERS[size].length * PIXEL_CELL;
+    return `border-style: solid; border-radius: 0; background: transparent;
+    border-image-slice: ${n} fill; border-image-width: ${n}px; border-image-repeat: stretch;`;
+  };
+
+  const themed = (t) => {
+    const src = (size, edge, fill) => `border-image-source: ${pixelSprite(size, t[edge], t[fill])};`;
+    return `
+  ${TILES} { ${src('large', 'ink', 'card')} }
+  .warn { ${src('large', 'ink', 'warnbg')} }
+  .item.overdue-item { ${src('large', 'hot', 'card')} }
+  a.item:hover, .post:hover { ${src('large', 'new', 'card')} }
+  ${BUTTONS} { ${src('medium', 'ink', 'card')} }
+  ${each(BUTTONS, ':hover')}, .reload.spinning { ${src('medium', 'new', 'card')} }
+  ${FIELDS} { ${src('medium', 'ink', 'bg')} }
+  ${PILLS} { ${src('pill', 'ink', 'line')} }
+  .badge { ${src('pill', 'ink', 'new')} }
+  ${CHECK}, ${TOGGLE} { ${src('mini', 'ink', 'card')} }
+  ${CHECK}:checked, ${TOGGLE}:checked { ${src('mini', 'ink', 'new')} }
+  .status-dot.status-ok, .dot { background-image: ${pixelDot(t.ink, t.new)}; }
+  .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
+  .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }`;
+  };
+
+  // The frame IS the background now (the sprite paints the fill), so the
+  // element's own background has to go transparent — otherwise its
+  // square corners would show through the staircase notches. A
+  // border-image is only drawn when the element has a border style, and
+  // .warn never had a border at all — so every tile states one here.
+  return `/* Frames: sprites drawn corner by corner instead of border-radius. */
+  ${TILES} {
+    border-width: 2px; ${geometry('large')}
+    filter: drop-shadow(3px 3px 0 var(--shadow));
+  }
+  a.item:hover, .post:hover {
+    transform: translateY(-1px); filter: drop-shadow(3px 4px 0 var(--shadow));
+  }
+  /* Raised at rest, lifts a pixel straight up on hover, presses straight
+     down on click — the shadow keeps its sideways offset and only its
+     depth changes. Transitions off — real sprites don't ease. */
+  ${BUTTONS} {
+    ${geometry('medium')} color: var(--text); transition: none;
+    filter: drop-shadow(2px 2px 0 var(--shadow));
+  }
+  ${each(BUTTONS, ':hover')} {
+    transform: translateY(-1px); filter: drop-shadow(2px 3px 0 var(--shadow));
+  }
+  ${each(BUTTONS, ':active')} { transform: translateY(2px); filter: drop-shadow(2px 0 0 var(--shadow)); }
+  ${FIELDS} { ${geometry('medium')} }
+  ${PILLS}, .badge { ${geometry('pill')} }
+  ${CHECK}, ${TOGGLE} { ${geometry('mini')} }
+  /* Status lights: a fixed 12px rounded square. Every status variant is
+     listed because each one's original background shorthand has the
+     same specificity as this rule and would otherwise paint a square
+     of solid colour behind the sprite. */
+  .status-dot.status-ok, .status-dot.status-problem, .status-dot.status-unknown, .dot {
+    width: 12px; height: 12px; border: 0; border-radius: 0;
+    background-color: transparent; background-repeat: no-repeat; background-size: 12px 12px;
+  }
+  ${themed(PIXEL_THEME.light)}
+  @media (prefers-color-scheme: dark) {${themed(PIXEL_THEME.dark)}
+  }`;
+}
+
 /**
  * @param {object} data — {burning, later, undated, fresh, broken, now}
  * @param {string} outputPath — where to write the html
@@ -1159,16 +1335,28 @@ function writePage(data, outputPath) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(t('title'))}</title>
 <style>
+  /* 8-BIT SKIN — the surfaces (backgrounds, cards, text, dividers) are
+     the app's original colours; only the accents come from the icon
+     (icon-source.png is a 16-colour VGA-style sprite: blue #0004ff,
+     cyan #00ffff). Dark mode uses the cyan as its accent.
+       --bg2       a step off --bg, for the scrollbar track
+       --ink       chunky borders and hard shadows (near-black / pale cyan)
+       --line      still the SOFT tone — dividers, badge fills. Borders
+                   around cards and buttons use --ink instead, so a
+                   divider inside a card doesn't turn into a thick bar.
+     Type is untouched on purpose: pixel fonts are hard to read at body
+     size and mostly lack Cyrillic, which this app's default language
+     (ru) needs. */
   :root {
-    --bg: #f6f7f9; --card: #fff; --text: #1a1c1e; --dim: #6b7280;
-    --line: #e5e7eb; --hot: #d92d20; --new: #1570ef; --warn: #b54708;
-    --warnbg: #fffaeb;
+    --bg: ${PIXEL_THEME.light.bg}; --bg2: #eceef2; --card: ${PIXEL_THEME.light.card}; --text: #1a1c1e; --dim: ${PIXEL_THEME.light.dim};
+    --line: ${PIXEL_THEME.light.line}; --hot: ${PIXEL_THEME.light.hot}; --new: ${PIXEL_THEME.light.new}; --warn: #6b3a00;
+    --warnbg: ${PIXEL_THEME.light.warnbg}; --ink: ${PIXEL_THEME.light.ink}; --shadow: #101018;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #16181c; --card: #1f2226; --text: #e8eaed; --dim: #9aa0a6;
-      --line: #2f3338; --hot: #ff6b5e; --new: #6aa9ff; --warn: #f5a524;
-      --warnbg: #2a2314;
+      --bg: ${PIXEL_THEME.dark.bg}; --bg2: #1c1f24; --card: ${PIXEL_THEME.dark.card}; --text: #e8eaed; --dim: ${PIXEL_THEME.dark.dim};
+      --line: ${PIXEL_THEME.dark.line}; --hot: ${PIXEL_THEME.dark.hot}; --new: ${PIXEL_THEME.dark.new}; --warn: #ffff55;
+      --warnbg: ${PIXEL_THEME.dark.warnbg}; --ink: ${PIXEL_THEME.dark.ink}; --shadow: #000;
     }
   }
   * { box-sizing: border-box; }
@@ -1182,7 +1370,7 @@ function writePage(data, outputPath) {
   .columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; }
   @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
   .post {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 8px; display: block;
     text-decoration: none; color: inherit;
   }
@@ -1233,7 +1421,7 @@ function writePage(data, outputPath) {
   .check-status {
     margin-left: 10px; display: inline-flex; align-items: center; gap: 5px;
     vertical-align: middle; height: 26px; box-sizing: border-box;
-    background: var(--card); border: 1px solid var(--line); border-radius: 7px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 7px;
     padding: 0 8px; cursor: pointer; transition: border-color .15s;
   }
   .check-status:hover { border-color: var(--new); }
@@ -1245,7 +1433,7 @@ function writePage(data, outputPath) {
   .status-dot.status-problem { background: var(--hot); }
   .status-dot.status-unknown { background: var(--dim); opacity: .5; }
   .check-status-panel {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
     padding: 12px 14px; margin: 8px 0 0; max-width: 420px;
   }
   .check-status-panel-title { font-weight: 600; margin-bottom: 8px; }
@@ -1271,7 +1459,7 @@ function writePage(data, outputPath) {
   .reload {
     width: 26px; height: 26px; padding: 0; margin-left: 8px;
     vertical-align: middle; cursor: pointer;
-    border: 1px solid var(--line); border-radius: 7px;
+    border: 2px solid var(--ink); border-radius: 7px;
     background: var(--card); color: var(--dim);
     font-size: 15px; line-height: 1;
     transition: color .15s, border-color .15s;
@@ -1309,7 +1497,9 @@ function writePage(data, outputPath) {
     color: var(--new); border-color: var(--new);
   }
   .reload.spinning .reload-icon {
-    animation: spin 1.1s linear infinite;
+    /* steps(8), not linear: eight 45-degree jumps a turn reads as a
+       sprite animation instead of a smooth modern spinner. */
+    animation: spin 0.9s steps(8) infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   /* Announcement filters — their own strip, in their own column. Separate
@@ -1336,7 +1526,7 @@ function writePage(data, outputPath) {
   }
   .hint { color: var(--dim); font-size: 13px; margin: -4px 0 10px; }
   .item {
-    display: block; background: var(--card); border: 1px solid var(--line);
+    display: block; background: var(--card); border: 2px solid var(--ink);
     border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
     text-decoration: none; color: inherit;
   }
@@ -1376,13 +1566,13 @@ function writePage(data, outputPath) {
   .update-dismiss:hover { opacity: 1; }
   .update-error-note { color: var(--warn); }
   .live {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px; color: var(--dim);
     display: flex; gap: 9px; align-items: baseline;
   }
   .dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--new);
-    flex: 0 0 auto; animation: pulse 1.2s ease-in-out infinite;
+    flex: 0 0 auto; animation: pulse 1s steps(2, jump-none) infinite;
   }
   @keyframes pulse { 50% { opacity: .25; } }
   .empty { color: var(--dim); padding: 20px 0; }
@@ -1390,7 +1580,7 @@ function writePage(data, outputPath) {
   .row .item { flex: 1; margin-bottom: 0; }
   .quiet {
     flex: 0 0 auto; display: flex; align-items: center; padding: 0 12px;
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
     color: var(--dim); font-size: 13px; text-decoration: none; white-space: nowrap;
   }
   .quiet:hover { color: var(--text); border-color: var(--dim); }
@@ -1412,7 +1602,7 @@ function writePage(data, outputPath) {
   .filters {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 18px 24px;
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 20px; font-size: 13px;
   }
   .filter-group .group-name {
@@ -1432,7 +1622,7 @@ function writePage(data, outputPath) {
     background: var(--line); border-radius: 9px; padding: 0 6px;
   }
   .filters button {
-    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    background: none; border: 2px solid var(--ink); border-radius: 8px;
     color: var(--dim); font: inherit; font-size: 13px; padding: 5px 10px;
     cursor: pointer; margin-top: 10px;
   }
@@ -1440,7 +1630,7 @@ function writePage(data, outputPath) {
   .filters .result { color: var(--dim); font-size: 12px; margin-top: 8px; }
   /* Settings panel. Hidden until the gear icon is clicked. */
   .settings-panel {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 20px; font-size: 13px;
   }
   .settings-panel[hidden] { display: none; }
@@ -1484,7 +1674,7 @@ function writePage(data, outputPath) {
      word per line. The cause wasn't the label — it was its neighbor. */
   .setting-row input[type="text"], .setting-row input[type="password"], .setting-row select {
     font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border: 2px solid var(--ink); background: var(--bg); color: var(--text);
     width: 100%;
   }
   .setting-row input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 2px 0 0; }
@@ -1538,7 +1728,7 @@ function writePage(data, outputPath) {
   }
   .reveal-btn:hover { color: var(--text); }
   .mini-btn {
-    background: none; border: 1px dashed var(--line); border-radius: 6px;
+    background: none; border: 2px solid var(--ink); border-radius: 6px;
     color: var(--dim); font: inherit; font-size: 12px; padding: 3px 8px;
     cursor: pointer; flex: 0 0 auto; white-space: nowrap;
   }
@@ -1550,7 +1740,7 @@ function writePage(data, outputPath) {
     flex-wrap: wrap;
   }
   .settings-actions button {
-    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    background: none; border: 2px solid var(--ink); border-radius: 8px;
     color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
     cursor: pointer;
   }
@@ -1558,7 +1748,7 @@ function writePage(data, outputPath) {
   #settings-result { color: var(--dim); font-size: 12px; }
   /* Collapsible class list. */
   .class-picker {
-    border: 1px solid var(--line); border-radius: 7px; background: var(--bg);
+    border: 2px solid var(--ink); border-radius: 7px; background: var(--bg);
   }
   .class-picker summary {
     cursor: pointer; padding: 5px 8px; color: var(--dim); font-size: 13px;
@@ -1604,13 +1794,13 @@ function writePage(data, outputPath) {
   .row.hidden-row { display: none; }
   .row.hidden-row.shown { display: flex; opacity: .5; }
   .show-hidden-btn {
-    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    background: none; border: 2px solid var(--ink); border-radius: 8px;
     color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
     cursor: pointer; margin-top: 4px;
   }
   .show-hidden-btn:hover { color: var(--text); border-color: var(--dim); }
   .reminder-toggle-btn {
-    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    background: none; border: 2px solid var(--ink); border-radius: 8px;
     color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
     cursor: pointer; margin-top: 4px; margin-right: 8px;
   }
@@ -1621,23 +1811,72 @@ function writePage(data, outputPath) {
   }
   .reminder-add input[type="text"] {
     font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border: 2px solid var(--ink); background: var(--bg); color: var(--text);
   }
   .reminder-add input#reminder-title { flex: 1 1 180px; min-width: 120px; }
   .reminder-add input#reminder-class { flex: 1 1 120px; min-width: 90px; }
   .reminder-due-field { display: inline-flex; align-items: center; gap: 4px; }
   .reminder-add input[type="datetime-local"] {
     font: inherit; font-size: 13px; padding: 5px 6px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border: 2px solid var(--ink); background: var(--bg); color: var(--text);
   }
   .reminder-add button {
-    background: none; border: 1px dashed var(--line); border-radius: 8px;
+    background: none; border: 2px solid var(--ink); border-radius: 8px;
     color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
     cursor: pointer;
   }
   .reminder-add button:hover { color: var(--text); border-color: var(--dim); }
   #reminders-result { color: var(--dim); font-size: 12px; flex-basis: 100%; }
   footer { color: var(--dim); font-size: 12px; margin-top: 32px; }
+
+  /* ── 8-bit skin: what can't be done by editing an existing rule ──
+     The 2px ink borders were applied in place above; this block adds the
+     pieces that have no rule of their own yet. Kept together (and last)
+     so the whole look can be tuned or backed out in one place.
+     Selectors deliberately match the originals they sit on top of —
+     same specificity, later in the file — rather than reaching for
+     !important. */
+
+  /* Small labels get the outline too. .badge's text was a hard-coded
+     white — right on the light theme's blue, unreadable on the dark
+     theme's cyan — so it takes the card colour instead. */
+  .count, .plat, .badge, .removed-badge, .check-row .count-badge {
+    border: 2px solid var(--ink);
+  }
+  .badge { color: var(--card); }
+
+  /* Checkboxes: drawn boxes (their stepped frame and filled-when-on look
+     come from the generated sprite rules at the end of this block) — not
+     a native tick mark. The toggle has its own rule below. */
+  input[type="checkbox"]:not(.toggle) {
+    appearance: none; -webkit-appearance: none;
+    width: 14px; height: 14px; border: 2px solid var(--ink);
+    cursor: pointer; flex: 0 0 auto;
+  }
+
+  /* Toggle switch: stepped track, square knob, snaps instead of sliding. */
+  input[type="checkbox"].toggle {
+    width: 40px; height: 22px; border: 2px solid var(--ink); transition: none;
+  }
+  input[type="checkbox"].toggle::before {
+    top: 3px; left: 2px; width: 12px; height: 12px; border-radius: 0;
+    background: var(--ink); box-shadow: none; transition: none;
+  }
+  input[type="checkbox"].toggle:checked::before {
+    transform: translateX(20px); background: var(--card);
+  }
+
+  /* Selected settings section reads like a highlighted DOS menu row. */
+  .settings-nav-btn:hover { background: var(--line); }
+  .settings-nav-btn.active { background: var(--new); color: var(--card); }
+
+  /* Chunky scrollbars to match. */
+  ::-webkit-scrollbar { width: 14px; height: 14px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); border-left: 2px solid var(--ink); }
+  ::-webkit-scrollbar-thumb { background: var(--card); border: 2px solid var(--ink); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--new); }
+
+  ${pixelCornerCss()}
 </style>
 </head>
 <body>
