@@ -39,7 +39,11 @@
           "*.js",
           "package.json",
           "settings.example.json",
+          "refresh-icon.png",
           "freshcheck-icon.png",
+          "settings-icon.png",
+          "loading-icon.png",
+          "loading-icon-light.png",
           "node_modules/**"
         ]
       }

@@ -26,16 +26,35 @@ const { checkStatus } = require('./25-check-status.js');
 const { publishPageVersion } = require('./28-live-state.js');
 const { readUpdateStatus } = require('./26-update-check.js');
 
-// Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
-// characters — nothing in Unicode reads as "thorough sync" the way this
-// needs to, so this one's a real small image instead: a render of the
-// SF Symbol arrow.trianglehead.2.clockwise.rotate.90, exported once via
-// a throwaway AppKit script (NSImage(systemSymbolName:) + a template
-// render), committed as freshcheck-icon.png next to AppIcon.icns. Read
-// once at module load, not per page render — it's a static asset, not
-// something that changes between redraws.
-const FRESHCHECK_ICON_B64 =
-  fs.readFileSync(path.join(__dirname, 'freshcheck-icon.png')).toString('base64');
+// THE HEADER ICONS ARE PIXEL ART, NOT TEXT CHARACTERS.
+//
+// Refresh, Fresh check and Settings used to be a Unicode arrow, an SF
+// Symbol render and a Unicode gear — three different styles, none of them
+// pixel art. They're now three 32x32 PNGs drawn to match the app icon,
+// committed next to AppIcon.icns. (The gear was drawn twice: the first,
+// with 1px gaps between its teeth, turned into a sunburst at 16px, where
+// those gaps merge — it had to be drawn for the size it's shown at. It was
+// 31x31, padded here to 32 so it scales by a whole 2:1 like the others.)
+// Each is used only as a stencil (see
+// .pixel-icon): the page ignores its colour and paints the shape with the
+// button's own text colour, so one file serves dark and light mode and
+// every hover and spinning state. Drawn at 32px and shown at exactly 16 —
+// a whole 2:1 — so every art pixel lands on a whole device pixel on a
+// Retina display and stays crisp. Read once at module load, not per page
+// render: they're static assets.
+const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
+const ICON_REFRESH_B64 = readIcon('refresh-icon.png');
+const ICON_FRESHCHECK_B64 = readIcon('freshcheck-icon.png');
+const ICON_SETTINGS_B64 = readIcon('settings-icon.png');
+// Two 32x32 frames side by side (64x32): the app icon, then the same with its
+// speed-dashes swapped long-for-short. Flipped between while a check runs —
+// see .check-progress-icon. Full colour, so a background image, not a stencil.
+// The dashes are drawn white, which is invisible on the light theme's near-
+// white page, so there are two copies: loading-icon.png as drawn (dark theme)
+// and loading-icon-light.png, identical except that the dashes — and only the
+// dashes — are the light theme's ink colour.
+const ICON_LOADING_B64 = readIcon('loading-icon.png');
+const ICON_LOADING_LIGHT_B64 = readIcon('loading-icon-light.png');
 
 // Substituted when an assignment has no platform of its own — that's how
 // Classroom assignments arrive. Canvas and Edpuzzle have their own field.
@@ -1291,8 +1310,11 @@ function writePage(data, outputPath) {
     : '';
   const progressBar = `  <div class="check-progress" id="check-progress" role="progressbar"
        aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}"${progress ? '' : ' hidden'}>
-    <div class="check-progress-head"><span id="check-progress-label">${escapeHtml(progressLabel)}</span><span id="check-progress-pct">${progressPct}%</span></div>
-    <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"></div></div>
+    <span class="check-progress-icon" aria-hidden="true"></span>
+    <div class="check-progress-body">
+      <div class="check-progress-head"><span id="check-progress-label">${escapeHtml(progressLabel)}</span><span id="check-progress-pct">${progressPct}%</span></div>
+      <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"></div></div>
+    </div>
   </div>`;
   const deferred = data.deferred || [];
   // Full, unbucketed collection — everything last-collection.json has
@@ -1559,32 +1581,45 @@ function writePage(data, outputPath) {
     border: 2px solid var(--ink); border-radius: 7px;
     background: var(--card); color: var(--dim);
     font-size: 15px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
     transition: color .15s, border-color .15s;
   }
   /* .named — Refresh and Fresh check specifically: icon plus a visible
      label, not just an icon with a tooltip. Auto width instead of the
      plain icon button's fixed 26px square. */
   .reload.named {
-    width: auto; height: auto; padding: 5px 10px; gap: 6px;
+    width: auto; height: auto; padding: 4px 10px; gap: 6px;
     display: inline-flex; align-items: center;
     font-size: 12px; font-family: inherit;
   }
-  .reload-icon { font-size: 14px; display: inline-block; }
-  /* Fresh check's icon isn't a text character — it's a CSS mask driven
-     by a real (tiny) image, so it can still inherit color exactly like
-     the text glyphs do: dim by default, blue on hover, blue while
-     spinning, dark or light mode, all for free from currentColor. A
-     plain img element couldn't do that without a separate asset per
-     color/theme/state. */
-  .freshcheck-icon {
-    width: 14px; height: 14px; vertical-align: -2px;
-    background-color: currentColor;
-    -webkit-mask-image: url("data:image/png;base64,${FRESHCHECK_ICON_B64}");
-    -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-image: url("data:image/png;base64,${FRESHCHECK_ICON_B64}");
-    mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+  .reload-icon { display: inline-block; }
+  /* The three header icons are stencils: a real (tiny) pixel-art image used
+     as a CSS mask over a block of currentColor, so each inherits its
+     colour exactly like a text glyph would — dim by default, cyan/blue on
+     hover, while spinning, in dark or light mode — with no separate asset
+     per colour, theme or state. A plain img element couldn't do that.
+     Drawn 32px, shown 16px, and pixelated so a display that can't map the
+     art 1:1 still picks whole pixels instead of smearing them. */
+  :root {
+    --icon-refresh: url("data:image/png;base64,${ICON_REFRESH_B64}");
+    --icon-freshcheck: url("data:image/png;base64,${ICON_FRESHCHECK_B64}");
+    --icon-settings: url("data:image/png;base64,${ICON_SETTINGS_B64}");
+    --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
+  @media (prefers-color-scheme: dark) {
+    :root { --icon-loading: url("data:image/png;base64,${ICON_LOADING_B64}"); }
+  }
+  .pixel-icon {
+    display: inline-block; flex: 0 0 auto; width: 16px; height: 16px;
+    background-color: currentColor;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    -webkit-mask-position: center; mask-position: center;
+    -webkit-mask-size: 16px 16px; mask-size: 16px 16px;
+    image-rendering: pixelated;
+  }
+  .icon-refresh { -webkit-mask-image: var(--icon-refresh); mask-image: var(--icon-refresh); }
+  .icon-freshcheck { -webkit-mask-image: var(--icon-freshcheck); mask-image: var(--icon-freshcheck); }
+  .icon-settings { -webkit-mask-image: var(--icon-settings); mask-image: var(--icon-settings); }
   .reload:hover { color: var(--new); border-color: var(--new); }
   /* Spins while a check is running. Only the ICON spins, not the whole
      button — with a text label sitting next to it now, spinning the
@@ -1658,7 +1693,25 @@ function writePage(data, outputPath) {
   /* A collection is running. Filled in whole 8px blocks with a 2px gap
      between them, snapped by the page script — a smooth bar would be the
      one thing on this page that isn't drawn in pixels. */
-  .check-progress { margin-bottom: 16px; }
+  .check-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .check-progress-body { flex: 1 1 auto; min-width: 0; }
+  /* The app icon, running: its speed-dashes swap between long and short, two
+     frames of a sprite stepped between with no easing (steps(1) holds each
+     frame, then jumps). At its own 32px, one art pixel per CSS pixel, so it's
+     crisp on every display — the header icons taught that shrinking pixel art
+     by half only works where the screen can spare the pixels. */
+  .check-progress-icon {
+    flex: 0 0 auto; width: 32px; height: 32px;
+    background-image: var(--icon-loading); background-repeat: no-repeat;
+    background-size: 64px 32px; background-position: 0 0;
+    image-rendering: pixelated;
+    animation: dashCycle .6s steps(1) infinite;
+  }
+  @keyframes dashCycle {
+    0% { background-position: 0 0; }
+    50% { background-position: -32px 0; }
+    100% { background-position: 0 0; }
+  }
   .check-progress[hidden] { display: none; }
   .check-progress-head {
     display: flex; justify-content: space-between; margin-bottom: 6px;
@@ -1678,6 +1731,7 @@ function writePage(data, outputPath) {
   }
   @keyframes checkScan { from { margin-left: 0; } to { margin-left: calc(100% - 22px); } }
   @media (prefers-reduced-motion: reduce) {
+    .check-progress-icon { animation: none; }
     .check-progress-fill { transition: none; }
     .check-progress.indeterminate .check-progress-fill { animation: none; }
   }
@@ -2072,11 +2126,11 @@ function writePage(data, outputPath) {
     <h1>${escapeHtml(t('title'))}</h1>
     <div class="when">${escapeHtml(t('updated'))} ${escapeHtml(time)}<button class="reload named"
          id="refresh-button"
-         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon">&#8635;</span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named"
+         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named"
          id="freshcheck-button"
-         title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon freshcheck-icon"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
+         title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
-         title="${escapeHtml(t('settingsTitle'))}">&#9881;<span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
+         title="${escapeHtml(t('settingsTitle'))}"><span class="pixel-icon icon-settings"></span><span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
 ${checkStatusPanel()}
   </header>

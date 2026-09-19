@@ -142,7 +142,7 @@ process, not yet built.
 **The new-project wizard's template** comes from
 `electron/package.json`'s own `build.extraResources` — bundles every
 `.js` file, `package.json`, `settings.example.json`,
-`freshcheck-icon.png`, and `node_modules` from the repo root into
+the icons (`refresh-icon.png`, `freshcheck-icon.png`, `settings-icon.png` for the header, `loading-icon.png` and `loading-icon-light.png` for the progress bar — the same sprite twice, the speed-dashes white for the dark theme and near-black for the light one; regenerate the light one if the dashes are ever redrawn), and `node_modules` from the repo root into
 `resources/ProjectTemplate` inside the packaged app, the Electron
 equivalent of `build.sh`'s own `Contents/Resources/ProjectTemplate` step
 for the Mac build. **Needs the root project's own `npm ci` run first** —
