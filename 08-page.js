@@ -234,6 +234,15 @@ ${cards}
  * available on every card, since none of the due-date-bucket-specific
  * rules apply here.
  */
+/** The reminders shown in the Reminders section right now: not done, not
+ *  hidden — the same set remindersSection() renders as active cards.
+ *  Separate so filtersPanel() can count them too. */
+function activeReminderItems(now) {
+  const { burning, later, overdue, undated } =
+    virtualAssignments.bucketed(now, readSettings().treatUndatedAsUrgent);
+  return [...overdue, ...burning, ...later, ...undated].filter(x => !x.hidden);
+}
+
 function remindersSection(now) {
   const settings = readSettings();
   const { burning, later, overdue, undated, done } =
@@ -248,10 +257,14 @@ function remindersSection(now) {
     });
   const hiddenItems = all.filter(x => x.hidden);
 
-  const dueText = (x) => {
+  const dueText = (x, kind) => {
     if (!x.due_at) return t('reminderNoDue');
     if (x.note) return t(x.note);
-    return `${x.due_at.toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${when(x.due_at, now)}`;
+    const date = x.due_at.toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    // A DONE reminder isn't overdue, however long ago it was due — "4
+    // days overdue" next to something already completed read as if the
+    // check-off hadn't taken. Just the date it was due.
+    return kind === 'done' ? date : `${date} · ${when(x.due_at, now)}`;
   };
 
   const card = (x, kind) => {
@@ -293,7 +306,7 @@ function remindersSection(now) {
         <div class="meta">
           <span class="plat">${escapeHtml(t('reminderPlatform'))}</span>
           ${x.class ? `<span class="cls">${escapeHtml(x.class)}</span>` : ''}
-          <span class="due">${escapeHtml(dueText(x))}</span>
+          <span class="due">${escapeHtml(dueText(x, kind))}</span>
         </div>
       </div>
       ${actions}
@@ -814,12 +827,25 @@ ${sectionBlocks}
  * site itself, and a hardcoded list would go stale by September.
  */
 function filtersPanel(allItems, announcements, now, rawItems) {
+  // ACTIVE REMINDERS ARE PART OF WHAT THIS PANEL OFFERS, NOT JUST REAL
+  // ASSIGNMENTS. Every card on the page — reminders included — is
+  // filtered against the checked boxes below, but the boxes used to be
+  // built from allItems alone. A reminder whose class, type or due range
+  // no real assignment shared matched nothing on offer, so it was
+  // filtered out and simply never appeared: caught live when a
+  // completed reminder was un-done. Four days past due, with no real
+  // overdue assignment on the page to make "overdue" an option, it
+  // vanished — the section header still said "1", the card was
+  // display:none. Only reminders on screen count (not done, not hidden:
+  // those sit behind their own button and skip these filters entirely).
+  const pool = [...allItems, ...activeReminderItems(now)];
+
   // Counts how many cards each checkbox would match. The number next to
   // it immediately shows whether there's anything there — like the Steam
   // library the user referenced.
   const count = (key) => {
     const counts = new Map();
-    for (const x of allItems) {
+    for (const x of pool) {
       const k = key(x);
       if (!k) continue;
       counts.set(k, (counts.get(k) || 0) + 1);
@@ -828,7 +854,7 @@ function filtersPanel(allItems, announcements, now, rawItems) {
   };
 
   const daysFor = x => (x.due_at ? daysUntil(now, x.due_at) : null);
-  const countByDue = (test) => allItems.filter(x => test(daysFor(x))).length;
+  const countByDue = (test) => pool.filter(x => test(daysFor(x))).length;
 
   const dueRanges = [
     ['1', t('filterTodayTomorrow'), countByDue(d => d !== null && d >= 0 && d <= 1)],
@@ -2514,7 +2540,12 @@ function applyFilters() {
     // (above) still apply: that means "stop showing this class at all".
     var inReminderGroup = r.closest('#reminders-done, #reminders-hidden') !== null;
 
-    if (ok && !inReminderGroup && cls.length && cls.indexOf(r.getAttribute('data-cls')) === -1) ok = false;
+    // A reminder with no class ("Class (optional)" in the add form) has
+    // data-cls="" — no checkbox exists for it, so with any class boxes on
+    // the page it matched none of them and could never be shown. Real
+    // assignments always have a class, so empty only ever means that.
+    var noClass = r.getAttribute('data-cls') === '';
+    if (ok && !inReminderGroup && !noClass && cls.length && cls.indexOf(r.getAttribute('data-cls')) === -1) ok = false;
     if (ok && !inReminderGroup && types.length && types.indexOf(r.getAttribute('data-type')) === -1) ok = false;
     if (ok && !inReminderGroup && dueRanges.length) ok = matchesDueFilter(dueRanges, r.getAttribute('data-days'));
 
