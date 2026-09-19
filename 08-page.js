@@ -1045,7 +1045,7 @@ ${CHECK_STATUS_ENTRIES.map(([k, l]) => row(k, l)).join('\n')}
 // generated from the same place or they'd drift apart.
 const PIXEL_THEME = {
   light: { bg: '#f6f7f9', card: '#ffffff', line: '#e5e7eb', dim: '#6b7280', warnbg: '#fffaeb', ink: '#101018', new: '#0004ff', hot: '#d40000' },
-  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', ink: '#cfefff', new: '#00ffff', hot: '#ff6b6b' },
+  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', ink: '#66718a', new: '#00ffff', hot: '#ff6b6b' },
 };
 
 // A corner is described the way pixel artists draw a round one: for each
