@@ -48,7 +48,7 @@ const ICON_FRESHCHECK_B64 = readIcon('freshcheck-icon.png');
 const ICON_SETTINGS_B64 = readIcon('settings-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
-// see .check-progress-icon. Full colour, so a background image, not a stencil.
+// see .loading-icon. Full colour, so a background image, not a stencil.
 // The dashes are drawn white, which is invisible on the light theme's near-
 // white page, so there are two copies: loading-icon.png as drawn (dark theme)
 // and loading-icon-light.png, identical except that the dashes — and only the
@@ -1221,7 +1221,7 @@ function pixelCornerCss() {
   ${CHECK}:checked, ${TOGGLE}:checked { ${src('mini', 'ink', 'new')} }
   ${TRACK}, ${THUMB}, ${PROGRESS} { ${src('mini', 'ink', 'card')} }
   ${SLIDER}:hover::-webkit-slider-thumb, ${SLIDER}:active::-webkit-slider-thumb { ${src('mini', 'ink', 'new')} }
-  .status-dot.status-ok, .dot { background-image: ${pixelDot(t.ink, t.new)}; }
+  .status-dot.status-ok { background-image: ${pixelDot(t.ink, t.new)}; }
   .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
   .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }`;
   };
@@ -1274,7 +1274,7 @@ function pixelCornerCss() {
      listed because each one's original background shorthand has the
      same specificity as this rule and would otherwise paint a square
      of solid colour behind the sprite. */
-  .status-dot.status-ok, .status-dot.status-problem, .status-dot.status-unknown, .dot {
+  .status-dot.status-ok, .status-dot.status-problem, .status-dot.status-unknown {
     width: 12px; height: 12px; border: 0; border-radius: 0;
     background-color: transparent; background-repeat: no-repeat; background-size: 12px 12px;
   }
@@ -1308,12 +1308,12 @@ function writePage(data, outputPath) {
         ? t('progressFinishing')
         : `${t('progressChecking')} ${progress.done} ${t('settingsOf')} ${progress.total}`)
     : '';
-  const progressBar = `  <div class="check-progress" id="check-progress" role="progressbar"
+  const progressFinishing = !!(progress && progress.total && progress.done >= progress.total);
+  const progressBar = `  <div class="check-progress${progressFinishing ? ' finishing' : ''}" id="check-progress" role="progressbar"
        aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}"${progress ? '' : ' hidden'}>
-    <span class="check-progress-icon" aria-hidden="true"></span>
     <div class="check-progress-body">
       <div class="check-progress-head"><span id="check-progress-label">${escapeHtml(progressLabel)}</span><span id="check-progress-pct">${progressPct}%</span></div>
-      <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"></div></div>
+      <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"><span class="loading-icon check-progress-runner" aria-hidden="true"></span></div></div>
     </div>
   </div>`;
   const deferred = data.deferred || [];
@@ -1362,7 +1362,7 @@ function writePage(data, outputPath) {
   // about its own state — otherwise a half-read list looks like a
   // complete one, and that's worse than waiting.
   const inProgress = reading.length
-    ? `  <div class="live"><span class="dot"></span>${escapeHtml(t('stillReading'))} ${escapeHtml(reading.join(', '))}.
+    ? `  <div class="live"><span class="loading-icon" aria-hidden="true"></span>${escapeHtml(t('stillReading'))} ${escapeHtml(reading.join(', '))}.
        ${escapeHtml(t('fromMemoryNotice'))}</div>`
     : '';
 
@@ -1693,15 +1693,19 @@ function writePage(data, outputPath) {
   /* A collection is running. Filled in whole 8px blocks with a 2px gap
      between them, snapped by the page script — a smooth bar would be the
      one thing on this page that isn't drawn in pixels. */
-  .check-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-  .check-progress-body { flex: 1 1 auto; min-width: 0; }
+  .check-progress { margin-bottom: 16px; }
+  /* The right-hand 28px is kept clear: the icon that leads the fill runs
+     past the last block into it (it reaches 26px beyond the fill), so it
+     never pokes out past the page. */
+  .check-progress-body { padding-right: 28px; }
   /* The app icon, running: its speed-dashes swap between long and short, two
      frames of a sprite stepped between with no easing (steps(1) holds each
      frame, then jumps). At its own 32px, one art pixel per CSS pixel, so it's
      crisp on every display — the header icons taught that shrinking pixel art
-     by half only works where the screen can spare the pixels. */
-  .check-progress-icon {
-    flex: 0 0 auto; width: 32px; height: 32px;
+     by half only works where the screen can spare the pixels. Used on the
+     progress bar (leading the fill) and in the "Still reading" banner. */
+  .loading-icon {
+    flex: 0 0 auto; display: inline-block; width: 32px; height: 32px;
     background-image: var(--icon-loading); background-repeat: no-repeat;
     background-size: 64px 32px; background-position: 0 0;
     image-rendering: pixelated;
@@ -1714,10 +1718,18 @@ function writePage(data, outputPath) {
   }
   .check-progress[hidden] { display: none; }
   .check-progress-head {
-    display: flex; justify-content: space-between; margin-bottom: 6px;
+    display: flex; justify-content: space-between; margin-bottom: 10px;
     font-size: 12px; color: var(--dim);
   }
   .check-progress-track { height: 16px; }
+  /* The icon sits at the end of the fill, tucked 6px back over the last
+     blocks so it looks attached to the bar, centred on it and taller than it
+     (32px on a 16px bar), so it looks like it's running at the head. It's a child of the fill, so it moves with it —
+     including with the sweeping block before the total is known. Gone once
+     everything's read: at 100% it would have nowhere left to run. */
+  .check-progress-fill { position: relative; }
+  .check-progress-runner { position: absolute; left: 100%; top: 50%; margin: -16px 0 0 -6px; }
+  .check-progress.finishing .check-progress-runner { display: none; }
   .check-progress-fill {
     height: 100%; background-color: var(--new);
     background-image: repeating-linear-gradient(to right, transparent 0 6px, var(--card) 6px 8px);
@@ -1731,7 +1743,7 @@ function writePage(data, outputPath) {
   }
   @keyframes checkScan { from { margin-left: 0; } to { margin-left: calc(100% - 22px); } }
   @media (prefers-reduced-motion: reduce) {
-    .check-progress-icon { animation: none; }
+    .loading-icon { animation: none; }
     .check-progress-fill { transition: none; }
     .check-progress.indeterminate .check-progress-fill { animation: none; }
   }
@@ -1753,14 +1765,9 @@ function writePage(data, outputPath) {
   .update-error-note { color: var(--warn); }
   .live {
     background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
-    padding: 12px 14px; margin-bottom: 20px; font-size: 14px; color: var(--dim);
-    display: flex; gap: 9px; align-items: baseline;
+    padding: 6px 14px; margin-bottom: 20px; font-size: 14px; color: var(--dim);
+    display: flex; gap: 10px; align-items: center;
   }
-  .dot {
-    width: 8px; height: 8px; border-radius: 50%; background: var(--new);
-    flex: 0 0 auto; animation: pulse 1s steps(2, jump-none) infinite;
-  }
-  @keyframes pulse { 50% { opacity: .25; } }
   .empty { color: var(--dim); padding: 20px 0; }
   .row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; }
   .row .item { flex: 1; margin-bottom: 0; }
@@ -3384,6 +3391,7 @@ function applyRunState(run) {
       var done = Math.min(run.done || 0, total);
       var pct = total ? Math.round(done / total * 100) : 0;
       box.classList.toggle('indeterminate', total === 0);
+      box.classList.toggle('finishing', total > 0 && done >= total);
       box.setAttribute('aria-valuenow', pct);
       document.getElementById('check-progress-pct').textContent = total ? pct + '%' : '';
       document.getElementById('check-progress-label').textContent =
