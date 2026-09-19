@@ -418,9 +418,92 @@ func runNodeScriptDetached(_ script: String, args: [String], in dir: String,
     }
 }
 
+// BEGIN LiveStatePusher (extracted verbatim by the test harness — keep it self-contained)
+/// Pushes the collector's progress, and "a newer page exists", into the page.
+///
+/// A page opened from disk can't hold a connection or watch a file, so on
+/// its own it would have to poll. This app can watch, and can call into the
+/// page, so it does the listening: 28-live-state.js leaves two small JSON
+/// files in `live/`, and whenever anything in that folder changes this reads
+/// them and hands the page both as one call to window.classdashLiveChanged
+/// (see "Live updates" in 08-page.js). It also pushes once as each page
+/// finishes loading, because a page that has just loaded missed everything
+/// that was pushed before it existed.
+///
+/// The FOLDER is watched, not the files: they're replaced by renaming a
+/// temp file over them, which a watch on the old file's inode never sees.
+/// Each change is debounced — one write is several events, and there are
+/// two files — so the page gets one call, not five.
+///
+/// What gets pushed is re-serialized JSON, never the file's text run as
+/// script: a file that isn't valid JSON becomes `null` ("no news"), not
+/// something the page executes.
+final class LiveStatePusher {
+    private let dir: String
+    private let evaluate: (String) -> Void
+    private var source: DispatchSourceFileSystemObject?
+    private var pending = false
+
+    init(projectDir: String, evaluate: @escaping (String) -> Void) {
+        self.dir = projectDir + "/live"
+        self.evaluate = evaluate
+    }
+
+    func start() {
+        stop()
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let fd = open(dir, O_EVTONLY)
+        if fd < 0 {
+            logWindow("live watcher: couldn't open \(dir)")
+            return
+        }
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write, .extend, .delete, .rename], queue: .main)
+        src.setEventHandler { [weak self, weak src] in
+            guard let self = self, let src = src else { return }
+            self.schedulePush()
+            // The folder itself was removed or replaced (a project reset):
+            // this watch is on the old one, so start over on whatever's there.
+            if src.data.contains(.delete) || src.data.contains(.rename) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.start() }
+            }
+        }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        source = src
+    }
+
+    func stop() {
+        source?.cancel()
+        source = nil
+    }
+
+    private func schedulePush() {
+        if pending { return }
+        pending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.pending = false
+            self?.push()
+        }
+    }
+
+    func push() {
+        func read(_ name: String) -> String {
+            guard let data = FileManager.default.contents(atPath: dir + "/" + name),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+                  let clean = try? JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed]),
+                  let text = String(data: clean, encoding: .utf8) else { return "null" }
+            return text
+        }
+        evaluate("window.classdashLiveChanged && window.classdashLiveChanged({run: \(read("check-run.json")), version: \(read("page-version.json"))});")
+    }
+}
+// END LiveStatePusher
+
 class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
+    var livePusher: LiveStatePusher?
 
     // Set true only by setUpNewProject() succeeding — gates
     // continueNewProjectSetupIfNeeded() so an existing-folder launch
@@ -653,6 +736,13 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         window.contentView!.addSubview(web)
 
         show()
+
+        // Listens for the collector's progress and for newer pages, and pushes
+        // them into the page — see LiveStatePusher above.
+        livePusher = LiveStatePusher(projectDir: projectDir) { [weak self] script in
+            self?.web.evaluateJavaScript(script, completionHandler: nil)
+        }
+        livePusher?.start()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -912,6 +1002,12 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             logWindow("  bridge action '\(action)' FAILED: \(why)")
             completion(Delegate.failureJSON(why))
         }
+    }
+
+    // A page that has just finished loading missed everything pushed before it
+    // existed, so it's told the current state straight away.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        livePusher?.push()
     }
 
     // Hands the result back to the exact page that asked for it, as a

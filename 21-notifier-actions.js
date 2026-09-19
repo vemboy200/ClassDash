@@ -323,6 +323,13 @@ function main(action, arg) {
     case 'signIn':
       signIn();
       return { ok: true, action };
+    // The page reporting that it hid its own progress bar while it believed
+    // a collection was still going. Nothing to do here: main() already
+    // logged the arg above, which is the whole point — the page has no
+    // console in the app window, and this is how it leaves a trace of what
+    // it decided and why. See reportLiveDecision in 08-page.js.
+    case 'liveDebug':
+      return { ok: true, action };
     case 'rollApiToken':
       // No restart needed: 17-api.js's isAuthorized() reads the token
       // file fresh on every single request rather than caching it at

@@ -205,6 +205,7 @@ require('./27-diagnostics-forward.js').install();
 const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-browser.js');
 const { isClassStale, recordActivity } = require('./22-class-activity.js');
 const { record: recordCheckStatus } = require('./25-check-status.js');
+const live = require('./28-live-state.js');
 const BROWSER = SETTINGS.browserPath
   ? { executablePath: path.resolve(__dirname, SETTINGS.browserPath) }
   : ownBrowserInstalled()
@@ -886,6 +887,12 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     ...(CANVAS_ENABLED ? [{ id: 'canvas', name: 'Canvas' }] : []),
     ...(withEdpuzzle ? [{ id: 'edpuzzle', name: 'Edpuzzle' }] : [])];
 
+  // Now the total is known: the page's progress bar goes from "starting"
+  // to a real 0 of N. Canvas and Edpuzzle count as a step each, since
+  // they take real time; the bar is honest about the work, not just about
+  // how many classes there are.
+  live.setProgress(0, sources.length);
+
   // Reported the moment a source finishes reading, without waiting for
   // the rest. Thanks to this, the summary page updates after EVERY
   // source, and can be checked without waiting for the whole thing.
@@ -897,9 +904,11 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     console.log(`  done: ${result.cls.name} — ` +
                 `${Math.round((Date.now() - startTime) / 1000)}s, assignments ${result.items.length}`);
     completed.push(result);
+    live.setProgress(completed.length, sources.length);
     if (!onProgress) return;
     try {
       onProgress({
+        progress: { done: completed.length, total: sources.length },
         items: completed.flatMap(r => r.items),
         reading: completed.map(r => r.cls.name),
         broken: completed.filter(r => !r.ok).map(r => r.cls.name),
@@ -1665,6 +1674,11 @@ if (require.main !== module) return;
   }
   // Release the lock no matter the outcome: a crash or a Ctrl+C.
   process.on('exit', releaseLock);
+  // Tells an open page a collection is running, so it can show a progress
+  // bar (see 28-live-state.js). Ended on 'exit' like the lock, for the same
+  // reason: whatever way this dies, the page shouldn't keep showing a bar.
+  live.startRun(__dirname);
+  process.on('exit', live.endRun);
   process.on('SIGINT', () => process.exit(1));
   process.on('SIGTERM', () => process.exit(1));
 
@@ -1764,7 +1778,7 @@ if (require.main !== module) return;
 
   setFeedEmail(AUTHUSER);
 
-  const { all: collected, announcements, broken, results: taskResults } = await collect(({ items, reading, broken, stillReading }) => {
+  const { all: collected, announcements, broken, results: taskResults } = await collect(({ items, reading, broken, stillReading, progress }) => {
     // Add in from memory whatever hasn't been reached yet, on top of
     // what's already been read. Same fix as in diffWithPrevious: a
     // source's name and the class name inside it are different things.
@@ -1781,7 +1795,7 @@ if (require.main !== module) return;
     // becomes clear once every class has been read.
     writePage(
       { burning, later, undated, deferred, overdue, gone, items: combined,
-        freshIds: new Set(), broken, reading: stillReading, now },
+        freshIds: new Set(), broken, reading: stillReading, progress, now },
       PAGE_FILE,
     );
   }, nonEmptyClasses, withEdpuzzle);

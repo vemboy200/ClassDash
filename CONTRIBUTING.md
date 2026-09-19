@@ -614,12 +614,29 @@ integration, a script, a phone shortcut).
 | `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
 | `25-check-status.js` | per-platform "did the last check work?" — ok/problem/unknown |
 | `26-update-check.js` | reads the update check the native wrapper already ran; writes dismissedVersion; downloads the release asset (`.dmg` on macOS, `.exe` on Windows — the destination filename is derived from the actual download URL's own extension) |
+| `28-live-state.js` | what lets an open page notice things without a refresh: writes `live/page-version` (bumped every time the page is rewritten) and `live/check-run` (the running collection's done/total, with a heartbeat), which the hosting app pushes into the page — see [Live updates](#live-updates) |
 | `build.sh` | builds the macOS app, registers its URL scheme, bakes in the project path, bundles the new-project template |
 | `electron/main.js` | the Windows app — same jobs as 16-summary.swift, see [The Windows wrapper](#the-windows-wrapper) above |
 | `electron/preload.js` | the bridge shim — makes `08-page.js` believe it's still talking to Swift's WKWebView |
 | `electron/package.json` | Electron/electron-builder config — the NSIS installer target, the new-project template's `extraResources` bundling |
 | `.github/workflows/release.yml` | builds and publishes both a `.dmg` and a Windows `.exe` on a `v*` tag push |
 | `.github/workflows/windows-dev-build.yml` | builds just the Windows installer on every push to `main`, as a downloadable workflow artifact — for testing on a real Windows machine without a real release |
+
+### Live updates
+
+A page opened from disk can't read files or hold a connection, so on its own it can't tell that `summary.html` was rewritten or that a collection is running. `28-live-state.js` leaves two small facts in `live/`, each written twice (a `.json` copy and a one-line `.js` copy), and the page gets at them one of two ways:
+
+- **Pushed (the normal way).** The app hosting the page watches `live/` — `LiveStatePusher` in `16-summary.swift`, `startLiveWatcher()` in `electron/main.js` — and on any change reads the two `.json` files and calls `window.classdashLiveChanged({run, version})` inside the page. It also pushes once as each page finishes loading, since a freshly loaded page missed everything before it. The folder is watched, not the files, because they're replaced by renaming a temp file over them. What's pushed is re-serialized JSON, never file text run as script. The first push switches the page's polling off for good.
+- **Polled (fallback).** A page in a plain browser tab, or under an app that hasn't been rebuilt to push yet, loads the two `.js` files itself every 5 seconds (2 while a check runs) — a script tag is the one thing a `file://` page can fetch. This is why a page updated ahead of its app keeps working.
+
+Neither is in the project root on purpose: `build.sh` and electron-builder both bundle `*.js` from there into the installer's template, and generated files would ship inside every install.
+
+- **`page-version`** is written by `writePage()` right after the page itself, with the same number that's baked into the page. Every rewrite counts — a collection after each source it reads, a settings save, a hide, the 10-minute schedule. A page reloads only when it hears of a strictly *larger* number, so a lagging or failed write can leave a page un-refreshed but can never make it reload in a loop. The reload waits for a quiet moment: not with settings open, not while a text field has focus or a reminder is half-typed or being edited, and not within 4 seconds of a click, keypress or scroll — and it keeps trying on a timer, so a held-back reload happens by itself once things go quiet.
+- **`check-run`** is written by a collection (`05-playwright-draft.js`): `{running, done, total, at}`. It starts as `0 of 0` ("Starting…", a block sweeping back and forth), becomes `0 of N` once the class list is read, and moves with every source that finishes. Canvas and Edpuzzle count as a step each, so N is classes plus those. `at` is a heartbeat every 4 seconds: a run that dies (killed, crashed, the lid closing) can't write "finished", so a page treats a run whose stamp is more than 30 seconds old as over. The page also bakes the bar into the in-progress copies a collection writes, so a page reloaded mid-run doesn't flash empty.
+
+**Hearing nothing is not hearing "over".** A file that fails to load, a push with no run in it, or a page that hasn't been told anything yet never takes the bar down; only a state that says the run ended, or a heartbeat that has stopped for 30 seconds, does. If the page hides its bar while it still shows the "Still reading…" banner, it sends a `liveDebug` action, which lands in `notifier-log.txt` with what it saw (the heartbeat's age, whether it was being pushed) — the app window has no console, so that line is the only trace.
+
+The reload is the only way to show new data — there's no fetching and patching a `file://` page in place — and it drops anything only held on screen, like an expanded announcement or the "show done" reminders toggle. Filters survive because they're saved (see `filterUnchecked` in the settings reference). Scroll position is kept by the browser engine's own reload.
 
 The code comments are fairly heavy. Those comments are not decoration: nearly
 every one of them records a failure that already happened and explains why

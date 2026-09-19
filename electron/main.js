@@ -326,6 +326,50 @@ ipcMain.on('classdash-action', async (_event, body) => {
   deliverResult(id, result);
 });
 
+// ── Live updates ──
+//
+// The Windows twin of LiveStatePusher in 16-summary.swift; see that and
+// 28-live-state.js for the whole story. A collection leaves two small JSON
+// files in live/; this watches the folder (not the files — they're replaced
+// by renaming a temp file over them) and hands the page both as one call to
+// window.classdashLiveChanged, so the page never has to poll. Also pushed
+// once per page load, since a page that has just loaded missed everything
+// before it existed. What's pushed is re-serialized JSON, never file text
+// run as script.
+let liveWatcher = null;
+let livePushTimer = null;
+
+function readLiveJson(name) {
+  try {
+    return JSON.stringify(JSON.parse(fs.readFileSync(path.join(projectDir, 'live', name), 'utf8')));
+  } catch {
+    return 'null';
+  }
+}
+
+function pushLiveState() {
+  if (!win || win.isDestroyed()) return;
+  const script = `window.classdashLiveChanged && window.classdashLiveChanged({run: ${readLiveJson('check-run.json')}, version: ${readLiveJson('page-version.json')}});`;
+  win.webContents.executeJavaScript(script).catch(() => {});
+}
+
+function startLiveWatcher() {
+  if (liveWatcher) { liveWatcher.close(); liveWatcher = null; }
+  const dir = path.join(projectDir, 'live');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    // One write is several events, and there are two files: debounced, so
+    // the page gets one call.
+    liveWatcher = fs.watch(dir, () => {
+      clearTimeout(livePushTimer);
+      livePushTimer = setTimeout(pushLiveState, 50);
+    });
+    liveWatcher.on('error', () => {});
+  } catch (e) {
+    console.warn(`live watcher: couldn't watch ${dir}: ${e.message}`);
+  }
+}
+
 // ── Window ──
 
 function loadSummary() {
@@ -355,6 +399,12 @@ function createWindow() {
   });
 
   loadSummary();
+
+  win.webContents.on('did-finish-load', pushLiveState);
+  startLiveWatcher();
+  win.once('closed', () => {
+    if (liveWatcher) { liveWatcher.close(); liveWatcher = null; }
+  });
 }
 
 // ── Menu ──

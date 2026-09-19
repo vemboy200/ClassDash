@@ -23,6 +23,7 @@ const { currentToken, certFingerprint, isServerRunning } = require('./23-api-sec
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { isClassStale } = require('./22-class-activity.js');
 const { checkStatus } = require('./25-check-status.js');
+const { publishPageVersion } = require('./28-live-state.js');
 const { readUpdateStatus } = require('./26-update-check.js');
 
 // Fresh check's icon. Refresh (↻) and Settings (⚙) are plain Unicode
@@ -1175,6 +1176,7 @@ function pixelCornerCss() {
   const TRACK = SLIDER + '::-webkit-slider-runnable-track';
   const THUMB = SLIDER + '::-webkit-slider-thumb';
   const TOGGLE = 'input[type="checkbox"].toggle';
+  const PROGRESS = '.check-progress-track';
 
   // Slice and width are both the corner's size in CSS pixels, so the
   // corners are drawn 1:1 and only the middle stretches.
@@ -1198,7 +1200,7 @@ function pixelCornerCss() {
   .badge { ${src('pill', 'ink', 'new')} }
   ${CHECK}, ${TOGGLE} { ${src('mini', 'ink', 'card')} }
   ${CHECK}:checked, ${TOGGLE}:checked { ${src('mini', 'ink', 'new')} }
-  ${TRACK}, ${THUMB} { ${src('mini', 'ink', 'card')} }
+  ${TRACK}, ${THUMB}, ${PROGRESS} { ${src('mini', 'ink', 'card')} }
   ${SLIDER}:hover::-webkit-slider-thumb, ${SLIDER}:active::-webkit-slider-thumb { ${src('mini', 'ink', 'new')} }
   .status-dot.status-ok, .dot { background-image: ${pixelDot(t.ink, t.new)}; }
   .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
@@ -1238,6 +1240,13 @@ function pixelCornerCss() {
   ${TRACK} {
     border-radius: 0; border-image-slice: 4; border-image-width: 4px; border-image-repeat: stretch;
   }
+  /* The progress bar's frame is the slider track's sprite again, with the
+     border as wide as the sprite's corner so the fill sits inside it. */
+  ${PROGRESS} {
+    border-style: solid; border-width: 4px; border-radius: 0;
+    border-image-slice: 4; border-image-width: 4px; border-image-repeat: stretch;
+    background: var(--card); background-clip: padding-box;
+  }
   ${THUMB} {
     border-radius: 0; background: transparent;
     border-image-slice: 4 fill; border-image-width: 4px; border-image-repeat: stretch;
@@ -1262,6 +1271,29 @@ function pixelCornerCss() {
 function writePage(data, outputPath) {
   const { burning, later, undated, freshIds, broken, now } = data;
   const reading = data.reading || [];
+
+  // Stamped into the page and published beside it once it's on disk, so an
+  // open copy can tell a newer one exists (see "Live updates" in the page
+  // script and 28-live-state.js).
+  const pageVersion = Date.now();
+
+  // Set only by a collection's in-progress writes: how many sources are
+  // done out of how many. Baked in so a page reloaded mid-run already shows
+  // the bar in the right place instead of flashing empty until the first
+  // poll; the page's own script keeps it moving from there.
+  const progress = data.progress || null;
+  const progressPct = progress && progress.total
+    ? Math.round(progress.done / progress.total * 100) : 0;
+  const progressLabel = progress
+    ? (progress.total && progress.done >= progress.total
+        ? t('progressFinishing')
+        : `${t('progressChecking')} ${progress.done} ${t('settingsOf')} ${progress.total}`)
+    : '';
+  const progressBar = `  <div class="check-progress" id="check-progress" role="progressbar"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}"${progress ? '' : ' hidden'}>
+    <div class="check-progress-head"><span id="check-progress-label">${escapeHtml(progressLabel)}</span><span id="check-progress-pct">${progressPct}%</span></div>
+    <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"></div></div>
+  </div>`;
   const deferred = data.deferred || [];
   // Full, unbucketed collection — everything last-collection.json has
   // ever recorded, materials included regardless of whether they're
@@ -1623,6 +1655,32 @@ function writePage(data, outputPath) {
      Electron-specific; would misbehave identically on the Mac app too,
      just apparently never actually clicked on there. */
   .update-banner[hidden] { display: none; }
+  /* A collection is running. Filled in whole 8px blocks with a 2px gap
+     between them, snapped by the page script — a smooth bar would be the
+     one thing on this page that isn't drawn in pixels. */
+  .check-progress { margin-bottom: 16px; }
+  .check-progress[hidden] { display: none; }
+  .check-progress-head {
+    display: flex; justify-content: space-between; margin-bottom: 6px;
+    font-size: 12px; color: var(--dim);
+  }
+  .check-progress-track { height: 16px; }
+  .check-progress-fill {
+    height: 100%; background-color: var(--new);
+    background-image: repeating-linear-gradient(to right, transparent 0 6px, var(--card) 6px 8px);
+    transition: width .25s steps(4);
+  }
+  /* Before the class list is known there's no fraction to show, so a block
+     sweeps back and forth instead. */
+  .check-progress.indeterminate .check-progress-fill {
+    width: 22px !important; transition: none;
+    animation: checkScan 1.2s steps(12) infinite alternate;
+  }
+  @keyframes checkScan { from { margin-left: 0; } to { margin-left: calc(100% - 22px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .check-progress-fill { transition: none; }
+    .check-progress.indeterminate .check-progress-fill { animation: none; }
+  }
   /* The gear grows to say "Saving…" and then "Saved." — closing the panel
      is what saves, and this is where the eye already is. The glyph keeps
      its size; only the width changes, like Refresh and Fresh check. */
@@ -2022,6 +2080,7 @@ function writePage(data, outputPath) {
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
 ${checkStatusPanel()}
   </header>
+${progressBar}
 ${inProgress}
 ${setupBanner}
 ${signInBanner}
@@ -2105,6 +2164,10 @@ const WORDS = ${JSON.stringify({
   checking: t('checking'),
   checkFailed: t('checkFailed'),
   pendingChecking: t('pendingFetchStarting'),
+  progressChecking: t('progressChecking'),
+  progressOf: t('settingsOf'),
+  progressStarting: t('progressStarting'),
+  progressFinishing: t('progressFinishing'),
   signInNow: t('signInNow'),
   signInOpening: t('signInOpening'),
   signInFailed: t('signInFailed'),
@@ -3153,6 +3216,7 @@ function filterAnnouncements() {
   if (!freshCheckButton) return;
   freshCheckButton.addEventListener('click', function () {
     freshCheckButton.classList.add('spinning');
+    freshSpinUntil = Date.now() + 15000;
     freshCheckButton.title = WORDS.checking;
 
     // onResult here only ever confirms the request was DISPATCHED — a
@@ -3173,6 +3237,197 @@ function filterAnnouncements() {
   });
 })();
 
+// ── Live updates ──
+//
+// Two things an open page can't see on its own: that a collection is
+// running, and that a newer copy of this page has been written (a
+// collection rewrites it after every source it reads). Both are written to
+// live/ (see 28-live-state.js) and reach the page one of two ways:
+//
+//   PUSHED: the app hosting this page watches live/ and calls
+//   window.classdashLiveChanged(...) below whenever it changes, and once
+//   as each page finishes loading. Nothing polls.
+//
+//   POLLED: a page in a plain browser tab, or under an app that doesn't
+//   push yet, loads the two one-line scripts in live/ itself every few
+//   seconds. The first push switches polling off for good.
+//
+// A newer page is picked up by reloading — there's no way to fetch and
+// patch it in place from a file:// page — so the reload waits for a quiet
+// moment: not while settings are open, a field is being typed in, or
+// anything was clicked, typed or scrolled in the last few seconds. It
+// keeps trying, so it happens the moment things go quiet.
+var PAGE_VERSION = ${pageVersion};
+var LIVE_POLL_IDLE = 5000;
+var LIVE_POLL_RUNNING = 2000;
+var LIVE_STALE_MS = 30000;
+var LIVE_UNKNOWN_MS = 15000;
+var QUIET_BEFORE_RELOAD_MS = 4000;
+var pageLoadedAt = Date.now();
+var lastInteraction = Date.now();
+var reloadingForLive = false;
+var freshSpinUntil = 0;
+var liveTimer = null;
+var livePushed = false;
+var lastRun = null;
+var newestVersion = 0;
+var lastLiveReport = 0;
+
+['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(function (name) {
+  document.addEventListener(name, function () { lastInteraction = Date.now(); },
+    { passive: true, capture: true });
+});
+
+// Loads one of the live/ scripts and says whether it loaded. The query
+// string is what stops the web view from serving the previous copy.
+function loadLiveFile(name, done) {
+  var el = document.createElement('script');
+  var finished = false;
+  var finish = function (ok) {
+    if (finished) return;
+    finished = true;
+    if (el.parentNode) el.parentNode.removeChild(el);
+    done(ok);
+  };
+  el.onload = function () { finish(true); };
+  el.onerror = function () { finish(false); };
+  el.src = 'live/' + name + '?t=' + Date.now();
+  document.head.appendChild(el);
+}
+
+// The page hid its own progress bar while it still believed the check was
+// going. There's no console in the app window, so this leaves a line in the
+// notifier log saying what the page saw — enough to tell a dead heartbeat
+// from a missing file from a run that really ended. At most every 10s.
+function reportLiveDecision(run) {
+  if (!hasNativeBridge()) return;
+  var now = Date.now();
+  if (now - lastLiveReport < 10000) return;
+  lastLiveReport = now;
+  dispatchAction('liveDebug', JSON.stringify({
+    run: run || null, ageMs: run ? now - run.at : null,
+    pushed: livePushed, sinceLoadMs: now - pageLoadedAt,
+  }));
+}
+
+// Shows, moves or hides the progress bar for the run last heard about, and
+// keeps the Fresh check icon spinning to match. Returns whether a run is
+// live. A run whose heartbeat stopped counts as over even if it never said
+// so — it died. Hearing NOTHING isn't the same as hearing "over": a bar
+// baked into this page is left alone until a real answer turns up, or
+// LIVE_UNKNOWN_MS passes with none.
+function applyRunState(run) {
+  var live = !!(run && run.running && (Date.now() - run.at) < LIVE_STALE_MS);
+  var unknown = !run && (Date.now() - pageLoadedAt) < LIVE_UNKNOWN_MS;
+  var box = document.getElementById('check-progress');
+  if (box && !unknown) {
+    if (!live) {
+      if (!box.hidden && document.querySelector('.live')) reportLiveDecision(run);
+      box.hidden = true;
+    } else {
+      box.hidden = false;
+      var total = run.total || 0;
+      var done = Math.min(run.done || 0, total);
+      var pct = total ? Math.round(done / total * 100) : 0;
+      box.classList.toggle('indeterminate', total === 0);
+      box.setAttribute('aria-valuenow', pct);
+      document.getElementById('check-progress-pct').textContent = total ? pct + '%' : '';
+      document.getElementById('check-progress-label').textContent =
+        total === 0 ? WORDS.progressStarting
+        : done >= total ? WORDS.progressFinishing
+        : WORDS.progressChecking + ' ' + done + ' ' + WORDS.progressOf + ' ' + total;
+      // Whole 8px blocks, the last one ending on a filled block rather than
+      // a gap. Measured now, after un-hiding: a hidden bar has no width.
+      var track = box.querySelector('.check-progress-track');
+      var blocks = Math.floor(track.clientWidth / 8);
+      var filled = Math.round(pct / 100 * blocks);
+      document.getElementById('check-progress-fill').style.width =
+        filled > 0 ? (filled * 8 - 2) + 'px' : '0px';
+    }
+  }
+  var fresh = document.getElementById('freshcheck-button');
+  if (fresh) {
+    if (live || Date.now() < freshSpinUntil) fresh.classList.add('spinning');
+    else fresh.classList.remove('spinning');
+  }
+  return live;
+}
+
+function reloadWhenQuiet() {
+  if (reloadingForLive) return;
+  var now = Date.now();
+  if (now - pageLoadedAt < 3000) return;
+  if (now - lastInteraction < QUIET_BEFORE_RELOAD_MS) return;
+  var panel = document.getElementById('settings-panel');
+  if (panel && !panel.hidden) return;
+  var a = document.activeElement;
+  var typingTypes = ['text', 'password', 'search', 'number', 'url', 'email', 'datetime-local'];
+  if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' ||
+            (a.tagName === 'INPUT' && typingTypes.indexOf(a.type) !== -1))) return;
+  // A reminder half-typed, or one being edited, survives the field losing
+  // focus — a click elsewhere shouldn't be what lets the reload eat it.
+  var title = document.getElementById('reminder-title');
+  if (title && title.value) return;
+  var editing = document.getElementById('reminder-editing-id');
+  if (editing && editing.value) return;
+  reloadingForLive = true;
+  location.reload();
+}
+
+// Everything that arrives, pushed or polled, comes through here. run and
+// version are each optional: null/0 means "nothing new heard", NOT "there's
+// no run" — a file that failed to load once must never look like a run that
+// ended. Only a state that really says so, or a heartbeat that stopped,
+// takes the bar down.
+function onLiveState(run, version) {
+  if (run) lastRun = run;
+  if (version && version > newestVersion) newestVersion = version;
+  var running = applyRunState(lastRun);
+  // Strictly newer, never just different: if the version ever lags or goes
+  // missing this can leave a page un-refreshed, but can't make one reload
+  // forever.
+  if (newestVersion > PAGE_VERSION) reloadWhenQuiet();
+  return running;
+}
+
+// Called by the hosting app, by this exact name — see LiveStatePusher in
+// 16-summary.swift and pushLiveState in electron/main.js. The first call
+// ends polling.
+window.classdashLiveChanged = function (state) {
+  livePushed = true;
+  clearTimeout(liveTimer);
+  if (state) onLiveState(state.run, state.version);
+};
+
+// A run that dies sends nothing at all, and a reload that was held back by
+// typing has nothing to wake it either, so both are re-checked on a timer.
+setInterval(function () { onLiveState(null, 0); }, 2000);
+
+function scheduleLivePoll(ms) {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(pollLive, ms);
+}
+
+function pollLive() {
+  if (livePushed) return;
+  // A window nobody can see doesn't need polling; coming back to it does
+  // (see the visibilitychange listener), and the app reloads on return anyway.
+  if (document.hidden) { scheduleLivePoll(LIVE_POLL_IDLE); return; }
+  loadLiveFile('check-run.js', function (haveRun) {
+    var run = haveRun ? window.classdashCheckRun : null;
+    loadLiveFile('page-version.js', function (haveVersion) {
+      if (livePushed) return;
+      var running = onLiveState(run, haveVersion ? window.classdashPageVersion : 0);
+      scheduleLivePoll(running ? LIVE_POLL_RUNNING : LIVE_POLL_IDLE);
+    });
+  });
+}
+
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden && !livePushed) scheduleLivePoll(0);
+});
+scheduleLivePoll(0);
+
 // Filters are applied right away on load, not just counted: otherwise
 // removed items would show up until the first checkbox click.
 applyFilters();
@@ -3182,6 +3437,7 @@ applyFilters();
 `;
 
   fs.writeFileSync(outputPath, html);
+  publishPageVersion(path.dirname(outputPath), pageVersion);
   return outputPath;
 }
 
