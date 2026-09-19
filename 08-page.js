@@ -969,9 +969,9 @@ ${content.join('\n')}
   // A separate checkbox: not a value filter, but "show what's been removed".
   parts.push(`    <div class="filter-group">
       <div class="group-name">${escapeHtml(t('filterHidden'))}</div>
-        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden" onchange="applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden"${filterSettings.filterShowHidden ? ' checked' : ''} onchange="rememberFilterToggles(); applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowHiddenMuted'))}</span></label>
-        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed" onchange="applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed"${filterSettings.filterShowRemoved ? ' checked' : ''} onchange="rememberFilterToggles(); applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowRemoved'))}</span></label>
       <button onclick="resetFilters()">${escapeHtml(t('filterResetAll'))}</button>
       <div class="result" id="f-result"></div>
@@ -2383,7 +2383,20 @@ function isRowVisible(row) {
   // instead of the hidden-row/shown class dance above — a second kind
   // of "not currently on screen" this function needs to know about too,
   // or recount()'s header counter would include cards nobody can see.
-  if (row.closest('[hidden]')) return false;
+  //
+  // BUT NOT THE SECTION ITSELF. This used to be a bare
+  // row.closest('[hidden]'), which also matched the <section> — and
+  // recount() below hides a section whose visible count is zero. So a
+  // section hidden at page load (say "No longer in Classroom", whose
+  // cards all start filtered out) could never come back: ticking "show
+  // removed" un-filtered its cards, but each card still counted as
+  // invisible because its section was hidden, so the count stayed zero
+  // and the section stayed hidden. Only the filter badges (computed
+  // separately, from the cards alone) changed — the "only the numbers
+  // change" symptom. Whether a section shows is recount()'s decision,
+  // made from its rows; it can't also be an input to that decision.
+  var hiddenAncestor = row.closest('[hidden]');
+  if (hiddenAncestor && hiddenAncestor.tagName !== 'SECTION') return false;
   return true;
 }
 
@@ -2854,6 +2867,21 @@ function saveSettings() {
   setTimeout(function () { location.reload(); }, 30000);
 }
 
+// Remembers the two view toggles across refreshes — through the same
+// config bridge the settings panel uses, so it lands in settings.json and
+// the next page (the app reloads it whenever it comes back to the front)
+// starts with them where they were left. Fire-and-forget: the toggle has
+// already taken effect on screen, and a save that fails just means it
+// resets on the next refresh, as it always did.
+function rememberFilterToggles() {
+  var hidden = document.getElementById('f-hidden');
+  var removed = document.getElementById('f-removed');
+  dispatchAction('config', toBase64Url(JSON.stringify({
+    filterShowHidden: !!(hidden && hidden.checked),
+    filterShowRemoved: !!(removed && removed.checked),
+  })));
+}
+
 function resetFilters() {
   // Back to how the page looks when opened: every assignment checkbox
   // checked, "show hidden/removed" unchecked. Unchecking everything would
@@ -2866,6 +2894,7 @@ function resetFilters() {
   var removedField = document.getElementById('f-removed');
   if (removedField) removedField.checked = false;
 
+  rememberFilterToggles();
   applyFilters();
 }
 

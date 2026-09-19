@@ -211,6 +211,16 @@ const DEFAULTS = {
   // same as any other Home API caller would.
   diagnosticsForwardUrl: '',
   diagnosticsForwardToken: '',
+
+  // The two view toggles at the bottom of the filter panel ("show muted
+  // and hidden", "show removed"). They lived only in the page's DOM, so
+  // every refresh — including the automatic one when the app comes back
+  // to the front — put them back to off. Stored here, not in the
+  // browser's own storage: the page is a file:// document, where that
+  // storage isn't reliably kept across launches, while this file is.
+  // Not shown in the settings panel — the toggles themselves are the UI.
+  filterShowHidden: false,
+  filterShowRemoved: false,
 };
 
 const TYPES = {
@@ -225,6 +235,7 @@ const TYPES = {
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
+  filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
 };
 
 function read() {
