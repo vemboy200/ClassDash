@@ -909,6 +909,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     try {
       onProgress({
         progress: { done: completed.length, total: sources.length },
+        announcements: completed.flatMap(r => r.announcements || []),
         items: completed.flatMap(r => r.items),
         reading: completed.map(r => r.cls.name),
         broken: completed.filter(r => !r.ok).map(r => r.cls.name),
@@ -1630,6 +1631,61 @@ function redrawPage() {
   console.log(`Page redrawn (language: ${require('./18-language.js').currentLanguage()})`);
 }
 
+/**
+ * Gives every announcement a sortTime, once, when it's first seen. Shared by
+ * the final write and the in-progress ones, so a post reads the same way in
+ * both.
+ */
+function stampAnnouncementTimes(posts, now) {
+  for (const post of posts) {
+    // COMPUTED ONCE, WHEN A POST IS FIRST SEEN — NOT RECOMPUTED EVERY RUN.
+    //
+    // This used to run for every post, every pass, including ones
+    // already in memory from long ago. Harmless for an absolute date
+    // like "Aug 8" (it resolves to the same real day no matter when
+    // it's parsed), but Classroom also writes RELATIVE text for recent
+    // posts — "Yesterday", a bare time like "10:43 AM" — and that text
+    // never changes once stored. Re-parsing "10:43 AM" against a `now`
+    // months later reads as "posted at 10:43 AM today", every single
+    // time: a months-old post captured while it still said a bare time
+    // would sort as freshest on the page forever, and (once this same
+    // sortTime becomes the signal skipStaleClasses reads to judge a
+    // class's last activity) would make that class look permanently
+    // active no matter how long it's actually been quiet.
+    if (post.sortTime !== undefined) continue;
+
+    const { at } = parseDue(post.date, now);
+
+    // AN IMPORTANT CORRECTION to the general date-parsing rule.
+    //
+    // parseDue picks the closest year in EITHER direction — correct for
+    // due dates. But an announcement can't be from the future: it's
+    // already been written. Without this correction, "Jan 13" would be
+    // read as next January (closer than last January) and a January post
+    // would end up looking fresher than an August one.
+    if (at && at > now) at.setFullYear(at.getFullYear() - 1);
+
+    post.sortTime = at ? at.getTime() : 0;
+  }
+}
+
+/**
+ * The announcements the page shows WHILE a collection is still running: what
+ * memory holds from the last run (minus classes now excluded), with the posts
+ * already read this pass laid over it, newest first. The final write does the
+ * same merge once every class is in; without this the in-progress pages
+ * showed no announcements at all until then, and the whole column emptied
+ * for the length of every check.
+ */
+function announcementsForProgress(memoryPosts, freshPosts, now) {
+  const merged = new Map(
+    memoryPosts.filter(x => !EXCLUSIONS.includes(x.class)).map(x => [x.id, x]));
+  for (const post of freshPosts) merged.set(post.id, post);
+  const posts = [...merged.values()];
+  stampAnnouncementTimes(posts, now);
+  return posts.sort((a, b) => b.sortTime - a.sortTime);
+}
+
 // ── Entry point ──────────────────────────────────────────────
 
 // This line means: only run the collection if the file was invoked
@@ -1646,7 +1702,7 @@ function redrawPage() {
 // word in this whole thing.
 module.exports = {
   parseDue, deadline, detectErrorPage, notify, diffWithPrevious, rememberCollection,
-  sortIntoBuckets, readMutedIds, readHiddenIds,
+  sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress,
 };
 if (require.main !== module) return;
 
@@ -1718,6 +1774,13 @@ if (require.main !== module) return;
     try { memory = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
   }
 
+  // The same for announcements: the in-progress pages show last run's posts
+  // for classes not yet read, on top of the ones that have been.
+  let announcementMemory = [];
+  if (fs.existsSync(STREAM_FILE)) {
+    try { announcementMemory = JSON.parse(fs.readFileSync(STREAM_FILE, 'utf8')); } catch {}
+  }
+
   // The list is re-read on every run: the user might have clicked "not
   // urgent" a minute ago, while the previous collection was still running.
   const mutedIds = readMutedIds();
@@ -1778,7 +1841,7 @@ if (require.main !== module) return;
 
   setFeedEmail(AUTHUSER);
 
-  const { all: collected, announcements, broken, results: taskResults } = await collect(({ items, reading, broken, stillReading, progress }) => {
+  const { all: collected, announcements, broken, results: taskResults } = await collect(({ items, reading, broken, stillReading, progress, announcements: readSoFar }) => {
     // Add in from memory whatever hasn't been reached yet, on top of
     // what's already been read. Same fix as in diffWithPrevious: a
     // source's name and the class name inside it are different things.
@@ -1795,7 +1858,8 @@ if (require.main !== module) return;
     // becomes clear once every class has been read.
     writePage(
       { burning, later, undated, deferred, overdue, gone, items: combined,
-        freshIds: new Set(), broken, reading: stillReading, progress, now },
+        freshIds: new Set(), broken, reading: stillReading, progress, now,
+        announcements: announcementsForProgress(announcementMemory, readSoFar || [], now) },
       PAGE_FILE,
     );
   }, nonEmptyClasses, withEdpuzzle);
@@ -1912,36 +1976,7 @@ if (require.main !== module) return;
   // Post dates are text ("Aug 8", "Jun 4"), no year. Parsed with the same
   // parseDue used for assignment due dates: it knows to pick the closest
   // year in either direction, so January posts don't fly off into the future.
-  for (const post of allAnnouncements) {
-    // COMPUTED ONCE, WHEN A POST IS FIRST SEEN — NOT RECOMPUTED EVERY RUN.
-    //
-    // This used to run for every post, every pass, including ones
-    // already in memory from long ago. Harmless for an absolute date
-    // like "Aug 8" (it resolves to the same real day no matter when
-    // it's parsed), but Classroom also writes RELATIVE text for recent
-    // posts — "Yesterday", a bare time like "10:43 AM" — and that text
-    // never changes once stored. Re-parsing "10:43 AM" against a `now`
-    // months later reads as "posted at 10:43 AM today", every single
-    // time: a months-old post captured while it still said a bare time
-    // would sort as freshest on the page forever, and (once this same
-    // sortTime becomes the signal skipStaleClasses reads to judge a
-    // class's last activity) would make that class look permanently
-    // active no matter how long it's actually been quiet.
-    if (post.sortTime !== undefined) continue;
-
-    const { at } = parseDue(post.date, now);
-
-    // AN IMPORTANT CORRECTION to the general date-parsing rule.
-    //
-    // parseDue picks the closest year in EITHER direction — correct for
-    // due dates. But an announcement can't be from the future: it's
-    // already been written. Without this correction, "Jan 13" would be
-    // read as next January (closer than last January) and a January post
-    // would end up looking fresher than an August one.
-    if (at && at > now) at.setFullYear(at.getFullYear() - 1);
-
-    post.sortTime = at ? at.getTime() : 0;
-  }
+  stampAnnouncementTimes(allAnnouncements, now);
   allAnnouncements.sort((a, b) => b.sortTime - a.sortTime);
   // Announcement memory is also written at the very end, together with assignments.
 
