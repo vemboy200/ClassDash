@@ -159,6 +159,29 @@ per-user location. Still safe: the profile isolation that matters comes
 from Playwright's own `--user-data-dir` flag, not from the install being
 physically separate.
 
+**Installing an update needs `elevate.exe`, and used to fail without it.**
+The installer is per-machine (`nsis.perMachine`), so NSIS marks it
+`requireAdministrator`. `spawn()` can't raise Windows' consent prompt —
+`CreateProcess` refuses to start an admin-only program from a
+normal-user process with `ERROR_ELEVATION_REQUIRED`, which libuv reports
+as `EACCES` (an ordinary access-denied, like a file locked by OneDrive
+or an antivirus scan, is `EPERM`). So every in-app update on Windows
+failed with `spawn ...update-download.exe EACCES` until
+`installReadyUpdate()` in `electron/main.js` was changed to do what
+electron-builder's own updater does: try the installer directly, and on
+`EACCES` run it through `resources/elevate.exe` (shipped in the package
+by electron-builder), or `shell.openPath` when running unpackaged. The
+flags are `--updated /S --force-run` — a silent install doesn't restart
+the app on its own. Two earlier versions got this wrong (v1.4.2 blamed
+OneDrive and retried five times, which can't help a permanent failure),
+so if it breaks again, look at the error code first: `EACCES` is
+elevation, `EPERM` is a lock.
+
+**Anyone on v1.4.5 or earlier has to install the next release by hand
+once.** The updater that's already installed is the broken one — it
+can't launch the installer that would replace it. Every update after
+that works from inside the app.
+
 ### The release pipeline — both platforms, one tag
 
 `.github/workflows/release.yml` builds, packages, and publishes a release

@@ -1105,7 +1105,8 @@ function maybeShowInstallPrompt() {
   dialog.showMessageBox(win, {
     type: 'question',
     message: `Install ClassDash ${status.readyVersion}?`,
-    detail: 'The update has already been downloaded. Installing will quit ClassDash and relaunch it as the new version.',
+    detail: 'The update has already been downloaded. Installing will quit ClassDash and relaunch it as the new version. ' +
+      'Windows will ask for administrator permission first.',
     buttons: ['Install & Relaunch', 'Later'],
     defaultId: 0,
   }).then(({ response }) => {
@@ -1124,57 +1125,79 @@ function checkForUpdatesManually() {
 
 // Simpler than the Mac mount/copy/relaunch dance (installReadyUpdate() in
 // 16-summary.swift): the downloaded asset here is a real NSIS installer,
-// not a disk image — /S skips the wizard UI, and NSIS replaces this app's
-// own files on disk itself once this process has actually exited, same as
-// any ordinary Windows installer overwrite.
+// not a disk image, and NSIS replaces this app's own files on disk itself
+// once this process has actually exited.
 //
-// NOT ACTUALLY SILENT END-TO-END, though — installer.NSIS's own /S flag
-// only skips ITS UI. This build installs per-machine (Program Files,
-// electron/package.json's own nsis.perMachine), which needs admin rights;
-// Windows has no way to grant that without a UAC consent prompt, and
-// nothing running as a normal user process can suppress or pre-answer
-// that prompt. The dialog just above this (Install & Relaunch) is
-// followed by a SECOND, OS-level one neither this file nor NSIS controls.
-// CONFIRMED LIVE: a real user hit `spawn ...update-download.exe EACCES`
-// here, and it crashed the whole app — "A JavaScript error occurred in
-// the main process". The try/catch above only ever caught a SYNCHRONOUS
-// throw from spawn() itself (a bad path, missing binary); EACCES from
-// Windows actually arrives later, as an async 'error' event on the
-// returned ChildProcess. With nothing listening for it, an unhandled
-// 'error' event throws on its own — Electron's main process has no
-// surrounding try/catch for that, so it took the whole app down instead
-// of showing the same error dialog the synchronous case already had.
+// WHY THE ELEVATE.EXE STEP — THIS USED TO NEVER WORK, ON ANY MACHINE.
+// This build installs per-machine (electron/package.json's nsis.perMachine),
+// and NSIS marks a per-machine installer requireAdministrator (confirmed
+// in the released .exe's own manifest). spawn() is CreateProcess, which
+// can't raise the consent prompt: Windows refuses to start an admin-only
+// program from a normal-user process with ERROR_ELEVATION_REQUIRED, and
+// libuv reports that as EACCES (src/win/error.c maps exactly that error
+// to UV_EACCES; an ordinary access-denied — a file locked by OneDrive or
+// an antivirus scan — is EPERM instead). Every attempt to update from
+// inside the app failed with "spawn ...update-download.exe EACCES".
 //
-// The EACCES itself, separately: that user's project folder lived at
-// C:\Users\...\OneDrive\Documents\classdash — OneDrive is well known
-// for briefly locking a file it's about to sync right after it's
-// written, which races this function's own call right after the
-// download finishes (see downloadUpdate() in 26-update-check.js). A
-// few retries with a short, increasing wait clears that almost every
-// time; the user only ever sees an error dialog if it's still failing
-// after that.
-function installReadyUpdate(installerPath, attempt = 1) {
-  const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore' });
+// The fix is the one electron-builder's own updater uses (see
+// NsisUpdater.ts): try the installer directly, and on EACCES run it
+// through elevate.exe, which electron-builder ships in resources/ and
+// which goes through ShellExecute's "runas" — the thing that actually
+// shows the consent prompt. If elevate.exe isn't there (running
+// unpackaged with "npm start"), shell.openPath does the same through
+// ShellExecute, just with the installer's own wizard instead of a silent
+// run.
+//
+// EARLIER (v1.4.2) THIS WAS MISDIAGNOSED as OneDrive briefly locking the
+// freshly downloaded file, and "fixed" with five retries and a hint
+// blaming OneDrive. Neither could ever help — the failure was permanent,
+// not a race — and the hint sent people looking at the wrong thing. What
+// v1.4.2 did get right, and this keeps: the failure arrives as an async
+// 'error' event, so it has to be listened for, or it crashes the whole
+// app ("A JavaScript error occurred in the main process").
+//
+// Flags, same as electron-updater passes: --updated (the installer's own
+// upgrade mode: skips its wizard pages, keeps shortcuts), /S (silent), and
+// --force-run — a silent install doesn't start the app again by itself.
+function installReadyUpdate(installerPath) {
+  const args = ['--updated', '/S', '--force-run'];
 
-  child.once('error', (e) => {
-    if (e.code === 'EACCES' && attempt < 5) {
-      setTimeout(() => installReadyUpdate(installerPath, attempt + 1), 750 * attempt);
+  const fail = (e) => {
+    dialog.showErrorBox('Install failed',
+      "Couldn't launch the installer" + (e.code ? ' (' + e.code + ')' : '') + ': ' + e.message +
+      '\n\nThe update is still downloaded. You can also install it yourself by running:\n' + installerPath);
+  };
+
+  // 'spawn' only fires once the OS has actually launched the process; only
+  // then is it safe to quit, so the installer can replace this app's files.
+  const launch = (exe, exeArgs, onError) => {
+    let child;
+    try {
+      child = spawn(exe, exeArgs, { detached: true, stdio: 'ignore' });
+    } catch (e) {
+      onError(e);
       return;
     }
-    const oneDriveHint = /onedrive/i.test(installerPath)
-      ? '\n\nYour ClassDash folder is inside OneDrive, which can briefly lock a just-downloaded file while it syncs. Try Install & Relaunch again in a moment — if this keeps happening, moving the project folder outside OneDrive will fix it for good.'
-      : '';
-    dialog.showErrorBox('Install failed', `Couldn't launch the installer: ${e.message}${oneDriveHint}`);
-  });
+    child.once('error', onError);
+    child.once('spawn', () => {
+      child.unref();
+      app.quit();
+    });
+  };
 
-  // 'spawn' only fires once the OS has actually launched the process —
-  // the earlier code quit right after calling spawn() itself, which is
-  // exactly the race that let this crash happen unnoticed: nothing had
-  // confirmed the child was really running yet.
-  child.once('spawn', () => {
-    child.unref();
-    app.quit();
-  });
+  const viaElevate = () => {
+    const elevate = path.join(process.resourcesPath, 'elevate.exe');
+    if (fs.existsSync(elevate)) {
+      launch(elevate, [installerPath, ...args], fail);
+      return;
+    }
+    shell.openPath(installerPath).then((err) => {
+      if (err) fail(new Error(err));
+      else app.quit();
+    });
+  };
+
+  launch(installerPath, args, (e) => (e.code === 'EACCES' ? viaElevate() : fail(e)));
 }
 
 function setupUpdateCheck() {
