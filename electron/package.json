@@ -18,7 +18,7 @@
     "productName": "ClassDash",
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "artifactName": "ClassDash-v${version}.${ext}",

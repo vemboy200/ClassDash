@@ -182,6 +182,10 @@ once.** The updater that's already installed is the broken one — it
 can't launch the installer that would replace it. Every update after
 that works from inside the app.
 
+#### The Windows icon
+
+`electron/build/icon.ico` is generated, not drawn: `node electron/build/make-icon.js` builds it from `icon-source.png` and it's committed, and `win.icon` in `electron/package.json` points straight at it. It used to be a single 1024px PNG that electron-builder turned into an `.ico` holding one 256px image, so Windows shrank that with smoothing for every other size — and a smoothing shrink eats one-pixel pixel art: at 16px the icon's eight speed-dashes became four half-strength bands. Now there's one image per size (16, 24, 32, 48, 64, 128, 256). 32, 64, 128 and 256 are whole-number enlargements of the 32px art, so they're exact. 48 is 1.5x, nearest-neighbour: crisp, with dashes alternately 1 and 2 pixels thick. 16 and 24 don't divide evenly (and eight dashes can't fit in 16 rows), so the art *without* its dashes is shrunk and the dashes are drawn back on as crisp lines — four at 16px, all eight at 24. Those two are stand-ins: drop a hand-drawn `icon-16.png` (or `-24`, `-48`, ...) next to the script, exactly that many pixels square and RGBA, and it's used instead. `build/icon.png` (the old 1024px source) isn't used by the Windows build any more.
+
 ### The release pipeline — both platforms, one tag
 
 `.github/workflows/release.yml` builds, packages, and publishes a release
