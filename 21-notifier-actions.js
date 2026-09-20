@@ -104,7 +104,7 @@ function quickCheck() {
 }
 
 /** Opens the real, visible sign-in browser window — same script and
- *  flag the "Sign In to Google Classroom…" menu item and `npm run
+ *  flag the Settings → Account → Setup "Sign In…" button and `npm run
  *  login` both already use. Detached and fire-and-forget like
  *  fullCheck()/quickCheck() above, but for a different reason: this one
  *  isn't waiting on a result that'll be ready in a minute, it's waiting
@@ -216,7 +216,10 @@ function stopApiServer() {
  * turns into a result too rather than letting it vanish.
  */
 function main(action, arg) {
-  logAction(`${action} ${arg}`);
+  // A settings save carries every setting, the Canvas access token and the
+  // email included, so its payload is never logged — the "applied:" line
+  // below says which settings took, by name, which is all a log needs.
+  logAction(action === 'config' ? 'config (payload not logged)' : `${action} ${arg}`);
   switch (action) {
     case 'config': {
       const { applyBatch } = require('./19-settings.js');

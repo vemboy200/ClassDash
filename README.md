@@ -37,8 +37,8 @@ puts everything on one page.
   you can read what was said, but it will not pull the embedded questions or
   their answers — that's a deliberate line, not a missing feature.
 - **Not a scraper of other people's data.** Every request goes through your
-  own logged-in browser session and returns exactly what your own account
-  can already see.
+  own logged-in browser session (or, for Canvas, your own access token) and
+  returns exactly what your own account can already see.
 - **Built for one school's setup, not every possible one.** Canvas and
   Edpuzzle are read through real APIs; Google Classroom doesn't offer one to
   students, so that part reads the actual page and can break if Google
@@ -122,9 +122,11 @@ the rest itself:
   now — see [Troubleshooting](#troubleshooting))
 
 Skipped a step, or want to redo one later — a different browser,
-signing in again? Both are still reachable any time afterward from the
-app's own menu (**Choose Browser…**, **Sign In to Google Classroom…**),
-not just during that first run.
+signing in again? Both are still reachable any time afterward in
+**Settings → Account → Setup** (**Choose Browser…**, **Sign In…**),
+not just during that first run. **Settings → Advanced → Browser path**
+lets you pick any browser app directly, with a file picker instead of
+typing a path.
 
 **On macOS specifically**, two permissions still need granting, both in
 **System Settings → Privacy & Security**:
@@ -223,6 +225,35 @@ first, or fill in `browserPath` in `settings.json` by hand.
   Windows) checks on demand instead of waiting — and if there's
   something newer, offers to download and
   install it right there, no need to go find the `.dmg` yourself.
+
+### Keyboard shortcuts
+
+Cmd on a Mac, Ctrl on Windows. They also live in the **View** menu, and each filter shows its own key beside it.
+
+| Keys | Does |
+|---|---|
+| Cmd/Ctrl + R | Refresh |
+| Shift + Cmd/Ctrl + R | Fresh check |
+| Cmd/Ctrl + S | Show or hide the status of each source |
+| 1 to 9, 0, -, = | Turn the 1st to 12th class in the class filter on or off (the numpad works too, with `-` and `+` as 11 and 12) |
+| Shift + those keys | The same, for the 1st to 12th class in the announcement filters |
+| A, C, M | Assignment, Completed and Material in the type filter |
+| N | "No due date" in the due filter |
+
+The letters and numbers don't do anything while you're typing in a box or while Settings is open, and they follow the physical key, so they work on a Russian keyboard layout too. Refresh and Fresh check wait while Settings has unsaved changes, so a reload can't throw them away.
+
+### Choosing your sources
+
+Settings → Account has a checkbox for each thing ClassDash can read:
+
+- **Google Classroom** — needs a browser: ClassDash signs in to your school Google account through one.
+- **Canvas — Google sign-in** — reads Canvas through that same browser, signed in with your school Google account, so it needs a browser too. It's the one for a school whose Canvas opens with "Sign in with Google", and there's nothing extra to set up. If **Canvas — API** is also on and filled in, this is only the *fallback*: it's used when the API can't be read, for example because the token has expired, and the Canvas entry in the status dots then tells you the token failed so you can make a new one.
+- **Canvas — API (access token)** — in Canvas, Account → Settings → **New Access Token**, then paste it into the token box. Canvas is read through its official API with no browser and no sign-in, whatever your school's login looks like. Set an expiry when you create it: how long a token can live is up to Canvas and your school, and when it runs out the token is refused and you make a new one. A token can do anything you can do in Canvas (ClassDash only ever reads), so treat it like a password, and delete it from that same Settings page whenever you like. Some schools don't let students create tokens; then use Google sign-in.
+- **Edpuzzle** — needs a browser: it can only be read through a real browser window, which opens during a full check.
+
+Both Canvas ways need your **Canvas address**, which appears once either one is ticked. The email box appears with Google Classroom, and the token box with Canvas — API.
+
+**Only use Canvas?** Untick Google Classroom, Canvas — Google sign-in and Edpuzzle, and use an access token. ClassDash then never opens a browser at all, so there's nothing to install and nothing to sign into. The first-run setup asks what your school uses, so choosing **Only Canvas** and then an access token sets this up for you.
 
 ## Home API
 

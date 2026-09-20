@@ -1,30 +1,53 @@
 /**
- * Collects assignments from Canvas.
+ * Collects assignments from Canvas, through its REST API.
+ * https://canvas.instructure.com/doc/api/
  *
- * BUILT FUNDAMENTALLY DIFFERENTLY FROM CLASSROOM, and that's for the better.
- *
- * Classroom has to be watched with actual eyes: wait for the page to
- * finish rendering, guess at selectors, catch things that didn't fully
- * load. Got burned by that twice already.
- *
- * Canvas has an API — an address the site hands data back from not as a
- * page for a human, but as a ready-made list for a program. Which means:
+ * Canvas hands data back from an address meant for programs, not people —
+ * a ready-made list — which means:
  *
  *   - courses do NOT need to be typed in by hand, the list arrives on its own;
  *   - interface language doesn't matter, dates arrive in machine form;
  *   - the markup can change however it likes, it's none of our business;
  *   - it runs in seconds, not a minute.
  *
- * No access token needed: requests go out from inside the already-open
- * page, with the same cookies a normal browser would have. Confirmed —
- * status 200.
+ * ── Two ways to sign in, one way to read ──
+ *
+ * The requests are the same either way; what differs is who they're sent as.
+ *
+ *   ACCESS TOKEN (settings.canvasToken, with canvasApiEnabled on). Canvas →
+ *   Account → Settings → "New Access Token". Every request carries it in an
+ *   `Authorization: Bearer` header — the documented way for a program to act
+ *   as a student. No browser, no cookies, no redirects, nothing to wait for.
+ *   The catch is its lifetime: Canvas (or the school) caps how long a token
+ *   lives, so it stops working after a while and has to be made again. It is
+ *   revoked from that same Settings page.
+ *
+ *   BROWSER SESSION (canvasSsoEnabled). Requests go out from inside an open
+ *   Canvas page of the browser profile, with the same cookies a normal
+ *   browser would have — which is what makes a school whose Canvas sits
+ *   behind Google single sign-on work with no token at all. The cost:
+ *   waiting out the school's sign-in redirect chain, and needing the profile
+ *   signed in (it expires like any session, and the person has to sign in
+ *   again).
+ *
+ * With both on and a token filled in, the token is the way and the browser
+ * session is the FALLBACK for when the token fails (see collectCanvasPlanned
+ * below) — with a note, so the person still hears the token stopped working.
+ *
+ * ── The token is a credential ──
+ *
+ * It acts as the person, for everything they can do in Canvas. This file
+ * only ever sends GET requests. It is never logged or put in an error
+ * message — those land in check-status.json, the home API's
+ * /api/check-status and the diagnostics log — and it only goes over https
+ * (or to a Canvas on this same computer, for development).
  *
  * ── About language ──
  * The browser profile remembers Russian (Chrome picked it up from the
  * system), and Canvas was serving pages in Russian: "со сроком сдачи
  * среда, 10 июня 2026". The Accept-Language header in 05-...js overrides
- * that. Canvas's own settings aren't touched by this — the user's actual
- * interface stays Russian.
+ * that for the browser way. Canvas's own settings aren't touched by this —
+ * the user's actual interface stays Russian.
  */
 
 const fs = require('fs');
@@ -36,17 +59,20 @@ const path = require('path');
 // "theirschool.instructure.com" (no scheme, the way you'd type it into
 // an actual browser's address bar, which quietly assumes https:// for
 // you) crashed page.goto() outright with "Cannot navigate to invalid
-// URL", since goto() needs a real absolute URL, not something a browser
-// UI would still resolve. It also broke the startsWith(SITE) checks
-// below more quietly, before that: page.url() always includes a scheme,
-// so a schemeless SITE could never match it, silently, without an error
-// at all. One fix at the source covers both.
+// URL", and fetch() can't parse it either. It also broke the
+// startsWith(SITE) checks below more quietly: page.url() always includes
+// a scheme, so a schemeless SITE could never match it. And someone pasting
+// the address of the page they were on ("…/calendar", "…/courses/123")
+// would get API requests built on top of that path. Only the origin
+// matters — the API always lives at its root — so that's all that's kept.
 function normalizeCanvasSite(raw) {
-  const trimmed = (raw || '').trim().replace(/\/+$/, '');
+  const trimmed = (raw || '').trim();
   if (!trimmed) return trimmed;
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try { return new URL(withScheme).origin; } catch { return withScheme.replace(/\/+$/, ''); }
 }
 const SITE = normalizeCanvasSite(require('./19-settings.js').read().canvas);
+const TOKEN = String(require('./19-settings.js').read().canvasToken || '').trim();
 const { isClassStale } = require('./22-class-activity.js');
 
 // The last successfully read list of active courses. Written here, not
@@ -88,12 +114,22 @@ function cleanDescription(html) {
     : text;
 }
 
+const REQUEST_TIMEOUT_MS = 30000;
+
+// An error a retry can't fix — a missing or refused token — so the wrapper
+// below doesn't wait three seconds just to hear the same thing again.
+function fatal(message) {
+  const e = new Error(message);
+  e.fatal = true;
+  return e;
+}
+
 /**
- * A request to the API from inside the already-open Canvas page.
- * Canvas guards against forgery by prepending `while(1);` before the
- * JSON — that junk has to be trimmed off, or parsing crashes.
+ * A request to the API from inside the already-open Canvas page (the
+ * browser way). Canvas guards against forgery by prepending `while(1);`
+ * before the JSON — that junk has to be trimmed off, or parsing crashes.
  */
-async function ask(page, apiPath) {
+async function askViaPage(page, apiPath) {
   const text = await page.evaluate(async (u) => {
     const r = await fetch(u, { headers: { Accept: 'application/json' } });
     if (!r.ok) throw new Error(`Canvas responded ${r.status} to ${u}`);
@@ -103,8 +139,38 @@ async function ask(page, apiPath) {
 }
 
 /**
+ * One GET to the API with the access token. A token request doesn't get
+ * the `while(1);` prefix, but trimming it costs nothing and keeps parsing
+ * safe either way.
+ *
+ * Errors name the path, never the token, and never the whole address.
+ */
+async function askWithToken(apiPath) {
+  let res;
+  try {
+    res = await fetch(SITE + apiPath, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${TOKEN}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (e) {
+    // e.message alone is a bare "fetch failed"; the reason is in e.cause.
+    const why = (e.cause && (e.cause.code || e.cause.message)) || e.name || 'network error';
+    throw new Error(`couldn't reach Canvas (${why})`);
+  }
+  if (res.status === 401) {
+    throw fatal('Canvas refused the access token (expired or deleted?) — make a new one in ' +
+                'Canvas → Account → Settings and paste it into ClassDash settings');
+  }
+  if (!res.ok) throw new Error(`Canvas responded ${res.status} to ${apiPath}`);
+  return JSON.parse((await res.text()).replace(/^while\(1\);?/, ''));
+}
+
+/**
  * Collects assignments from every course.
  *
+ * @param page  an open tab of the signed-in browser profile — used only
+ *              for the browser way, and null for the API way
+ * @param way   'api' (the access token) or 'browser' (the signed-in session)
  * @returns {{items: Array, courses: Array, pending: Array}}
  *   items    — assignments in the shared format, same as Classroom's
  *   courses  — which ones were actually gone through
@@ -113,21 +179,87 @@ async function ask(page, apiPath) {
 /**
  * A wrapper with one retry.
  *
- * The sign-in redirect chain is unpredictable in timing: no matter how
- * long you wait, it sometimes lurches at the worst possible moment. One
- * retry is cheaper than a missed Canvas collection.
+ * The browser way's sign-in redirect chain is unpredictable in timing: no
+ * matter how long you wait, it sometimes lurches at the worst possible
+ * moment. One retry is cheaper than a missed Canvas collection. Not for a
+ * token problem, which a retry can't fix.
  */
-async function collectCanvas(page) {
+async function collectCanvas(page, way) {
   try {
-    return await collectCanvasOnce(page);
+    return await collectCanvasOnce(page, way);
   } catch (e) {
+    if (e.fatal) throw e;
     console.warn(`  Canvas: first attempt failed (${e.message}), retrying`);
-    await page.waitForTimeout(3000);
-    return await collectCanvasOnce(page);
+    await new Promise(r => setTimeout(r, 3000));
+    return await collectCanvasOnce(page, way);
   }
 }
 
-async function collectCanvasOnce(page) {
+/**
+ * Reads Canvas the way the settings say (see canvasPlan in 19-settings.js).
+ *
+ *   api on and filled in   the API first; if that fails and the browser way
+ *                          is allowed, the browser way as a FALLBACK
+ *   otherwise              the browser way, if it's allowed
+ *
+ * A successful fallback comes back with a `note` saying why it was needed:
+ * it's a success, but the person needs to hear that the token stopped
+ * working (they'd otherwise never find out, and the browser session that's
+ * carrying things expires too), so the status panel shows the note.
+ *
+ * @param plan      {api, sso} from canvasPlan()
+ * @param openPage  async () => an open tab of the signed-in browser profile,
+ *                  launching the browser first if it isn't running yet —
+ *                  only called when the browser way is actually used, so a
+ *                  working token never starts a browser
+ */
+async function collectCanvasPlanned(plan, openPage) {
+  const viaBrowser = async () => {
+    const page = await openPage();
+    try {
+      return await collectCanvas(page, 'browser');
+    } finally {
+      try { await page.close(); } catch { /* already closed */ }
+    }
+  };
+
+  if (plan.api) {
+    try {
+      return await collectCanvas(null, 'api');
+    } catch (apiError) {
+      if (!plan.sso) throw apiError;
+      console.warn(`  Canvas: the access token didn't work (${apiError.message}) — trying the browser sign-in`);
+      try {
+        const result = await viaBrowser();
+        result.note = `the access token didn't work (${apiError.message}) — read through the browser sign-in instead`;
+        return result;
+      } catch (browserError) {
+        throw new Error(`${apiError.message}; and the browser sign-in didn't work either: ${browserError.message}`);
+      }
+    }
+  }
+  if (plan.sso) return await viaBrowser();
+  throw fatal('Canvas is on, but neither way of reading it is: fill in the access token, ' +
+              'or switch on Canvas Google sign-in');
+}
+
+async function collectCanvasOnce(page, way) {
+  if (way === 'api') {
+    if (!TOKEN) {
+      throw fatal('Canvas needs an access token — make one in Canvas → Account → ' +
+                  'Settings → New Access Token and paste it into ClassDash settings');
+    }
+    // The token would travel with every request, so only over https (a
+    // Canvas running on this same computer, for development, is the one
+    // exception).
+    const local = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|[^/:]+\.docker)(:|\/|$)/i.test(SITE);
+    if (!/^https:\/\//i.test(SITE) && !local) {
+      throw fatal('the Canvas address needs to be https:// — the access token is sent with every request');
+    }
+    return await readCanvas(askWithToken);
+  }
+  if (way !== 'browser') throw new Error(`unknown way of reading Canvas: ${way}`);
+
   // Open the site: API requests have to go out from its own page, or the
   // cookies won't be attached.
   await page.goto(SITE + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -157,7 +289,12 @@ async function collectCanvasOnce(page) {
   if (!page.url().startsWith(SITE)) {
     throw new Error(`stuck on sign-in (${page.url()}) — Canvas may need signing into again`);
   }
+  return await readCanvas(apiPath => askViaPage(page, apiPath));
+}
 
+/** Everything after signing in: the same for both ways, given a function
+ *  that asks the API for a path. */
+async function readCanvas(ask) {
   // state[]=unpublished — so unopened courses are visible too.
   // English 9 is exactly that right now: the school year hasn't started,
   // the teacher hasn't published it. Worth knowing about — so we notice
@@ -165,7 +302,7 @@ async function collectCanvasOnce(page) {
   // include[]=term — the course's term dates come along with it. The
   // interface never shows them at all, but they're needed here to tell
   // last year's courses apart from this year's.
-  const all = await ask(page,
+  const all = await ask(
     '/api/v1/courses?enrollment_state=active&state[]=unpublished&state[]=available' +
     '&include[]=term&per_page=100');
 
@@ -219,7 +356,7 @@ async function collectCanvasOnce(page) {
   for (const course of active) {
     // include[]=submission — to know whether it's already turned in.
     // No reason to show turned-in work as due soon.
-    const assignments = await ask(page,
+    const assignments = await ask(
       `/api/v1/courses/${course.id}/assignments` +
       '?include[]=submission&per_page=100&order_by=due_at');
 
@@ -284,7 +421,7 @@ async function collectCanvasOnce(page) {
     // that feature — skip pages for it and keep going.
     let pages = [];
     try {
-      pages = await ask(page, `/api/v1/courses/${course.id}/pages?per_page=100`);
+      pages = await ask(`/api/v1/courses/${course.id}/pages?per_page=100`);
     } catch (e) {
       console.warn(`  Canvas: no Pages for ${course.name} (${e.message})`);
     }
@@ -322,4 +459,4 @@ async function collectCanvasOnce(page) {
   return { items, courses, pending };
 }
 
-module.exports = { collectCanvas, SITE };
+module.exports = { collectCanvas, collectCanvasPlanned, SITE };

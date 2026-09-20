@@ -685,6 +685,29 @@ function versionRow() {
       </label>`;
 }
 
+// The name of the browser a browserPath points at, for showing to a person:
+// "Brave Browser" out of a macOS .../Brave Browser.app/Contents/MacOS/...,
+// "brave" out of a Windows ...\brave.exe. (The page has a copy of this for
+// updating the label after a pick — see browserNameFromPath in its script.)
+function browserNameFromPath(p) {
+  const parts = String(p).split(/[\\/]/);
+  const app = parts.find(x => /\.app$/i.test(x));
+  if (app) return app.replace(/\.app$/i, '');
+  return (parts[parts.length - 1] || '').replace(/\.exe$/i, '');
+}
+
+// Is this project's own Brave (.browser/, from the setup step) installed?
+// It's what runs when browserPath is empty and it's there.
+function ownBraveInstalled() {
+  try { return !!require('./20-browser.js').isInstalled(); } catch { return false; }
+}
+
+// Which browser ClassDash will actually use, in words.
+function browserLabelFor(browserPath) {
+  if (browserPath) return browserNameFromPath(browserPath);
+  return ownBraveInstalled() ? t('browserOwnBrave') : t('browserSystemChrome');
+}
+
 function settingsPanel() {
   const s = readSettings();
   const apiToken = currentToken();
@@ -703,6 +726,51 @@ function settingsPanel() {
       </label>`;
   };
 
+  // The four sources, each a checkbox — Google Classroom, Canvas by Google
+  // sign-in, Canvas by API, Edpuzzle — and the fields below show only for
+  // the ones that use them (updateSourceRows, in the page's own script,
+  // keeps that true as boxes are ticked; this renders the same for whatever
+  // is saved). A hidden field is still saved with the rest, so unticking a
+  // box doesn't lose what was typed.
+  //
+  // They sit in a dropdown — the same <details> menu the exclusions list
+  // uses — because they're independent (Classroom AND Canvas AND Edpuzzle can
+  // all be on), so a single-choice <select> couldn't hold them, and four
+  // rows of hints made the Account section long. The summary names what's
+  // ticked, so the menu doesn't have to be opened to see it.
+  const SOURCES = [
+    ['classroomEnabled', 'settingsClassroomEnabled', 'settingsClassroomEnabledHint', s.classroomEnabled !== false],
+    ['canvasSsoEnabled', 'settingsCanvasSsoEnabled', 'settingsCanvasSsoEnabledHint', s.canvasSsoEnabled !== false],
+    ['canvasApiEnabled', 'settingsCanvasApiEnabled', 'settingsCanvasApiEnabledHint', s.canvasApiEnabled !== false],
+    ['edpuzzleEnabled', 'settingsEdpuzzleEnabled', 'settingsEdpuzzleEnabledHint', !!s.edpuzzleEnabled],
+  ];
+  const sourcesField = () => {
+    const items = SOURCES.map(([key, labelKey, hintKey, checked]) =>
+      `          <div class="source-item">
+            <label class="check-row"><input type="checkbox" data-bool-key="${key}"${checked ? ' checked' : ''} onchange="updateSourceRows()">` +
+      `<span class="label-text">${escapeHtml(t(labelKey))}</span></label>
+            <div class="source-hint">${escapeHtml(t(hintKey))}</div>
+          </div>`).join('\n');
+    const on = SOURCES.filter(x => x[3]).map(x => t(x[1])).join(', ');
+    return `      <div class="setting-row wide">
+        <span class="field-name">${escapeHtml(t('settingsSources'))}</span>
+        <details class="class-picker source-picker">
+          <summary><span class="picker-summary" id="source-summary">${escapeHtml(on || t('settingsSourcesNone'))}</span></summary>
+          <div class="class-list source-list">
+${items}
+          </div>
+        </details>
+        <span class="field-hint">${escapeHtml(t('settingsSourcesHint'))}</span>
+      </div>`;
+  };
+  const needs = {
+    classroom: s.classroomEnabled !== false,
+    canvas: s.canvasSsoEnabled !== false || s.canvasApiEnabled !== false,
+    canvasApi: s.canvasApiEnabled !== false,
+    // The browser is used by Classroom, Edpuzzle and Canvas's Google sign-in.
+    browser: s.classroomEnabled !== false || !!s.edpuzzleEnabled || s.canvasSsoEnabled !== false,
+  };
+
   // Four sections behind a sidebar instead of one long scroll — fine at
   // 8 settings, unwieldy at 17. The sidebar only shows/hides
   // <div data-section> blocks with plain JS (showSettingsSection, in the
@@ -711,13 +779,16 @@ function settingsPanel() {
   // under #settings-panel, hidden section or not.
   const sections = [
     { id: 'account', label: t('settingsSectionAccount'), body: `
+${sourcesField()}
+      <div data-needs="classroom"${needs.classroom ? '' : ' hidden'}>
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
+      </div>
+      <div data-needs="canvas"${needs.canvas ? '' : ' hidden'}>
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
-      <label class="setting-row">
-        <span class="field-name">${escapeHtml(t('settingsEdpuzzleEnabled'))}</span>
-        <input type="checkbox" class="toggle" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''}>
-        <span class="field-hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</span>
-      </label>
+      </div>
+      <div data-needs="canvasApi"${needs.canvasApi ? '' : ' hidden'}>
+${field('canvasToken', t('settingsCanvasToken'), s.canvasToken, t('settingsCanvasTokenHint'), true)}
+      </div>
 ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
@@ -726,7 +797,24 @@ ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHi
           <option value="en"${s.language === 'en' ? ' selected' : ''}>English</option>
         </select>
         <span class="field-hint"></span>
-      </label>` },
+      </label>
+      <div class="setup-group" data-needs="browser" data-native-only${needs.browser ? '' : ' hidden'}>
+        <div class="settings-subhead">${escapeHtml(t('settingsSetup'))}</div>
+        <div class="setting-row">
+          <span class="field-name">${escapeHtml(t('settingsSetupBrowser'))}</span>
+          <span class="field-with-value">
+            <button type="button" class="mini-btn" onclick="setupBrowser()">${escapeHtml(t('settingsSetupBrowserButton'))}</button>
+          </span>
+          <span class="field-hint">${escapeHtml(t('settingsSetupBrowserNow'))}: <b id="browser-current">${escapeHtml(browserLabelFor(s.browserPath))}</b>. ${escapeHtml(t('settingsSetupBrowserHint'))}</span>
+        </div>
+        <div class="setting-row">
+          <span class="field-name">${escapeHtml(t('settingsSetupSignIn'))}</span>
+          <span class="field-with-value">
+            <button type="button" class="mini-btn" onclick="setupSignIn(this)">${escapeHtml(t('settingsSetupSignInButton'))}</button>
+          </span>
+          <span class="field-hint">${escapeHtml(t('settingsSetupSignInHint'))}</span>
+        </div>
+      </div>` },
     { id: 'display', label: t('settingsSectionDisplay'), body: `
 ${field('summaryHours', t('settingsHours'), s.summaryHours.join(', '), t('settingsHoursHint'))}
 ${exclusionsField(s.exclusions)}
@@ -758,6 +846,11 @@ ${exclusionsField(s.exclusions)}
           <span class="slider-value">${s.staleMonths} ${escapeHtml(s.staleMonths == 1 ? t('monthWord') : t('monthsWord'))}</span>
         </span>
         <span class="field-hint">${escapeHtml(t('settingsStaleMonthsHint'))}</span>
+      </label>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsKeyHints'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="showKeyHints"${s.showKeyHints !== false ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsKeyHintsHint'))}</span>
       </label>` },
     { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
@@ -813,7 +906,15 @@ ${versionRow()}
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
 ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('settingsPassLimitHint'))}
-${field('browserPath', t('settingsBrowserPath'), s.browserPath, t('settingsBrowserPathHint'))}` },
+      <div class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsBrowserPath'))}</span>
+        <span class="field-with-value browser-path-control">
+          <input type="text" data-key="browserPath" value="${escapeHtml(s.browserPath)}" placeholder="${escapeHtml(t('settingsBrowserPathDefault'))}" readonly>
+          <button type="button" class="mini-btn" data-native-only onclick="chooseBrowserApp()">${escapeHtml(t('settingsBrowserPathChoose'))}</button>
+          <button type="button" class="mini-btn" data-native-only onclick="clearBrowserPath()">${escapeHtml(t('settingsBrowserPathClear'))}</button>
+        </span>
+        <span class="field-hint">${escapeHtml(t('settingsBrowserPathHint'))}</span>
+      </div>` },
   ];
 
   const sidebarButtons = sections.map((sec, i) =>
@@ -1403,7 +1504,8 @@ function writePage(data, outputPath) {
   // string there already means "don't read it" correctly on its own),
   // so a still-placeholder canvas alone isn't something to nag about.
   const setupSettings = readSettings();
-  const setupBanner = setupSettings.email === 'your.school@email.example'
+  const setupBanner = setupSettings.classroomEnabled !== false &&
+                      setupSettings.email === 'your.school@email.example'
     ? `  <div class="warn setup-banner">
        <span>${escapeHtml(t('setupIncomplete'))} — ${escapeHtml(t('setupIncompleteHint'))}</span>
        <a href="#" onclick="toggleSettingsPanel(); return false;">${escapeHtml(t('setupOpenSettings'))}</a>
@@ -1829,6 +1931,13 @@ function writePage(data, outputPath) {
   .check-row input { flex: 0 0 auto; margin: 0; }
   /* Long class names get clamped: otherwise the column sprawls across half the screen */
   .check-row .label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The key that toggles a filter (see the keyboard shortcuts in the page
+     script): small, dim, and out of the way of the label it sits beside. */
+  .key-hint {
+    flex: 0 0 auto; min-width: 15px; padding: 0 3px; text-align: center;
+    font: 11px/15px ui-monospace, Menlo, Consolas, monospace; color: var(--dim);
+    border: 1px solid var(--line); border-radius: 3px;
+  }
   .check-row .count-badge {
     margin-left: auto; color: var(--dim); font-size: 12px;
     background: var(--line); border-radius: 9px; padding: 0 6px;
@@ -1929,6 +2038,21 @@ function writePage(data, outputPath) {
   .field-with-toggle input { padding-right: 30px; }
   .field-with-value { display: flex; align-items: center; gap: 10px; }
   .field-with-value input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--new); }
+  /* A text field with buttons beside it (the browser path): the field takes
+     the room, the buttons stay their own size. */
+  .field-with-value input[type="text"] { flex: 1 1 auto; min-width: 0; }
+  .field-with-value input[readonly] { color: var(--dim); cursor: default; }
+  .field-with-value .mini-btn { flex: 0 0 auto; }
+  /* The browser path: paths are long and the column is narrow, so the field
+     gets a row to itself and the buttons sit under it. */
+  .browser-path-control { flex-wrap: wrap; }
+  .browser-path-control input[type="text"] { flex: 1 1 100%; }
+  /* A heading inside a settings section, for a group of related rows. */
+  .settings-subhead {
+    color: var(--dim); font-size: 12px; text-transform: uppercase;
+    letter-spacing: .06em; margin: 14px 0 8px; padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
   .field-with-value .slider-value {
     flex: 0 0 auto; color: var(--dim); font-size: 12px; min-width: 52px;
   }
@@ -1969,6 +2093,13 @@ function writePage(data, outputPath) {
   .class-picker[open] summary { border-bottom: 1px solid var(--line); }
   .picker-summary { color: var(--text); }
   .class-list { max-height: 190px; overflow-y: auto; padding: 6px 8px; }
+  /* The sources dropdown: four short rows, each with a hint under it that
+     needs room to wrap, so no height cap and no scrolling. */
+  .source-list { max-height: none; overflow-y: visible; }
+  .source-item { padding: 4px 0; }
+  .source-item + .source-item { border-top: 1px solid var(--line); }
+  .source-item .check-row { padding: 0; align-items: center; }
+  .source-hint { color: var(--dim); font-size: 12px; margin: 2px 0 0 24px; line-height: 1.4; }
   .class-list .check-row { padding: 3px 0; align-items: flex-start; }
   /* LABELS ARE NOT CLAMPED HERE. In the general filters a class name is
      clamped to one line, and that's correct there — the column is narrow.
@@ -2244,6 +2375,9 @@ const WORDS = ${JSON.stringify({
   checking: t('checking'),
   checkFailed: t('checkFailed'),
   pendingChecking: t('pendingFetchStarting'),
+  sourcesNone: t('settingsSourcesNone'),
+  browserOwnBrave: t('browserOwnBrave'),
+  browserSystemChrome: t('browserSystemChrome'),
   progressChecking: t('progressChecking'),
   progressOf: t('settingsOf'),
   progressStarting: t('progressStarting'),
@@ -2957,6 +3091,117 @@ function updateStaleMonthsLabel(slider) {
   label.textContent = n + ' ' + (n == 1 ? WORDS.monthWord : WORDS.monthsWord);
 }
 
+// Shows the fields each ticked source needs and hides the rest: the email
+// is Google Classroom's, the Canvas address is either Canvas way's, the
+// access token is the API's. Hidden fields are still saved with the rest.
+function updateSourceRows() {
+  var on = function (key) {
+    var box = document.querySelector('[data-bool-key="' + key + '"]');
+    return !!(box && box.checked);
+  };
+  var needs = {
+    classroom: on('classroomEnabled'),
+    canvas: on('canvasSsoEnabled') || on('canvasApiEnabled'),
+    canvasApi: on('canvasApiEnabled'),
+    browser: on('classroomEnabled') || on('edpuzzleEnabled') || on('canvasSsoEnabled')
+  };
+  var rows = document.querySelectorAll('[data-needs]');
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].hidden = !needs[rows[i].getAttribute('data-needs')];
+  }
+  // The setup buttons drive native dialogs (a file picker, the browser
+  // window), so they only exist inside the app; in a plain browser tab they
+  // stay hidden, and the browser path is an ordinary text field again.
+  if (!hasNativeBridge()) {
+    var nativeOnly = document.querySelectorAll('[data-native-only]');
+    for (var n = 0; n < nativeOnly.length; n++) nativeOnly[n].hidden = true;
+  }
+  var pathField = document.querySelector('[data-key="browserPath"]');
+  if (pathField) pathField.readOnly = hasNativeBridge();
+  // The dropdown's summary names what's ticked, so it needn't be opened.
+  var summary = document.getElementById('source-summary');
+  if (summary) {
+    var names = [];
+    var boxes = document.querySelectorAll('.source-picker input[type="checkbox"]');
+    for (var j = 0; j < boxes.length; j++) {
+      if (boxes[j].checked) names.push(boxes[j].parentNode.querySelector('.label-text').textContent);
+    }
+    summary.textContent = names.length ? names.join(', ') : WORDS.sourcesNone;
+  }
+}
+
+// ── Setup: the browser and signing in ──
+//
+// Both drive native dialogs, so both go through the bridge and only exist
+// inside the app. The native side never writes settings.json for these: it
+// answers with the path, the page puts it in its own field, and it's saved
+// with everything else when the panel closes — a write to the file underneath
+// an open panel would just be overwritten by that panel's next save.
+var browserState = { ownBrave: ${ownBraveInstalled() ? 'true' : 'false'} };
+
+// The name of the browser a path points at — a copy of browserNameFromPath in
+// 08-page.js's own code, written without regexes or backslash literals
+// because this whole script sits inside a template literal.
+function browserNameFromPath(p) {
+  var bs = String.fromCharCode(92);
+  var parts = p.split('/').join(bs).split(bs);
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i].slice(-4).toLowerCase() === '.app') return parts[i].slice(0, -4);
+  }
+  var last = parts[parts.length - 1] || '';
+  return last.slice(-4).toLowerCase() === '.exe' ? last.slice(0, -4) : last;
+}
+
+function refreshBrowserLabel() {
+  var label = document.getElementById('browser-current');
+  var field = document.querySelector('[data-key="browserPath"]');
+  if (!label || !field) return;
+  var path = field.value.trim();
+  label.textContent = path ? browserNameFromPath(path)
+    : (browserState.ownBrave ? WORDS.browserOwnBrave : WORDS.browserSystemChrome);
+}
+
+function setBrowserPath(path) {
+  var field = document.querySelector('[data-key="browserPath"]');
+  if (field) field.value = path;
+  refreshBrowserLabel();
+}
+
+// The "set up a browser" dialog: install Brave, use Chrome, or pick one.
+function setupBrowser() {
+  dispatchAction('setupBrowser', '', function (res) {
+    if (!res || !res.ok) return;
+    if (res.installedBrave) browserState.ownBrave = true;
+    // null means nothing about the path changed; "" means clear it.
+    if (res.browserPath !== null && res.browserPath !== undefined) setBrowserPath(res.browserPath);
+    else refreshBrowserLabel();
+  });
+}
+
+// Advanced: just the file picker.
+function chooseBrowserApp() {
+  dispatchAction('pickBrowserApp', '', function (res) {
+    if (res && res.ok && res.browserPath) setBrowserPath(res.browserPath);
+  });
+}
+
+function clearBrowserPath() {
+  setBrowserPath('');
+}
+
+// Opens the sign-in browser window. The sources ticked in the panel may not
+// be saved yet, and sign-in reads them from disk (whether there's a Canvas
+// tab to open, say), so anything pending is saved first.
+function setupSignIn(button) {
+  var original = button.textContent;
+  var go = function () {
+    button.textContent = WORDS.signInOpening;
+    dispatchAction('setupSignIn', '', function () { button.textContent = original; });
+  };
+  if (settingsDirty()) saveSettings(go);
+  else go();
+}
+
 // Shows/hides the token+fingerprint block the instant the "enable home
 // API" checkbox is clicked — same "don't make the person wait for a
 // save round-trip just to see the UI react" idea as the filter panel's
@@ -3031,7 +3276,9 @@ function toBase64Url(str) {
 // The counter in the picker's summary. Recomputed immediately on click,
 // otherwise the heading lies until the next collection.
 function updateSelectionCount() {
-  var box = document.querySelector('.class-picker');
+  // The exclusions list's own dropdown — not the sources one, which comes
+  // first on the page and would otherwise be found instead.
+  var box = document.querySelector('.class-picker:not(.source-picker)');
   if (!box) return;
   var all = box.querySelectorAll('input[type="checkbox"]');
   var count = 0;
@@ -3075,6 +3322,10 @@ function collectSettings() {
 
 // What the panel held when the page loaded, or when it was last saved.
 var settingsBaseline = JSON.stringify(collectSettings());
+
+// Show the rows the ticked sources need, and hide the native-only ones
+// outside the app — once now, so the page starts out right.
+updateSourceRows();
 
 function settingsDirty() {
   return JSON.stringify(collectSettings()) !== settingsBaseline;
@@ -3124,7 +3375,10 @@ function reopenSettingsWith(message) {
   announceSettings(message);
 }
 
-function saveSettings() {
+// "then", if given, runs once a save has actually been accepted — for a
+// button that needs the settings on disk before it does its own thing (Sign
+// In needs the current sources, not the ones from before this panel was open).
+function saveSettings(then) {
   var sent = JSON.stringify(collectSettings());
   var encoded = toBase64Url(sent);
 
@@ -3161,6 +3415,7 @@ function saveSettings() {
       }
       settingsBaseline = sent;
       announceSettings(WORDS.saved);
+      if (typeof then === 'function') then();
       // The config action only ever redraws now (a browser is never
       // launched by a save), which finishes in well under a second.
       setTimeout(function () { location.reload(); }, 1500);
@@ -3315,6 +3570,152 @@ function filterAnnouncements() {
     // part of it, not nothing.
     setTimeout(function () { location.reload(); }, 45000);
   });
+})();
+
+// ── Keyboard shortcuts ──
+//
+//   Cmd/Ctrl+R          Refresh (re-read what has been collected)
+//   Shift+Cmd/Ctrl+R    Fresh check
+//   Cmd/Ctrl+S          the check-status panel
+//   1-9, 0, -, =        toggle the 1st to 12th class in the class filter
+//   Shift + those       the 1st to 12th class in the announcement filters
+//   A, C, M             Assignment, Completed, Material in the type filter
+//   N                   "No due date" in the due filter
+//
+// One handler for the page in every host — the Mac app, the Windows app, a
+// plain browser tab — and the two native apps' View menus call the same three
+// functions (window.classdashShortcut), so a menu item and a key can't drift
+// apart. Keys are matched by PHYSICAL position (event.code), not by the
+// character they type: the default language here is Russian, and on a Russian
+// keyboard layout the A key types a different letter but is still KeyA.
+//
+// The plain keys (no Cmd/Ctrl) never fire while typing — in a text field, a
+// dropdown, or with the settings panel open — and never with Cmd/Ctrl/Alt held
+// (Cmd+C is copy, not the "Completed" filter), and a held-down key doesn't
+// repeat, so it can't flick a filter on and off.
+var SHORTCUT_SLOTS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7',
+                      'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal'];
+var SHORTCUT_PAD = ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4', 'Numpad5', 'Numpad6', 'Numpad7',
+                    'Numpad8', 'Numpad9', 'Numpad0', 'NumpadSubtract', 'NumpadAdd'];
+var SHORTCUT_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+var TYPE_SHORTCUTS = { KeyA: 'assignment', KeyC: 'completed', KeyM: 'material' };
+var TYPE_SHORTCUT_LABELS = { assignment: 'A', completed: 'C', material: 'M' };
+
+function shortcutSlot(code) {
+  var i = SHORTCUT_SLOTS.indexOf(code);
+  return i >= 0 ? i : SHORTCUT_PAD.indexOf(code);
+}
+
+function settingsPanelOpen() {
+  var panel = document.getElementById('settings-panel');
+  return !!(panel && !panel.hidden);
+}
+
+// Somewhere a letter or digit is text, not a command.
+function typingIn(el) {
+  if (!el || !el.tagName) return false;
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable) return true;
+  if (el.tagName !== 'INPUT') return false;
+  var type = (el.type || 'text').toLowerCase();
+  return ['checkbox', 'radio', 'button', 'submit', 'reset', 'range'].indexOf(type) < 0;
+}
+
+function typeFilterBox(prefix) {
+  var boxes = document.querySelectorAll('.filters input[data-group="type"]');
+  for (var i = 0; i < boxes.length; i++) {
+    if (boxes[i].value.toLowerCase().indexOf(prefix) === 0) return boxes[i];
+  }
+  return null;
+}
+
+// What Refresh, Fresh check and the status panel do — the same as clicking
+// them. Refresh and Fresh check leave things alone while the settings panel
+// holds unsaved edits: a reload would throw them away.
+function runShortcut(name) {
+  if (name === 'status') { toggleCheckStatusDetail(); return; }
+  if (settingsPanelOpen() && settingsDirty()) return;
+  if (name === 'refresh') {
+    var refresh = document.getElementById('refresh-button');
+    if (refresh) refresh.click();
+  } else if (name === 'fresh') {
+    var fresh = document.getElementById('freshcheck-button');
+    // Not while one is already running: it opens a real browser window.
+    if (fresh && !fresh.classList.contains('spinning')) fresh.click();
+  }
+}
+window.classdashShortcut = runShortcut;
+
+document.addEventListener('keydown', function (e) {
+  if (e.isComposing || e.altKey) return;
+  var mac = /Mac/.test(navigator.platform || '');
+  var command = mac ? e.metaKey : e.ctrlKey;
+  var wrongModifier = mac ? e.ctrlKey : e.metaKey;
+
+  if (command && !wrongModifier) {
+    if (e.code === 'KeyR') {
+      e.preventDefault();   // not the browser's own reload
+      if (!e.repeat) runShortcut(e.shiftKey ? 'fresh' : 'refresh');
+    } else if (e.code === 'KeyS' && !e.shiftKey) {
+      e.preventDefault();   // not the browser's own "save page"
+      if (!e.repeat) runShortcut('status');
+    }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey) return;
+  if (e.repeat || settingsPanelOpen() || typingIn(e.target)) return;
+
+  var slot = shortcutSlot(e.code);
+  if (slot >= 0) {
+    var boxes = document.querySelectorAll(e.shiftKey
+      ? '.announcement-filters input[data-group="post-cls"]'
+      : '.filters input[data-group="cls"]');
+    if (boxes[slot]) { e.preventDefault(); boxes[slot].click(); }
+    return;
+  }
+  if (e.shiftKey) return;
+  var box = null;
+  if (e.code === 'KeyN') box = document.querySelector('.filters input[data-group="days"][value="none"]');
+  else if (TYPE_SHORTCUTS[e.code]) box = typeFilterBox(TYPE_SHORTCUTS[e.code]);
+  if (box) { e.preventDefault(); box.click(); }
+});
+
+// Shows each shortcut where it applies, since which class a number means
+// depends on the order they're listed in: a small key beside each filter, and
+// the shortcut in the tooltip of the header buttons. Can be switched off in
+// Settings → Display (showKeyHints); the shortcuts themselves stay on.
+var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
+(function () {
+  if (!showKeyHints) return;
+  var mac = /Mac/.test(navigator.platform || '');
+  var hint = function (box, text) {
+    if (!text) return;
+    var key = document.createElement('span');
+    key.className = 'key-hint';
+    key.textContent = text;
+    box.parentNode.insertBefore(key, box.nextSibling);
+  };
+  var each = function (selector, label) {
+    var boxes = document.querySelectorAll(selector);
+    for (var i = 0; i < boxes.length; i++) hint(boxes[i], label(boxes[i], i));
+  };
+  each('.filters input[data-group="cls"]', function (b, i) { return SHORTCUT_LABELS[i]; });
+  each('.announcement-filters input[data-group="post-cls"]', function (b, i) {
+    return SHORTCUT_LABELS[i] ? String.fromCharCode(8679) + SHORTCUT_LABELS[i] : '';
+  });
+  each('.filters input[data-group="type"]', function (b) {
+    for (var name in TYPE_SHORTCUTS) {
+      if (b.value.toLowerCase().indexOf(TYPE_SHORTCUTS[name]) === 0) return TYPE_SHORTCUT_LABELS[TYPE_SHORTCUTS[name]];
+    }
+    return '';
+  });
+  each('.filters input[data-group="days"][value="none"]', function () { return 'N'; });
+
+  var tip = function (el, keys) {
+    if (el) el.title = (el.title ? el.title + ' \u2014 ' : '') + keys;
+  };
+  tip(document.getElementById('refresh-button'), mac ? '\u2318R' : 'Ctrl+R');
+  tip(document.getElementById('freshcheck-button'), mac ? '\u21E7\u2318R' : 'Ctrl+Shift+R');
+  tip(document.querySelector('.check-status'), mac ? '\u2318S' : 'Ctrl+S');
 })();
 
 // ── Live updates ──

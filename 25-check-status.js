@@ -53,7 +53,10 @@ function record(platform, ok, detail = null) {
   all[platform] = {
     status: ok ? 'ok' : 'problem',
     at: new Date().toISOString(),
-    detail: ok ? null : (detail || null),
+    // A note is allowed on a success too: "ok, but the access token failed
+    // and the browser sign-in was used instead" is worth saying, and the
+    // status panel shows any detail there is.
+    detail: detail || null,
   };
   try {
     fs.writeFileSync(FILE, JSON.stringify(all, null, 2));
@@ -62,9 +65,9 @@ function record(platform, ok, detail = null) {
 
 /**
  * The display-ready status for all three platforms. Classroom is
- * always attempted (there's no "Classroom disabled" concept — email is
- * required to run at all), so it only ever reads "unknown" before the
- * very first check has ever completed.
+ * attempted unless classroomEnabled is off (a Canvas-only school), so
+ * when it's on it only reads "unknown" before the very first check has
+ * ever completed.
  */
 function checkStatus() {
   const settings = require('./19-settings.js').read();
@@ -72,9 +75,10 @@ function checkStatus() {
   // The address the last collection actually used, not what's just been
   // typed: until a check has run with a new one, the recorded status
   // still describes the old one.
-  const canvasConfigured = !!(require('./19-settings.js').appliedFetchSettings(settings).canvas || '').trim();
+  const applied = require('./19-settings.js').appliedFetchSettings(settings);
+  const canvasConfigured = require('./19-settings.js').canvasPlan(applied).enabled;
   return {
-    classroom: raw.classroom || UNKNOWN,
+    classroom: applied.classroomEnabled === false ? UNKNOWN : (raw.classroom || UNKNOWN),
     canvas: canvasConfigured ? (raw.canvas || UNKNOWN) : UNKNOWN,
     edpuzzle: settings.edpuzzleEnabled ? (raw.edpuzzle || UNKNOWN) : UNKNOWN,
   };

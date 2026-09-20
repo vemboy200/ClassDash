@@ -54,6 +54,27 @@ const DEFAULTS = {
   // School Canvas address. Empty — Canvas isn't read at all.
   canvas: '',
 
+  // The two ways of reading Canvas, each with its own switch. Both on by
+  // default, which is what makes existing installs (an address, no token)
+  // keep reading exactly as before with no migration:
+  //   canvasApiEnabled  — with an access token filled in, Canvas is read
+  //                       through the API: no browser, no sign-in.
+  //   canvasSsoEnabled  — Canvas is read through the browser's signed-in
+  //                       session (the Google single sign-on way). With the
+  //                       API on AND filled in, this is only the FALLBACK,
+  //                       used when the API can't be read (a token that has
+  //                       expired, say); otherwise it's the way.
+  // Both need the address above. See canvasPlan() below.
+  canvasApiEnabled: true,
+  canvasSsoEnabled: true,
+
+  // Canvas access token — Canvas → Account → Settings → "New Access Token".
+  // What ClassDash signs in to Canvas's API with (10-canvas.js). It acts as
+  // the person for everything they can do in Canvas, so it's a credential:
+  // masked in the panel, never logged, never copied into another file (the
+  // "what was applied" record below keeps only a fingerprint of it).
+  canvasToken: '',
+
   // Interface language: ru or en.
   language: 'ru',
 
@@ -70,6 +91,21 @@ const DEFAULTS = {
 
   // Home API port.
   apiPort: 8734,
+
+  // Whether Google Classroom is read at all. On by default: it's what this
+  // project started as, and everyone who set it up before this existed has
+  // it. Turning it off is what lets a school that only uses Canvas run with
+  // NO BROWSER at all — Classroom and Edpuzzle are the two sources that
+  // can't be read without one (Canvas can, with an access token), so with
+  // both off and a token set there's nothing left to launch one for. The
+  // school email then has no use either. See browserNeeded() in
+  // 05-playwright-draft.js.
+  classroomEnabled: true,
+
+  // The little key shown beside each filter (and the shortcut in the header
+  // buttons' tooltips) for the keyboard shortcuts in 08-page.js. Only the
+  // hints: the shortcuts themselves work either way.
+  showKeyHints: true,
 
   // Off by default — this is the actual opt-in for 17-api.js. Even
   // read-only, it's real personal data (school, teachers, assignment
@@ -233,7 +269,7 @@ const DEFAULTS = {
 };
 
 const TYPES = {
-  email: 'string', canvas: 'string', language: 'language',
+  email: 'string', canvas: 'string', canvasToken: 'token', language: 'language',
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
   treatUndatedAsUrgent: 'boolean', skipStaleClasses: 'boolean',
   showEmptyClasses: 'boolean', hideInactiveClasses: 'boolean',
@@ -241,7 +277,8 @@ const TYPES = {
   staleMonths: 'staleMonths',
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
-  freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean',
+  freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean', classroomEnabled: 'boolean',
+  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
@@ -329,6 +366,16 @@ function validate(key, raw) {
     if (!Number.isFinite(n) || n < 0) return { ok: false, why: 'needs to be a number' };
     return { ok: true, value: n };
   }
+  if (kind === 'token') {
+    // Trimmed like every string, and refused if anything is left inside
+    // that isn't part of a token: a token is one unbroken run of characters,
+    // so a space or a line break means more than the token got pasted (a
+    // whole sentence of instructions, say), and sending that as a header
+    // would just fail in a confusing way later.
+    const t = String(raw).trim();
+    if (/\s/.test(t)) return { ok: false, why: 'a token has no spaces or line breaks — paste just the token' };
+    return { ok: true, value: t };
+  }
   if (kind === 'language') {
     const l = String(raw).trim().toLowerCase();
     if (l !== 'ru' && l !== 'en') return { ok: false, why: 'language is ru or en' };
@@ -384,18 +431,37 @@ function validate(key, raw) {
 // was makes the notice go away by itself, and a setting changed while a
 // collection is mid-run correctly stays pending.
 const APPLIED_FILE = path.join(__dirname, 'fetch-applied.json');
-const FETCH_AFFECTING = ['exclusions', 'canvas'];
+const FETCH_AFFECTING = ['exclusions', 'canvas', 'canvasToken', 'classroomEnabled',
+                         'canvasApiEnabled', 'canvasSsoEnabled'];
+
+// Settings that are secrets. The record of what a collection used is a file
+// of its own, and a token has no business being copied into a second place
+// — so for these the record keeps a fingerprint, and comparing works on
+// fingerprints. An empty value fingerprints to the empty string, which is
+// also what an older record without the key reads as, so nobody gets a
+// "needs a fresh check" notice the day they update.
+const SECRET_KEYS = ['canvasToken'];
+const fingerprint = v => {
+  const t = String(v || '').trim();
+  return t ? require('crypto').createHash('sha256').update(t).digest('hex').slice(0, 16) : '';
+};
+// What the record holds for a value — and so what a current value is
+// compared as: for a secret, the fingerprint on both sides.
+const recordable = (key, v) => SECRET_KEYS.includes(key) ? fingerprint(v) : v;
 
 // Compared as values: the order exclusions were ticked in doesn't matter,
 // nor does stray whitespace around an address.
 const normalizeForCompare = (key, v) =>
-  key === 'exclusions' ? [...(v || [])].sort() : String(v || '').trim();
+  key === 'exclusions' ? [...(v || [])].sort()
+    // Not `v || ''`: that would read false as empty, and a switch turned off
+    // has to differ from the default of on.
+    : (v === undefined || v === null ? '' : String(v)).trim();
 
 function readApplied() {
   try {
     const own = JSON.parse(fs.readFileSync(APPLIED_FILE, 'utf8'));
     const out = {};
-    for (const key of FETCH_AFFECTING) out[key] = own[key] !== undefined ? own[key] : DEFAULTS[key];
+    for (const key of FETCH_AFFECTING) out[key] = own[key] !== undefined ? own[key] : recordable(key, DEFAULTS[key]);
     return out;
   } catch { return null; }
 }
@@ -403,7 +469,7 @@ function readApplied() {
 /** Called by the collection once it has really read with these values. */
 function markApplied(values) {
   const out = {};
-  for (const key of FETCH_AFFECTING) out[key] = values[key];
+  for (const key of FETCH_AFFECTING) out[key] = recordable(key, values[key]);
   fs.writeFileSync(APPLIED_FILE, JSON.stringify(out, null, 2));
 }
 
@@ -427,7 +493,7 @@ function pendingFetchKeys(settings = read()) {
   const applied = readApplied();
   if (!applied) return [];
   return FETCH_AFFECTING.filter(key =>
-    JSON.stringify(normalizeForCompare(key, settings[key])) !==
+    JSON.stringify(normalizeForCompare(key, recordable(key, settings[key]))) !==
     JSON.stringify(normalizeForCompare(key, applied[key])));
 }
 
@@ -440,6 +506,30 @@ function write(key, raw) {
   current[key] = v.value;
   fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
   return { ok: true, value: v.value };
+}
+
+/**
+ * How Canvas is read, from the address, the two switches and the token —
+ * the one place that decides, so the collection, the login flow, the
+ * status dots and the settings page can't disagree.
+ *
+ *   enabled  there's an address and at least one way switched on
+ *   api      the access token WILL be used: switched on and filled in
+ *   sso      the browser session is allowed: as the fallback when `api`,
+ *            otherwise as the way
+ *
+ * Takes a settings object because callers ask about different ones: the
+ * file as it is now, or what the last collection actually used.
+ */
+function canvasPlan(settings = read()) {
+  const address = !!String(settings.canvas || '').trim();
+  const apiOn = settings.canvasApiEnabled !== false;
+  const sso = settings.canvasSsoEnabled !== false;
+  const api = apiOn && !!String(settings.canvasToken || '').trim();
+  // Off is off all the way down, so no caller has to remember to check
+  // `enabled` before trusting the other two.
+  if (!address || !(apiOn || sso)) return { enabled: false, api: false, sso: false };
+  return { enabled: true, api, sso };
 }
 
 /** Example for the repository: same keys, nothing personal. */
@@ -521,7 +611,7 @@ function applyBatch(chunk) {
 }
 
 module.exports = { read, write, validate, writeExample, applyBatch,
-                   markApplied, appliedFetchSettings, pendingFetchKeys,
+                   markApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
                    DEFAULTS, TYPES, FILE };
 
 if (require.main === module) {

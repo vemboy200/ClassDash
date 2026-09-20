@@ -178,7 +178,7 @@ const QUIET_FILE = path.join(__dirname, 'не-срочно.txt');
 // Can be restored from the same place.
 const HIDDEN_FILE = path.join(__dirname, 'скрытые.txt');
 const { writePage, daysUntil } = require('./08-page.js');
-const { collectCanvas, SITE: CANVAS_SITE } = require('./10-canvas.js');
+const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./10-canvas.js');
 const { collectEdpuzzle } = require('./11-edpuzzle.js');
 const { collectFeed, setFeedEmail } = require('./12-feed.js');
 const { t, locale } = require('./18-language.js');
@@ -285,7 +285,46 @@ const AUTHUSER = SETTINGS.email;
 // and when comparing against memory (treat the source as unread).
 // A declaration inside collect() didn't reach the second place — caught
 // by running it.
-const CANVAS_ENABLED = !!(SETTINGS.canvas || '').trim();
+//
+// CANVAS_PLAN says HOW (see canvasPlan() in 19-settings.js): `api` — the
+// access token is on and filled in, so Canvas is read through the official
+// API with no browser tab and no sign-in; `sso` — the browser profile's
+// signed-in session is allowed, as the way when there's no token in use
+// and as the FALLBACK when there is (a token that has expired falls back
+// to it, and the status says so — see collectCanvasPlanned in 10-canvas.js).
+const CANVAS_PLAN = require('./19-settings.js').canvasPlan(SETTINGS);
+const CANVAS_ENABLED = CANVAS_PLAN.enabled;
+
+// Google Classroom can be turned off (see classroomEnabled in
+// 19-settings.js), which — with Edpuzzle off and Canvas on a token — leaves
+// nothing that needs a browser.
+const CLASSROOM_ENABLED = SETTINGS.classroomEnabled !== false;
+
+/**
+ * Does this pass have anything to read that needs a browser?
+ *
+ *   Classroom   always (it's read by loading its pages)
+ *   Edpuzzle    when this pass includes it (a full check; see withEdpuzzle)
+ *   Canvas      only when the browser is its way: no token in use. As the
+ *               FALLBACK behind a working token it doesn't count — the
+ *               browser is launched then only if the token actually fails
+ *               (see canvasBrowser() in collect)
+ *
+ * When the answer is no — a Canvas-only school on a token — the pass never
+ * launches a browser at all: no window, nothing to install, nothing to
+ * sign into.
+ */
+function browserNeeded(withEdpuzzle) {
+  return CLASSROOM_ENABLED || withEdpuzzle ||
+         (CANVAS_ENABLED && CANVAS_PLAN.sso && !CANVAS_PLAN.api);
+}
+
+/** Is there anything to sign into through the browser? Broader than
+ *  browserNeeded(): a fallback session has to be signed in too, even while
+ *  a working token means it isn't used. */
+function signInNeeded() {
+  return CLASSROOM_ENABLED || EDPUZZLE_ENABLED || (CANVAS_ENABLED && CANVAS_PLAN.sso);
+}
 
 // Same module-level reasoning as CANVAS_ENABLED above: needed both when
 // deciding withEdpuzzle (don't open the tab, don't open the visible
@@ -359,14 +398,22 @@ const PASS_LIMIT = SETTINGS.passLimitMs;
 // ── Login mode ───────────────────────────────────────────────
 
 async function login() {
+  // Nothing signs in through the browser when Classroom and Edpuzzle are
+  // both off and Canvas is on a token only (or off): nothing to do here.
+  if (!signInNeeded()) {
+    console.log('Nothing to sign into: Google Classroom and Edpuzzle are off, and Canvas is read with an access token.');
+    return;
+  }
   const ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
     ...BROWSER,               // a real browser, not a stripped-down chromium:
                               // otherwise Google cuts off the login as "not secure"
     headless: false,          // the window has to be visible — a human signs in
     viewport: { width: 1280, height: 900 },
   });
-  const classroomPage = await ctx.newPage();
-  await classroomPage.goto('https://classroom.google.com/');
+  if (CLASSROOM_ENABLED) {
+    const classroomPage = await ctx.newPage();
+    await classroomPage.goto('https://classroom.google.com/');
+  }
 
   // A second tab for Edpuzzle, opened in the same persistent profile.
   // Edpuzzle doesn't share Google's session — confirmed live: it answers
@@ -391,13 +438,18 @@ async function login() {
   // out on their own to navigate to Canvas manually inside this same
   // window. This makes that the default, not a workaround someone has
   // to be told about.
-  if (CANVAS_ENABLED) {
+  //
+  // Not when the browser way is switched off: the access token has no
+  // session to sign into. (With the token AND the browser way on, the
+  // session is the fallback, and it has to be signed in to be one.)
+  const CANVAS_TAB = CANVAS_ENABLED && CANVAS_PLAN.sso;
+  if (CANVAS_TAB) {
     const canvasPage = await ctx.newPage();
     await canvasPage.goto(CANVAS_SITE + '/');
   }
 
-  console.log(`\n${CANVAS_ENABLED ? 'Three' : 'Two'} tabs opened: sign into your school Google account,`);
-  console.log(CANVAS_ENABLED
+  console.log(`\n${CANVAS_TAB ? 'Three' : 'Two'} tabs opened: sign into your school Google account,`);
+  console.log(CANVAS_TAB
     ? 'your school Canvas, and Edpuzzle (skip the Edpuzzle tab if you'
     : 'and into Edpuzzle in the other (skip the Edpuzzle tab if you');
   console.log('don\'t use it — nothing reads it unless you run --full).');
@@ -789,8 +841,42 @@ function releaseLock() {
  * @param nonEmptyClasses   classes that have ever had assignments
  * @param withEdpuzzle      whether to read Edpuzzle (it needs a visible window)
  */
+/**
+ * Launches the browser for a collection — and if it can't, says WHY where a
+ * person will see it.
+ *
+ * Without this a launch failure (no browser installed or chosen, a locked
+ * profile) was an unhandled rejection: the process died, nothing was
+ * recorded, and the status dots just stayed as they were, so from outside
+ * it looked like nothing had happened. Now every source that needed the
+ * browser this pass is marked as a problem with the reason, which is what
+ * the dots and the home API's /api/check-status show — then it fails the
+ * same way it always did.
+ *
+ * Which sources needed it is the same question browserNeeded() answers:
+ * Classroom, Edpuzzle in a full check, and Canvas when it has no token
+ * (which is also the case worth spelling out, since a token needs none).
+ */
+async function launchForCollection(withEdpuzzle, options) {
+  try {
+    return await chromium.launchPersistentContext(PROFILE_DIR, options);
+  } catch (e) {
+    const reason = String(e.message).split('\n')[0];
+    const message = `couldn't start a browser (${reason}) — set one up in Settings → ` +
+      'Account → Setup (Choose Browser…)' + (CANVAS_ENABLED && CANVAS_PLAN.sso && !CANVAS_PLAN.api
+        ? ', or give Canvas an access token, which needs no browser' : '');
+    console.error(message);
+    if (CLASSROOM_ENABLED) recordCheckStatus('classroom', false, message);
+    if (withEdpuzzle) recordCheckStatus('edpuzzle', false, message);
+    if (CANVAS_ENABLED && CANVAS_PLAN.sso && !CANVAS_PLAN.api) recordCheckStatus('canvas', false, message);
+    throw new Error(message);
+  }
+}
+
 async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = false) {
-  const ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
+  // No browser at all when nothing here needs one (see browserNeeded).
+  const useBrowser = browserNeeded(withEdpuzzle);
+  const launchOptions = {
     ...BROWSER,               // the same browser as login mode —
                               // otherwise the cookie profile won't be picked up
     // THE WINDOW IS ONLY SHOWN FOR EDPUZZLE'S SAKE.
@@ -827,7 +913,15 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     // settings aren't touched: the user's interface on their Chromebook
     // stays Russian.
     extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
-  });
+  };
+  const ctx = !useBrowser ? null : await launchForCollection(withEdpuzzle, launchOptions);
+
+  // A browser launched only when Canvas's FALLBACK needs one and none is
+  // open: a working access token never gets here, so a Canvas-only school on
+  // a token still runs with no browser most of the time. If a browser is
+  // already open for something else it's simply reused.
+  let lateCtx = null;
+  const canvasBrowser = async () => ctx || (lateCtx = lateCtx || await launchForCollection(false, launchOptions));
 
   // Every class is read AT THE SAME TIME, each in its own tab.
   //
@@ -847,8 +941,11 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // the browser close, and Chrome with a locked profile folder would
   // take down EVERY following run.
   let multiplier = 1;
-  let classes = classesFromMemory().filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
-  try {
+  let classes = !CLASSROOM_ENABLED ? []
+    : classesFromMemory().filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
+  // Measuring the network and listing the classes are both Classroom's:
+  // with it off there is no page to open for them.
+  if (CLASSROOM_ENABLED) try {
     const probePage = await ctx.newPage();
     await probePage.goto('https://classroom.google.com/', { waitUntil: 'domcontentloaded' })
       .catch(() => {});
@@ -881,7 +978,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // first person who downloads this project from GitHub would get a
   // permanent "Could not read: Canvas" banner on their summary instead
   // of an honest "Canvas is off".
-  if (!CANVAS_ENABLED) console.log('Canvas is off: no address set in settings');
+  if (!CANVAS_ENABLED) console.log('Canvas is off: no address set in settings, or both ways of reading it are switched off');
 
   const sources = [...classes,
     ...(CANVAS_ENABLED ? [{ id: 'canvas', name: 'Canvas' }] : []),
@@ -925,22 +1022,20 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 
   const canvasTask = !CANVAS_ENABLED ? null : (async () => {
     console.log('Reading: Canvas');
-    // Opening the tab INSIDE the try block, not before it. If it fails
-    // outside, the whole Promise.all crashes, taking the browser close
-    // with it.
-    let page = null;
+    // The tab is opened INSIDE the try block (by collectCanvasPlanned, only
+    // when the browser way is used): if opening it fails outside, the whole
+    // Promise.all crashes, taking the browser close with it. With an
+    // access token there's no tab at all: the API is asked directly.
     let result;
     try {
-      page = await ctx.newPage();
-      const { items, courses, pending } = await collectCanvas(page);
+      const { items, courses, pending, note } = await collectCanvasPlanned(
+        CANVAS_PLAN, async () => (await canvasBrowser()).newPage());
       console.log(`  Canvas: courses ${courses.length}, items ${items.length}` +
                   (pending.length ? `, waiting to publish: ${pending.join(', ')}` : ''));
-      result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true };
+      result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true, note };
     } catch (e) {
       console.error(`  error on Canvas: ${e.message}`);
       result = { cls: { id: 'canvas', name: 'Canvas' }, items: [], ok: false, error: e.message };
-    } finally {
-      if (page) { try { await page.close(); } catch {} }
     }
     reportProgress(result);
     return result;
@@ -1030,10 +1125,12 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     results = await Promise.all(
       [...classTasks, canvasTask, edpuzzleTask].filter(Boolean));
   } finally {
-    try {
-      await ctx.close();
-    } catch (e) {
-      console.warn('failed to close the browser:', e.message);
+    for (const open of [ctx, lateCtx]) {
+      try {
+        if (open) await open.close();
+      } catch (e) {
+        console.warn('failed to close the browser:', e.message);
+      }
     }
   }
   console.log(`Read in ${Math.round((Date.now() - startTime) / 1000)}s`);
@@ -1293,6 +1390,10 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   if (require('./19-settings.js').read().edpuzzleEnabled === false) {
     items = items.filter(x => x.platform !== 'Edpuzzle');
   }
+  // The same for Classroom — its items are the ones with no platform tag.
+  if (require('./19-settings.js').read().classroomEnabled === false) {
+    items = items.filter(x => x.platform);
+  }
 
   const burning = [], later = [], undated = [], deferred = [], done = [];
   // Overdue items are no longer just counted, they're collected into a list.
@@ -1522,6 +1623,11 @@ function diffWithPrevious(current, broken = []) {
     // there's no way to know what happened while it was excluded.
     if (EXCLUSIONS.includes(x.class)) continue;
 
+    // Classroom turned off is the same kind of deliberate: its assignments
+    // (the ones with no platform tag) are never read again, so they leave
+    // memory now instead of being carried, then "removed", forever.
+    if (!CLASSROOM_ENABLED && !x.platform) continue;
+
     if (wasUnread(x)) { carriedOver.push(x); continue; }
 
     const missCount = (x.missCount || 0) + 1;
@@ -1614,7 +1720,8 @@ function redrawPage() {
   };
 
   const items = readJsonOrDefault(STATE_FILE, []);
-  const announcements = readJsonOrDefault(STREAM_FILE, []);
+  // Announcements come from Classroom only.
+  const announcements = CLASSROOM_ENABLED ? readJsonOrDefault(STREAM_FILE, []) : [];
   const freshMarks = readJsonOrDefault(FRESH_FILE, { assignments: [], announcements: [] });
 
   const { burning, later, undated, deferred, overdue, gone } =
@@ -1777,7 +1884,7 @@ if (require.main !== module) return;
   // The same for announcements: the in-progress pages show last run's posts
   // for classes not yet read, on top of the ones that have been.
   let announcementMemory = [];
-  if (fs.existsSync(STREAM_FILE)) {
+  if (CLASSROOM_ENABLED && fs.existsSync(STREAM_FILE)) {
     try { announcementMemory = JSON.parse(fs.readFileSync(STREAM_FILE, 'utf8')); } catch {}
   }
 
@@ -1912,7 +2019,9 @@ if (require.main !== module) return;
     recordCheckStatus('classroom', !failed, failed ? `${failed.cls.name}: ${failed.error}` : null);
   }
   const canvasResult = taskResults.find(r => r.cls.id === 'canvas');
-  if (canvasResult) recordCheckStatus('canvas', canvasResult.ok, canvasResult.error);
+  // A note on a success means the access token failed and the browser
+  // sign-in carried it: still "ok", but the panel shows why.
+  if (canvasResult) recordCheckStatus('canvas', canvasResult.ok, canvasResult.error || canvasResult.note);
   const edpuzzleResult = taskResults.find(r => r.cls.id === 'edpuzzle');
   if (edpuzzleResult) recordCheckStatus('edpuzzle', edpuzzleResult.ok, edpuzzleResult.error);
 
@@ -1938,7 +2047,7 @@ if (require.main !== module) return;
   // Live separately from assignments: they have no due dates, they're
   // never "due soon", but freshness matters. So they get their own memory.
   let messageMemory = [];
-  if (fs.existsSync(STREAM_FILE)) {
+  if (CLASSROOM_ENABLED && fs.existsSync(STREAM_FILE)) {
     try { messageMemory = JSON.parse(fs.readFileSync(STREAM_FILE, 'utf8')); } catch {}
   }
   const seenMessageIds = new Set(messageMemory.map(x => x.id));
@@ -2064,7 +2173,11 @@ if (require.main !== module) return;
   // pass reached nothing, so nothing was applied.
   if (!COOKIES_EXPIRED) {
     try {
-      require('./19-settings.js').markApplied({ exclusions: EXCLUSIONS, canvas: SETTINGS.canvas });
+      require('./19-settings.js').markApplied({
+        exclusions: EXCLUSIONS, canvas: SETTINGS.canvas, canvasToken: SETTINGS.canvasToken,
+        classroomEnabled: SETTINGS.classroomEnabled,
+        canvasApiEnabled: SETTINGS.canvasApiEnabled, canvasSsoEnabled: SETTINGS.canvasSsoEnabled,
+      });
     } catch (e) {
       console.warn('failed to record the applied settings:', e.message);
     }

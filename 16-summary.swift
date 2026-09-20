@@ -339,6 +339,25 @@ func setUpNewProject() -> String? {
     return chosen
 }
 
+// The project's settings.json as a dictionary — for the wizard, which needs
+// to read a couple of values and write a couple of others without going
+// through the settings panel. (Empty if the file is missing or unreadable.)
+func readSettingsFile(in dir: String) -> [String: Any] {
+    guard let data = FileManager.default.contents(atPath: dir + "/settings.json"),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return [:] }
+    return obj
+}
+
+// Read-modify-write, so everything else in the file is left as it was.
+func updateSettingsFile(in dir: String, _ changes: [String: Any]) {
+    var obj = readSettingsFile(in: dir)
+    for (key, value) in changes { obj[key] = value }
+    if let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]) {
+        try? out.write(to: URL(fileURLWithPath: dir + "/settings.json"))
+    }
+}
+
 // Runs a node script from the given project folder, blocking until it
 // exits — for one-shot setup steps (the --redraw pass above, installing
 // Brave below) where the next step genuinely can't start until this one
@@ -510,6 +529,21 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // (the ordinary case, every time after the very first) never sees
     // the browser/settings/login prompts meant for a brand new setup.
     var isNewProjectSetup = false
+
+    // When set, writeBrowserPathSetting() hands the chosen path here instead of
+    // writing settings.json. Used while the settings page itself is asking for a
+    // browser (Setup → Choose Browser…, Advanced → Choose App…): the page's
+    // panel is open with its own copy of every field, so a write to the file
+    // underneath it would be overwritten by the panel's next save. Instead the
+    // path goes back to the page, which puts it in its field and saves it with
+    // the rest when the panel closes.
+    var browserPathSink: ((String) -> Void)?
+
+    // Runs once, the next time the page finishes loading — for a wizard
+    // step that has just rewritten settings.json and must not open the
+    // settings panel until the page has been reloaded from it (see
+    // continueCanvasOnlySetup()).
+    var afterNextPageLoad: (() -> Void)?
 
     // Whether the DISPLAY is currently asleep — not whether the whole
     // Mac is. Full system sleep freezes this process entirely,
@@ -786,17 +820,11 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // discovered from the menu first.
         let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
-        // Both reachable any time, not just during the one-time new-
-        // project wizard — added after testing that wizard live turned
-        // up a real gap: skipping (or wanting to redo) either one left
-        // no way back in short of deleting the project folder and
-        // starting over. Same underlying functions the wizard itself
-        // calls (presentBrowserSetup()/attemptLogin() below), just
-        // reachable from here too.
-        let browserItem = appMenu.addItem(withTitle: "Choose Browser…", action: #selector(chooseBrowserFromMenu), keyEquivalent: "")
-        browserItem.target = self
-        let signInItem = appMenu.addItem(withTitle: "Sign In to Google Classroom…", action: #selector(signInFromMenu), keyEquivalent: "")
-        signInItem.target = self
+        // "Choose Browser…" and "Sign In…" used to sit here, reachable any
+        // time after the one-time wizard. They moved into Settings → Account →
+        // Setup (see the native setup actions in userContentController below),
+        // next to the sources that need them, so they aren't a hidden second
+        // place to look.
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu()
@@ -829,6 +857,26 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
+        // The page's own keyboard shortcuts for Refresh, Fresh check and the
+        // check-status panel, as menu items so they show up (with their keys)
+        // where people look for them. Each one calls the same function the
+        // page's key handler does (window.classdashShortcut in 08-page.js), so
+        // a click here and a keypress in the page can't behave differently.
+        // The plain-letter filter shortcuts (1-9, A, C, M, N…) stay in the
+        // page: they aren't menu commands.
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        let refreshItem = viewMenu.addItem(withTitle: "Refresh", action: #selector(shortcutRefresh), keyEquivalent: "r")
+        refreshItem.target = self
+        let freshItem = viewMenu.addItem(withTitle: "Fresh Check", action: #selector(shortcutFresh), keyEquivalent: "r")
+        freshItem.keyEquivalentModifierMask = [.command, .shift]
+        freshItem.target = self
+        viewMenu.addItem(NSMenuItem.separator())
+        let statusItem = viewMenu.addItem(withTitle: "Check Status", action: #selector(shortcutStatus), keyEquivalent: "s")
+        statusItem.target = self
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+
         // macOS fills in the actual open-window list here on its own,
         // once a Window menu exists and is registered below — nothing
         // here has to maintain that list by hand.
@@ -850,6 +898,16 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // though settings live inside the page itself, not a native window —
     // this just calls the exact same toggleSettingsPanel() the gear icon
     // already calls, from the native side instead of a click.
+    @objc func shortcutRefresh() { runPageShortcut("refresh") }
+    @objc func shortcutFresh() { runPageShortcut("fresh") }
+    @objc func shortcutStatus() { runPageShortcut("status") }
+
+    private func runPageShortcut(_ name: String) {
+        window.makeKeyAndOrderFront(nil)
+        web.evaluateJavaScript("window.classdashShortcut && window.classdashShortcut('\(name)')",
+                               completionHandler: nil)
+    }
+
     @objc func openSettings() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -931,10 +989,64 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             return
         }
         let arg = (body["arg"] as? String) ?? ""
-        logWindow("bridge: \(action) \(arg)")
+        // A settings save carries every setting, the Canvas access token
+        // and the email included, so its payload is never written to the log
+        // (the notifier's own log line for the same save lists which
+        // settings were applied, by name).
+        logWindow(action == "config" ? "bridge: config (payload not logged)" : "bridge: \(action) \(arg)")
+
+        // The setup actions need native dialogs (a file picker, alerts, a
+        // browser window), so they never reach the notifier script.
+        if handleNativeSetupAction(action, requestId: requestId) { return }
 
         runAction(action, arg) { [weak self] resultJSON in
             self?.deliver(requestId: requestId, resultJSON: resultJSON)
+        }
+    }
+
+    // Settings → Account → Setup, and Advanced's browser path picker. Each
+    // answers the page with the same {ok, ...} shape as any bridge action.
+    //
+    //   setupBrowser    the "Set Up a Browser" dialog (install Brave / Chrome /
+    //                   pick one). Answers {browserPath: <path> | null,
+    //                   installedBrave: bool}: a path if one was chosen or
+    //                   cleared to "", null if nothing about it changed.
+    //   pickBrowserApp  just the file picker, with its safety warning.
+    //   setupSignIn     the real sign-in flow (permission heads-up, the browser
+    //                   window, the Done button), answered at once.
+    private func handleNativeSetupAction(_ action: String, requestId: String) -> Bool {
+        switch action {
+        case "setupBrowser", "pickBrowserApp":
+            var chosen: String?
+            browserPathSink = { chosen = $0 }
+            let finish = { [weak self] in
+                guard let self = self else { return }
+                self.browserPathSink = nil
+                // A Brave installed into the project's own .browser/ is what
+                // gets used when browserPath is empty, so a fresh install
+                // means "clear any custom path" — but only if it really landed.
+                let installed = FileManager.default.fileExists(atPath: projectDir + "/.browser")
+                let payload: [String: Any] = [
+                    "ok": true,
+                    "browserPath": chosen as Any? ?? NSNull(),
+                    "installedBrave": action == "setupBrowser" && installed,
+                ]
+                let data = try? JSONSerialization.data(withJSONObject: payload)
+                self.deliver(requestId: requestId,
+                             resultJSON: data.flatMap { String(data: $0, encoding: .utf8) } ?? "{\"ok\":false}")
+            }
+            if action == "setupBrowser" {
+                presentBrowserSetup { finish() }
+            } else {
+                chooseCustomBrowser { finish() }
+            }
+            return true
+        case "setupSignIn":
+            attemptLogin()
+            deliver(requestId: requestId, resultJSON: "{\"ok\":true}")
+            return true
+        default:
+            return false
         }
     }
 
@@ -1008,6 +1120,10 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // existed, so it's told the current state straight away.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         livePusher?.push()
+        if let callback = afterNextPageLoad {
+            afterNextPageLoad = nil
+            callback()
+        }
     }
 
     // Hands the result back to the exact page that asked for it, as a
@@ -1245,14 +1361,137 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     func continueNewProjectSetupIfNeeded() {
         guard isNewProjectSetup else { return }
         isNewProjectSetup = false // only ever runs once, right after creation
-        presentBrowserSetup { [weak self] in
-            self?.promptForSettingsThenLogin()
+
+        // THE FIRST QUESTION DECIDES WHETHER A BROWSER IS NEEDED AT ALL.
+        // Google Classroom and Edpuzzle can only be read through a real
+        // browser, so a school that uses either gets the browser and
+        // sign-in steps below. A school that only uses Canvas doesn't need
+        // them: Canvas can be read with an access token instead, and asking
+        // such a person to install a browser and sign in to Google
+        // Classroom — a service they don't use — is just friction.
+        let ask = NSAlert()
+        ask.messageText = "What Does Your School Use?"
+        ask.informativeText = "Google Classroom (and Edpuzzle) can only be read through a real " +
+            "browser, so ClassDash sets one up and has you sign in. If your school only uses " +
+            "Canvas, ClassDash can skip the browser entirely."
+        ask.addButton(withTitle: "Google Classroom")
+        ask.addButton(withTitle: "Only Canvas")
+
+        guard ask.runModal() == .alertSecondButtonReturn else {
+            presentBrowserSetup { [weak self] in
+                self?.promptForSettingsThenLogin()
+            }
+            return
+        }
+        continueCanvasOnlySetup()
+    }
+
+    // "Only Canvas" — but that alone doesn't mean no browser: without an
+    // access token Canvas is read through the browser's own signed-in
+    // session (see 10-canvas.js), so the second question is HOW they sign
+    // in to Canvas, not just which services they use.
+    private func continueCanvasOnlySetup() {
+        let how = NSAlert()
+        how.messageText = "How Do You Sign In to Canvas?"
+        how.informativeText = "An access token needs no browser at all: you create one in Canvas " +
+            "(Account → Settings → New Access Token) and paste it into ClassDash. If your school " +
+            "signs in to Canvas with Google and doesn't let students make tokens, ClassDash can " +
+            "sign in through a browser instead."
+        how.addButton(withTitle: "Access Token (No Browser)")
+        how.addButton(withTitle: "Google Sign-In (Needs a Browser)")
+        let useToken = how.runModal() == .alertFirstButtonReturn
+
+        // Classroom and Edpuzzle off either way: they were never used. On
+        // the token path the browser sign-in way is off too — it would only
+        // be the fallback, and this path is the one that asks for no browser
+        // at all (it can be switched back on in Settings).
+        var changes: [String: Any] = ["classroomEnabled": false, "edpuzzleEnabled": false]
+        if useToken { changes["canvasSsoEnabled"] = false }
+        applyWizardSettings(changes) { [weak self] in
+            if useToken {
+                self?.promptForCanvasDetails()
+            } else {
+                self?.presentBrowserSetup { self?.promptForSettingsThenLogin() }
+            }
         }
     }
 
+    // Writes settings for the wizard, then redraws the page from them and
+    // reloads it, and only THEN runs `then` — the settings panel renders its
+    // fields once, when the page loads, and every save resends all of them,
+    // so a panel opened over a page that predates these changes would put the
+    // old values straight back on its first save.
+    private func applyWizardSettings(_ changes: [String: Any], then: @escaping () -> Void) {
+        updateSettingsFile(in: projectDir, changes)
+        runNodeScriptSync("05-playwright-draft.js", args: ["--redraw"], in: projectDir)
+        afterNextPageLoad = then
+        show()
+    }
+
+    // The token path's counterpart to promptForSettingsThenLogin(): the
+    // same real settings panel, but nothing to sign in to afterwards.
+    private func promptForCanvasDetails() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        web.evaluateJavaScript("toggleSettingsPanel()", completionHandler: nil)
+
+        let details = NSAlert()
+        details.messageText = "Add Your Canvas Details"
+        details.informativeText = "In the settings above, fill in your Canvas address and paste " +
+            "your access token, then click Done.\n\nTo make a token: in Canvas, open Account → " +
+            "Settings → New Access Token, pick an expiry date, and copy it — Canvas only shows " +
+            "it once."
+        details.addButton(withTitle: "Done")
+        details.addButton(withTitle: "I'll Do This Later")
+        guard details.runModal() == .alertFirstButtonReturn else { return }
+
+        // Closing the panel is what saves it (see toggleSettingsPanel() in
+        // 08-page.js) — but only if it's still open: calling it on a panel
+        // already closed would open it again.
+        web.evaluateJavaScript(
+            "(function(){var p=document.getElementById('settings-panel');" +
+            "if(p&&!p.hidden){toggleSettingsPanel();}})()", completionHandler: nil)
+        // The save goes through the bridge to a separate node process; a
+        // moment to land before the file is read back.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.checkCanvasDetails()
+        }
+    }
+
+    // What if there's an address but no token? Then Canvas is read the
+    // browser way — which needs a browser — so say so instead of letting
+    // the first check fail on it.
+    private func checkCanvasDetails() {
+        let settings = readSettingsFile(in: projectDir)
+        let address = (settings["canvas"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = (settings["canvasToken"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if address.isEmpty { return } // nothing entered — Canvas stays off until they add it
+
+        if token.isEmpty {
+            let noToken = NSAlert()
+            noToken.messageText = "No Access Token"
+            noToken.informativeText = "You entered a Canvas address but no access token, so " +
+                "ClassDash will need a browser to sign in to Canvas. Set one up now, or add a " +
+                "token in Settings instead — no browser needed."
+            noToken.addButton(withTitle: "Set Up a Browser")
+            noToken.addButton(withTitle: "I'll Add a Token")
+            if noToken.runModal() == .alertFirstButtonReturn {
+                // The browser sign-in way has to be on for a browser to be
+                // any use (the token path switched it off).
+                applyWizardSettings(["canvasSsoEnabled": true]) { [weak self] in
+                    self?.presentBrowserSetup { self?.promptForSettingsThenLogin() }
+                }
+            }
+            return
+        }
+        // Address and token: everything's there, so start the first check
+        // (the page would otherwise just offer "Check now").
+        runAction("reload", "") { _ in }
+    }
+
     // The browser-choice step — the wizard's own, but also reachable any
-    // time afterward from the menu bar's "Choose Browser…" (see
-    // chooseBrowserFromMenu() below). Testing the wizard live turned up
+    // time afterward from Settings → Account → Setup (see
+    // handleNativeSetupAction() above). Testing the wizard live turned up
     // a real gap: skipping this (or wanting to redo it later) left no
     // way back short of deleting the project folder and starting the
     // whole wizard over. `completion` runs once a choice has actually
@@ -1291,6 +1530,9 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
                 runNodeScriptSync("20-browser.js", args: ["--force"], in: dir)
                 DispatchQueue.main.async {
                     busy.close()
+                    // For the settings page: the fresh Brave is what's used when
+                    // browserPath is empty, so any custom path is cleared.
+                    self.browserPathSink?("")
                     completion()
                 }
             }
@@ -1382,23 +1624,12 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         completion()
     }
 
-    // Menu-bar entry points — same underlying functions the wizard uses,
-    // just reachable any time instead of gated behind isNewProjectSetup.
-    @objc func chooseBrowserFromMenu() {
-        presentBrowserSetup {
-            let done = NSAlert()
-            done.messageText = "Browser Updated"
-            done.informativeText = "Takes effect on the next check — right away if you " +
-                "start one now (the reload button, or Check Now)."
-            done.runModal()
-        }
-    }
-
-    @objc func signInFromMenu() {
-        attemptLogin()
-    }
-
     private func writeBrowserPathSetting(_ path: String) {
+        // Asked for by the settings page: hand it back instead (see browserPathSink).
+        if let sink = browserPathSink {
+            sink(path)
+            return
+        }
         let settingsPath = projectDir + "/settings.json"
         guard let data = FileManager.default.contents(atPath: settingsPath),
               var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
@@ -1446,7 +1677,10 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         web.evaluateJavaScript("toggleSettingsPanel()", completionHandler: nil)
 
         let loginAlert = NSAlert()
-        loginAlert.messageText = "Sign In to Google Classroom"
+        // With Classroom turned off (a Canvas-only school on the browser
+        // way) what they're signing in to is Canvas.
+        let classroomOff = (readSettingsFile(in: projectDir)["classroomEnabled"] as? Bool) == false
+        loginAlert.messageText = classroomOff ? "Sign In to Canvas" : "Sign In to Google Classroom"
         loginAlert.informativeText = "Fill in your settings above, then click Sign In — a " +
             "real browser window will open for you to log in normally, the same as logging " +
             "into any site. Come back here once you're done."

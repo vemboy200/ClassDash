@@ -322,9 +322,55 @@ ipcMain.on('classdash-action', async (_event, body) => {
   if (!body || typeof body !== 'object') return;
   const { id, action, arg } = body;
   if (!id || !action) return;
+  // The setup actions need native dialogs (a file picker, message boxes, a
+  // browser window), so they never reach the notifier script.
+  if (NATIVE_SETUP_ACTIONS.includes(action)) {
+    deliverResult(id, await runNativeSetupAction(action));
+    return;
+  }
   const result = await runAction(action, arg);
   deliverResult(id, result);
 });
+
+// Settings → Account → Setup, and Advanced's browser path picker. Each
+// answers the page with the same {ok, ...} shape as any bridge action.
+//
+//   setupBrowser    the "Set Up a Browser" dialog (install Brave / Chrome /
+//                   pick one). Answers {browserPath: <path> | null}: a path if
+//                   one was chosen (or "" if it should be cleared), null if
+//                   nothing about it changed.
+//   pickBrowserApp  just the file picker, with its safety warning.
+//   setupSignIn     the real sign-in flow (the browser window, the Done
+//                   button), answered at once.
+const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn'];
+
+async function runNativeSetupAction(action) {
+  if (action === 'setupSignIn') {
+    attemptLogin();
+    return { ok: true, action };
+  }
+  // While the page is the one asking, the chosen path goes back to it
+  // instead of into settings.json (see browserPathSink).
+  let chosen = null;
+  browserPathSink = (browserPath) => { chosen = browserPath; };
+  try {
+    await new Promise((resolve, reject) => {
+      const started = action === 'setupBrowser'
+        ? presentBrowserSetup(resolve)
+        : chooseCustomBrowser(resolve);
+      // Both are async and only call `resolve` when they finish normally; a
+      // throw inside would otherwise be an unhandled rejection and the page
+      // would wait forever for an answer.
+      Promise.resolve(started).catch(reject);
+    });
+    return { ok: true, action, browserPath: chosen };
+  } catch (e) {
+    // Answer the page either way: a button that never hears back looks broken.
+    return { ok: false, action, why: e.message };
+  } finally {
+    browserPathSink = null;
+  }
+}
 
 // ── Live updates ──
 //
@@ -422,21 +468,43 @@ function buildMenu() {
       submenu: [
         { label: 'Check for Updates…', click: () => checkForUpdatesManually() },
         { label: 'Settings…', click: () => openSettings() },
-        // Both reachable any time, not just during the one-time new-
-        // project wizard — see chooseBrowserFromMenu()/attemptLogin()'s
-        // own comments for why (the same gap testing the macOS wizard
-        // live turned up there).
-        { label: 'Choose Browser…', click: () => chooseBrowserFromMenu() },
-        { label: 'Sign In to Google Classroom…', click: () => attemptLogin() },
-        { type: 'separator' },
-        { role: 'reload' },
+        // "Choose Browser…" and "Sign In…" used to sit here, reachable any
+        // time after the one-time wizard. They moved into Settings →
+        // Account → Setup (see runNativeSetupAction()), next to the sources
+        // that need them, so they aren't a hidden second place to look.
         { type: 'separator' },
         { role: 'quit' },
+      ],
+    },
+    // The page's own keyboard shortcuts for Refresh, Fresh check and the
+    // check-status panel, as menu items so they show up (with their keys)
+    // where people look for them. Each one calls the same function the page's
+    // key handler does (window.classdashShortcut in 08-page.js), so a click
+    // here and a keypress in the page can't behave differently. The built-in
+    // `reload` role used to sit in the ClassDash menu with Ctrl+R and
+    // Ctrl+Shift+R of its own — a menu accelerator is handled before the page
+    // ever sees the key, so it would have swallowed both. The plain-letter
+    // filter shortcuts (1-9, A, C, M, N…) stay in the page: they aren't menu
+    // commands.
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => runPageShortcut('refresh') },
+        { label: 'Fresh Check', accelerator: 'CmdOrCtrl+Shift+R', click: () => runPageShortcut('fresh') },
+        { type: 'separator' },
+        { label: 'Check Status', accelerator: 'CmdOrCtrl+S', click: () => runPageShortcut('status') },
       ],
     },
     { role: 'editMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function runPageShortcut(name) {
+  if (!win || win.isDestroyed()) return;
+  win.webContents
+    .executeJavaScript(`window.classdashShortcut && window.classdashShortcut('${name}')`)
+    .catch(() => {});
 }
 
 function openSettings() {
@@ -453,10 +521,167 @@ function openSettings() {
 // is why this runs from app.whenReady()'s own callback, after
 // createWindow(), instead of being part of setUpNewProject() directly.
 // Mirrors continueNewProjectSetupIfNeeded() in 16-summary.swift exactly.
-function continueNewProjectSetupIfNeeded() {
+async function continueNewProjectSetupIfNeeded() {
   if (!isNewProjectSetup) return;
   isNewProjectSetup = false; // only ever runs once, right after creation
+
+  // THE FIRST QUESTION DECIDES WHETHER A BROWSER IS NEEDED AT ALL. Google
+  // Classroom and Edpuzzle can only be read through a real browser, so a
+  // school that uses either gets the browser and sign-in steps below. A
+  // school that only uses Canvas doesn't need them: Canvas can be read
+  // with an access token instead. Mirrors continueNewProjectSetupIfNeeded()
+  // in 16-summary.swift.
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: 'What Does Your School Use?',
+    detail: 'Google Classroom (and Edpuzzle) can only be read through a real browser, so ' +
+      'ClassDash sets one up and has you sign in. If your school only uses Canvas, ' +
+      'ClassDash can skip the browser entirely.',
+    buttons: ['Google Classroom', 'Only Canvas'],
+    defaultId: 0,
+  });
+  if (response === 1) {
+    await continueCanvasOnlySetup();
+    return;
+  }
   presentBrowserSetup(() => promptForSettingsThenLogin());
+}
+
+// The project's settings.json as an object — for the wizard, which needs to
+// read a couple of values and write a couple of others without going
+// through the settings panel. (Empty if the file is missing or unreadable.)
+function readSettingsFile() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+// Read-modify-write, so everything else in the file is left as it was.
+function updateSettingsFile(changes) {
+  try {
+    fs.writeFileSync(path.join(projectDir, 'settings.json'),
+      JSON.stringify({ ...readSettingsFile(), ...changes }, null, 2));
+  } catch {
+    /* not fatal — the wizard just won't have set these */
+  }
+}
+
+// Reloads the page and WAITS for it to finish — see presentBrowserSetup()
+// for why "started" isn't enough (a panel opened over the old page renders
+// stale values and its first save writes them back).
+async function reloadPageAndWait() {
+  if (!win || win.isDestroyed()) return;
+  await new Promise((resolve) => {
+    win.webContents.once('did-finish-load', resolve);
+    win.webContents.reload();
+    setTimeout(resolve, 5000); // safety net, not the expected path
+  });
+}
+
+// Writes settings for the wizard, then redraws the page from them and
+// reloads it — BEFORE anything opens the settings panel, so a save from that
+// panel can't put the old values back (see presentBrowserSetup()).
+async function applyWizardSettings(changes) {
+  updateSettingsFile(changes);
+  runNodeScriptSync('05-playwright-draft.js', ['--redraw'], projectDir);
+  await reloadPageAndWait();
+}
+
+// "Only Canvas" — but that alone doesn't mean no browser: without an access
+// token Canvas is read through the browser's own signed-in session (see
+// 10-canvas.js), so the second question is HOW they sign in to Canvas, not
+// just which services they use. Mirrors continueCanvasOnlySetup() in
+// 16-summary.swift.
+async function continueCanvasOnlySetup() {
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: 'How Do You Sign In to Canvas?',
+    detail: 'An access token needs no browser at all: you create one in Canvas (Account → ' +
+      'Settings → New Access Token) and paste it into ClassDash. If your school signs in ' +
+      "to Canvas with Google and doesn't let students make tokens, ClassDash can sign in " +
+      'through a browser instead.',
+    buttons: ['Access Token (No Browser)', 'Google Sign-In (Needs a Browser)'],
+    defaultId: 0,
+  });
+  const useToken = response === 0;
+
+  // Classroom and Edpuzzle off either way: they were never used. On the
+  // token path the browser sign-in way is off too — it would only be the
+  // fallback, and this path is the one that asks for no browser at all (it
+  // can be switched back on in Settings).
+  const changes = { classroomEnabled: false, edpuzzleEnabled: false };
+  if (useToken) changes.canvasSsoEnabled = false;
+  await applyWizardSettings(changes);
+
+  if (useToken) {
+    await promptForCanvasDetails();
+  } else {
+    presentBrowserSetup(() => promptForSettingsThenLogin());
+  }
+}
+
+// The token path's counterpart to promptForSettingsThenLogin(): the same
+// real settings panel, but nothing to sign in to afterwards.
+async function promptForCanvasDetails() {
+  win.show();
+  win.focus();
+  win.webContents.executeJavaScript('toggleSettingsPanel()').catch(() => {});
+
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    message: 'Add Your Canvas Details',
+    detail: 'In the settings above, fill in your Canvas address and paste your access token, ' +
+      'then click Done.\n\nTo make a token: in Canvas, open Account → Settings → New Access ' +
+      'Token, pick an expiry date, and copy it — Canvas only shows it once.',
+    buttons: ['Done', "I'll Do This Later"],
+    defaultId: 0,
+  });
+  if (response !== 0) return;
+
+  // Closing the panel is what saves it (see toggleSettingsPanel() in
+  // 08-page.js) — but only if it's still open: calling it on a panel
+  // already closed would open it again.
+  await win.webContents.executeJavaScript(
+    "(function(){var p=document.getElementById('settings-panel');" +
+    "if(p&&!p.hidden){toggleSettingsPanel();}})()").catch(() => {});
+  // The save goes through the bridge to a separate node process; a moment to
+  // land before the file is read back.
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await checkCanvasDetails();
+}
+
+// What if there's an address but no token? Then Canvas is read the browser
+// way — which needs a browser — so say so instead of letting the first
+// check fail on it.
+async function checkCanvasDetails() {
+  const settings = readSettingsFile();
+  const address = String(settings.canvas || '').trim();
+  const token = String(settings.canvasToken || '').trim();
+  if (!address) return; // nothing entered — Canvas stays off until they add it
+
+  if (!token) {
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      message: 'No Access Token',
+      detail: 'You entered a Canvas address but no access token, so ClassDash will need a ' +
+        'browser to sign in to Canvas. Set one up now, or add a token in Settings instead — ' +
+        'no browser needed.',
+      buttons: ['Set Up a Browser', "I'll Add a Token"],
+      defaultId: 0,
+    });
+    if (response === 0) {
+      // The browser sign-in way has to be on for a browser to be any use
+      // (the token path switched it off).
+      await applyWizardSettings({ canvasSsoEnabled: true });
+      presentBrowserSetup(() => promptForSettingsThenLogin());
+    }
+    return;
+  }
+  // Address and token: everything's there, so start the first check (the
+  // page would otherwise just offer "Check now").
+  runAction('reload', '');
 }
 
 // A small floating "still working" indicator — Electron has no native
@@ -490,8 +715,8 @@ function showBusyWindow(message) {
 }
 
 // The browser-choice step — the wizard's own, but also reachable any
-// time afterward from the menu bar's "Choose Browser…" (see
-// chooseBrowserFromMenu() below) — same gap testing the macOS wizard
+// time afterward from Settings → Account → Setup (see
+// runNativeSetupAction() above) — same gap testing the macOS wizard
 // live turned up there: skipping this (or wanting to redo it later)
 // left no way back short of deleting the project folder and starting
 // over. `completion` runs once a choice has actually been made or
@@ -515,6 +740,13 @@ async function presentBrowserSetup(completion) {
   // whenever it's next opened, renders from the real current disk
   // state instead.
   const reloadThenComplete = async () => {
+    // Nothing to reload when the settings page asked: it takes the answer and
+    // updates its own field (see browserPathSink) — a reload would throw away
+    // whatever else is half-typed in its open panel.
+    if (browserPathSink) {
+      completion();
+      return;
+    }
     // AWAITS THE RELOAD ACTUALLY FINISHING — a genuine, separate bug
     // from the one described above it, found live in a second round of
     // testing: webContents.reload() only ever STARTS a navigation, it
@@ -562,8 +794,9 @@ async function presentBrowserSetup(completion) {
     if (!installed) {
       dialog.showErrorBox(
         "Brave didn't install correctly",
-        'Something went wrong installing Brave. Try "Choose Browser…" from the menu to ' +
-        'install it again, use Chrome instead, or pick a different browser manually.'
+        'Something went wrong installing Brave. Try "Choose Browser…" in Settings → ' +
+        'Account → Setup to install it again, use Chrome instead, or pick a different ' +
+        'browser manually.'
       );
       completion();
       return;
@@ -597,8 +830,8 @@ async function presentBrowserSetup(completion) {
     } else {
       dialog.showErrorBox(
         "Couldn't find Chrome",
-        "Chrome isn't in any of its usual install locations. Use \"Choose Browser…\" from " +
-        'the menu to point directly at chrome.exe, or install Brave instead.'
+        "Chrome isn't in any of its usual install locations. Use \"Choose Browser…\" in " +
+        'Settings → Account → Setup to point directly at chrome.exe, or install Brave instead.'
       );
       completion();
     }
@@ -812,7 +1045,20 @@ async function chooseCustomBrowser(completion) {
   completion();
 }
 
+// When set, writeBrowserPathSetting() hands the chosen path here instead of
+// writing settings.json. Used while the settings page itself is asking for a
+// browser (Setup → Choose Browser…, Advanced → Choose App…): the page's panel
+// is open with its own copy of every field, so a write to the file underneath
+// it would be overwritten by the panel's next save. Instead the path goes back
+// to the page, which puts it in its field and saves it with the rest when the
+// panel closes.
+let browserPathSink = null;
+
 function writeBrowserPathSetting(browserPath) {
+  if (browserPathSink) {
+    browserPathSink(browserPath);
+    return;
+  }
   const settingsPath = path.join(projectDir, 'settings.json');
   try {
     const obj = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -834,7 +1080,10 @@ async function promptForSettingsThenLogin() {
 
   const { response } = await dialog.showMessageBox(win, {
     type: 'question',
-    message: 'Sign In to Google Classroom',
+    // With Classroom turned off (a Canvas-only school on the browser way)
+    // what they're signing in to is Canvas.
+    message: readSettingsFile().classroomEnabled === false
+      ? 'Sign In to Canvas' : 'Sign In to Google Classroom',
     detail: 'Fill in your settings above, then click Sign In — a real browser window ' +
       'will open for you to log in normally, the same as logging into any site. Come ' +
       'back here once you\'re done.',
@@ -845,8 +1094,8 @@ async function promptForSettingsThenLogin() {
   attemptLogin();
 }
 
-// Reachable both from the wizard above and any time afterward from the
-// menu bar (signInFromMenu below) — no macOS-style permission gate to
+// Reachable both from the wizard above and any time afterward from Settings →
+// Account → Setup (the "setupSignIn" action) — no macOS-style permission gate to
 // warn about first on Windows (there's no Privacy & Security equivalent
 // to App Management/Automation here), so unlike 16-summary.swift's
 // attemptLogin() this goes straight to spawning the login script.
@@ -882,9 +1131,9 @@ function attemptLogin() {
       // I picked", because nothing was ever actually saved to forget.
       const detail = errorText
         ? `Here's exactly what happened:\n\n${errorText.slice(-800)}\n\nUse "Choose Browser…" ` +
-          'from the menu to install Brave or point directly at a browser\'s .exe, then try again.'
+          'in Settings → Account → Setup to install Brave or point directly at a browser\'s .exe, then try again.'
         : 'This usually means no compatible browser is installed. Use "Choose ' +
-          'Browser…" from the menu to install Brave or pick one, then try again.';
+          'Browser…" in Settings → Account → Setup to install Brave or pick one, then try again.';
       const { response } = await dialog.showMessageBox(win, {
         type: 'warning',
         message: "Couldn't open a browser to sign in",
@@ -933,16 +1182,6 @@ function attemptLogin() {
 
 // Menu-bar entry points — same underlying functions the wizard uses,
 // just reachable any time instead of gated behind isNewProjectSetup.
-function chooseBrowserFromMenu() {
-  presentBrowserSetup(() => {
-    dialog.showMessageBox(win, {
-      message: 'Browser Updated',
-      detail: 'Takes effect on the next check — right away if you start one now (the ' +
-        'reload button, or Check Now).',
-    });
-  });
-}
-
 // ── Auto fresh-check timer — port of setupAutoFreshCheck() /
 // maybeRunAutoFreshCheck() (16-summary.swift:747-865) ──
 //
