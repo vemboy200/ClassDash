@@ -326,6 +326,14 @@ function main(action, arg) {
     case 'signIn':
       signIn();
       return { ok: true, action };
+    // The app telling the project which version is really running, at launch
+    // (see recordRunningVersion in 26-update-check.js): redraws only if that
+    // changed what the page shows.
+    case 'noteVersion': {
+      const changed = require('./26-update-check.js').recordRunningVersion(arg);
+      if (changed) redraw();
+      return { ok: true, action, changed };
+    }
     // After the app refreshed this project's scripts (30-template-sync.js): a
     // home API server that was already running is still the OLD code, held in
     // memory, and would go on serving it until something restarted it. Only

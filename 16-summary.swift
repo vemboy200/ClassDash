@@ -741,6 +741,12 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         if let resources = Bundle.main.resourcePath {
             syncProjectScripts(from: resources + "/ProjectTemplate", into: projectDir)
         }
+        // And tell the project which version is really running, so the page (a
+        // static snapshot) is built from it and not from whatever the last
+        // update check recorded (see recordRunningVersion in 26-update-check.js).
+        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String, !version.isEmpty {
+            runNodeScriptSync("21-notifier-actions.js", args: ["noteVersion", version], in: projectDir)
+        }
 
         buildMainMenu()
 

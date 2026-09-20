@@ -99,6 +99,15 @@ function syncProjectScripts() {
   }
 }
 
+// Tells the project which version is really running, so the page (a static
+// snapshot) is built from the true version and not from whatever the last
+// update check happened to record. Runs after the script refresh — the
+// project's 21-notifier-actions.js has to be the new one — and before the
+// window loads the page. See recordRunningVersion in 26-update-check.js.
+function noteRunningVersion() {
+  runNodeScriptSync('21-notifier-actions.js', ['noteVersion', app.getVersion()], projectDir);
+}
+
 // Genuinely fire-and-forget — for --login, which needs to keep running
 // (and its real, visible browser window needs to keep existing) for as
 // long as the user takes to actually log in. UNLIKE a plain fire-and-
@@ -1553,6 +1562,7 @@ if (!gotLock) {
     // Before anything loads the page or runs a script: the project folder's
     // copy of the scripts must match this app's (see 30-template-sync.js).
     syncProjectScripts();
+    noteRunningVersion();
     buildMenu();
     createWindow();
     setupAutoFreshCheck();

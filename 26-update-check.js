@@ -128,6 +128,57 @@ function writeFields(fields) {
   } catch { /* not fatal — status just won't reflect this step */ }
 }
 
+/** The comparison both apps use for "is a newer than b" (dots, numbers
+ *  only, so "0.0.0-dev.abc123" counts as older than any real release —
+ *  which is why a dev build is always offered the latest release). */
+function isNewer(a, b) {
+  const parts = (s) => String(s).split('.').map((p) => parseInt(p, 10) || 0);
+  const [pa, pb] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+/**
+ * Records which version of the app is ACTUALLY running.
+ *
+ * The version shown in Settings → Advanced (and the "update available"
+ * banner) is read from this file when the page is BUILT, and the page is a
+ * static snapshot. The app rewrites currentVersion itself, but only as the
+ * result of an update check that finishes after the page has already been
+ * loaded, and nothing redraws the page afterwards. So after installing a
+ * newer version the row went on showing the OLD one — the same confusing
+ * "it's still on the old commit" twice on a real laptop, when the app really
+ * was new. Both apps call this at launch, after the project's scripts are
+ * refreshed and before the page is shown; when it returns true the caller
+ * redraws so the page is built from the true version.
+ *
+ * Also fixes what depends on the version: whether an update is available
+ * (recomputed against the latest known), and a downloaded installer for a
+ * version that is now the running one (or older) is spent, so the install
+ * prompt doesn't offer to install what's already installed.
+ *
+ * @returns {boolean} whether the record changed. False with no file (nothing
+ *   has ever been checked; the first check writes it) or nothing to change.
+ */
+function recordRunningVersion(version) {
+  const current = readUpdateStatusRaw();
+  if (!current || !version || current.currentVersion === version) return false;
+  current.currentVersion = version;
+  if (current.latestVersion) current.updateAvailable = isNewer(current.latestVersion, version);
+  if (current.readyVersion && !isNewer(current.readyVersion, version)) {
+    current.readyToInstall = false;
+    delete current.readyVersion;
+    delete current.downloadedPath;
+  }
+  try {
+    fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
+  } catch { return false; /* not fatal — the row just stays as it was */ }
+  return true;
+}
+
 /**
  * Marks a version as seen-and-dismissed. Silently a no-op if no check
  * has ever run — nothing to dismiss yet, and there's no reasonable
@@ -248,4 +299,4 @@ function downloadUpdate() {
   return { ok: true, started: true };
 }
 
-module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, FILE };
+module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, recordRunningVersion, isNewer, FILE };

@@ -414,6 +414,8 @@ On every launch each app now runs `30-template-sync.js <bundled template> <proje
 
 Files a later version *removes* are left behind in the project (nothing is ever deleted), which is harmless.
 
+**The version row is a snapshot, so the running version is recorded at launch.** The page reads `currentVersion` from `update-status.json` when it is *built* and is static afterwards, while the app only rewrites that field from an update check that finishes after the page has loaded. After installing a newer version the row (and the "update available" banner) went on showing the old one, which looked exactly like an install that hadn't worked (it happened twice on a real laptop). Right after the script refresh and before the window loads the page, both apps call the `noteVersion` notifier action with the version they are really running (`recordRunningVersion` in `26-update-check.js`); if it differs from the record it updates it, recomputes `updateAvailable`, clears a downloaded installer for a version that's now running (so the install prompt can't offer to install what's already installed), and redraws. A dev build (`0.0.0-dev.<sha>`) always counts as older than any release, so it is offered the latest release: don't install that.
+
 ### Keyboard shortcuts
 
 One `keydown` handler in `08-page.js` serves every host (the Mac app, the Windows app, a plain browser tab). Cmd/Ctrl+R is Refresh, Shift+Cmd/Ctrl+R is Fresh check, Cmd/Ctrl+S toggles the status panel; 1-9, 0, `-`, `=` (and the numpad's 1-9, 0, `-`, `+`) toggle the 1st-12th class in the class filter, with Shift the same slots in the announcement filters; A/C/M toggle the Assignment/Completed/Material type rows and N the "no due date" row. Design points worth keeping:
