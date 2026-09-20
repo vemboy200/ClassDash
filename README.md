@@ -220,7 +220,9 @@ first, or fill in `browserPath` in `settings.json` by hand.
   address set, Edpuzzle turned off, or no check has run yet). Click
   them for the full breakdown, timestamps and error detail included.
 - ClassDash checks for a new release automatically, once a day, and
-  shows a dismissable banner if one's out. **Check for Updates…** in
+  shows a dismissable banner if one's out. Updating also brings your project
+  folder's scripts up to date (your settings and data are never touched, and
+  the versions it replaced are kept in `previous-scripts/`). **Check for Updates…** in
   the menu bar (under **ClassDash** on macOS, right at the top on
   Windows) checks on demand instead of waiting — and if there's
   something newer, offers to download and

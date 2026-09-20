@@ -13,6 +13,8 @@ virtual-assignments.json
 class-activity.json
 check-status.json
 fetch-applied.json
+template-sync.json
+previous-scripts/
 live/
 update-status.json
 update-download.dmg

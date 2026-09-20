@@ -399,6 +399,20 @@ icon on the summary page) — this table exists for anyone editing
 
 **How the settings panel saves.** There's no Save button: closing the panel (its Done button, the gear, or the app's Settings… menu item) saves, and only if something actually changed. Most settings just redraw the page. `exclusions`, `canvas`, `canvasToken`, `canvasApiEnabled`, `canvasSsoEnabled` and `classroomEnabled` are different — they change what gets *fetched*, so they only take effect when the next collection runs (a manual check, an automatic one, or the "Check now" button on the notice the page shows meanwhile). Until then nothing on the page changes. `fetch-applied.json` records the values the last collection actually read with, and the page compares the file against it, so putting a setting back the way it was makes the notice go away by itself. Home API toggles are the other kind of side effect (they start, stop or rebind the server) but are instantly reversible, so they apply on save.
 
+### Keeping a project's scripts current (`30-template-sync.js`)
+
+Both apps ship a copy of the project (`Contents/Resources/ProjectTemplate` on macOS, `resources\ProjectTemplate` on Windows), and the first-run wizard copies it into the person's folder. After that *everything* runs from that folder: the page, the collector, the notifier, the home API. Nothing used to refresh it, so installing a newer app replaced the app and left the scripts as they were on the day the folder was made (caught on a real Windows laptop: a new installer, and the page from three weeks earlier).
+
+On every launch each app now runs `30-template-sync.js <bundled template> <project>` (`syncProjectScripts` in `16-summary.swift` and `electron/main.js`) **from the bundled template**, never from the project, which may be too old to contain it. It prints one JSON line and always exits 0:
+
+- **What it copies:** the files the template ships at its top level (scripts, icons, `package.json`, `settings.example.json`), and nothing else. Settings, collected data, the browser profile, logs, and any file the template doesn't have are never read, changed or deleted. `node_modules` is replaced only when `package.json`'s dependencies changed or it's missing.
+- **When it does nothing:** the project is a **git checkout** (a `.git` folder: someone running from source, whose working copy the bundled template can be *older* than; overwriting it would destroy uncommitted work, which is why a locally built Mac app, whose project is the repo, is unaffected), the project is the template, there's no template or project, or the project's marker already matches.
+- **The marker** is `template-sync.json` in the project: a fingerprint (a hash of the template's files), not the app's version number, because a dev build has the same version string across different code. It's only written after a sync succeeds, so a failed one is retried on the next launch.
+- **One step of undo:** files about to be overwritten are first copied to `previous-scripts/`, replacing what an earlier sync left there.
+- **After a sync that changed something,** the app redraws the page from the new scripts and sends the `restartApi` notifier action, since a home API server that was already running is still the old code in memory. `restartApi` only restarts a server that is running: a refresh never switches the API on.
+
+Files a later version *removes* are left behind in the project (nothing is ever deleted), which is harmless.
+
 ### Keyboard shortcuts
 
 One `keydown` handler in `08-page.js` serves every host (the Mac app, the Windows app, a plain browser tab). Cmd/Ctrl+R is Refresh, Shift+Cmd/Ctrl+R is Fresh check, Cmd/Ctrl+S toggles the status panel; 1-9, 0, `-`, `=` (and the numpad's 1-9, 0, `-`, `+`) toggle the 1st-12th class in the class filter, with Shift the same slots in the announcement filters; A/C/M toggle the Assignment/Completed/Material type rows and N the "no due date" row. Design points worth keeping:

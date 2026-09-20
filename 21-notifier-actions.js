@@ -326,6 +326,21 @@ function main(action, arg) {
     case 'signIn':
       signIn();
       return { ok: true, action };
+    // After the app refreshed this project's scripts (30-template-sync.js): a
+    // home API server that was already running is still the OLD code, held in
+    // memory, and would go on serving it until something restarted it. Only
+    // restarts one that is running — a refresh must never switch the API on
+    // for someone who has it off.
+    case 'restartApi': {
+      const security = require('./23-api-security.js');
+      if (!security.isServerRunning()) return { ok: true, action, restarted: false };
+      const { apiEnabled, apiNetwork } = require('./19-settings.js').read();
+      stopApiServer();
+      if (apiEnabled) startApiServer(apiNetwork);
+      logAction(apiEnabled ? '  home API server restarted (scripts were refreshed)'
+                           : '  home API server stopped (scripts were refreshed, and it is switched off)');
+      return { ok: true, action, restarted: !!apiEnabled };
+    }
     // The page reporting that it hid its own progress bar while it believed
     // a collection was still going. Nothing to do here: main() already
     // logged the arg above, which is the whole point — the page has no

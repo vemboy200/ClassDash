@@ -65,6 +65,40 @@ function runNodeScriptSync(script, args, dir) {
   });
 }
 
+// Keeps the project folder's scripts in step with this app. The app ships a
+// copy of the project and the wizard copies it into the person's folder, but
+// nothing ever refreshed that copy: a newer installer replaced the app and
+// left the page, the collector and everything else as they were the day the
+// folder was made. 30-template-sync.js does the copying (and knows what to
+// leave alone — settings, data, and any git checkout); it's run from the
+// BUNDLED template because the project may be too old to have it. When
+// something actually changed the page is redrawn from the new scripts and a
+// running home API server (still the old code, in memory) is restarted.
+// Never throws: a failure here must not stop the app from opening, and the
+// sync retries on the next launch.
+function syncProjectScripts() {
+  const templateDir = path.join(process.resourcesPath, 'ProjectTemplate');
+  const script = path.join(templateDir, '30-template-sync.js');
+  if (!fs.existsSync(script)) return; // an unpackaged run has no bundled template
+  try {
+    const run = spawnSync(process.execPath, [script, templateDir, projectDir], {
+      env: nodeEnv(), encoding: 'utf8', timeout: 120000,
+    });
+    const line = String(run.stdout || '').trim().split('\n').filter(Boolean).pop();
+    const result = JSON.parse(line);
+    if (result.ok === false) {
+      console.warn('refreshing the project scripts failed:', result.error);
+      return;
+    }
+    if (result.action === 'synced' && (result.changed.length || result.refreshedModules)) {
+      runNodeScriptSync('05-playwright-draft.js', ['--redraw'], projectDir);
+      runNodeScriptSync('21-notifier-actions.js', ['restartApi'], projectDir);
+    }
+  } catch (e) {
+    console.warn('refreshing the project scripts failed:', e.message);
+  }
+}
+
 // Genuinely fire-and-forget — for --login, which needs to keep running
 // (and its real, visible browser window needs to keep existing) for as
 // long as the user takes to actually log in. UNLIKE a plain fire-and-
@@ -1516,6 +1550,9 @@ if (!gotLock) {
       app.quit();
       return;
     }
+    // Before anything loads the page or runs a script: the project folder's
+    // copy of the scripts must match this app's (see 30-template-sync.js).
+    syncProjectScripts();
     buildMenu();
     createWindow();
     setupAutoFreshCheck();

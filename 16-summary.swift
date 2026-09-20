@@ -376,6 +376,53 @@ func runNodeScriptSync(_ script: String, args: [String], in dir: String) {
     process.waitUntilExit()
 }
 
+// Like runNodeScriptSync, but hands back what the script printed — for one that
+// answers with a result (the template sync below).
+func runNodeScriptCapture(_ script: String, args: [String], in dir: String) -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", dir + "/" + script] + args
+    var env = ProcessInfo.processInfo.environment
+    let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+    process.environment = env
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch { return "" }
+    // Read before waiting: a script that prints more than the pipe holds
+    // would otherwise block on writing and never exit.
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return String(data: data, encoding: .utf8) ?? ""
+}
+
+// Keeps the project folder's scripts in step with this app. The app ships a
+// copy of the project and the wizard copies it into the person's folder, but
+// nothing ever refreshed that copy: a newer app replaced the old one and left
+// the page, the collector and everything else as they were the day the folder
+// was made. 30-template-sync.js does the copying (and knows what to leave
+// alone — settings, data, and any git checkout, which is what a locally built
+// app's project is); it's run from the BUNDLED template because the project
+// may be too old to have it. When something actually changed the page is
+// redrawn from the new scripts and a running home API server (still the old
+// code, in memory) is restarted. A failure here must not stop the app from
+// opening, and the sync retries on the next launch.
+func syncProjectScripts(from templateDir: String, into projectDir: String) {
+    guard FileManager.default.fileExists(atPath: templateDir + "/30-template-sync.js") else { return }
+    let output = runNodeScriptCapture("30-template-sync.js", args: [templateDir, projectDir], in: templateDir)
+    guard let line = output.split(separator: "\n").last,
+          let data = String(line).data(using: .utf8),
+          let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          (result["action"] as? String) == "synced" else { return }
+    let changed = (result["changed"] as? [Any])?.count ?? 0
+    let modules = (result["refreshedModules"] as? Bool) ?? false
+    guard changed > 0 || modules else { return }
+    NSLog("ClassDash: refreshed %d project scripts from the app's bundled copy", changed)
+    runNodeScriptSync("05-playwright-draft.js", args: ["--redraw"], in: projectDir)
+    runNodeScriptSync("21-notifier-actions.js", args: ["restartApi"], in: projectDir)
+}
+
 // Same, but genuinely fire-and-forget — for --login below, which needs
 // to keep running (and its real, visible browser window needs to keep
 // existing) for as long as the user takes to actually log in, completely
@@ -687,6 +734,12 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
                 projectDir = chosen
                 hasValidProjectDir = true
             }
+        }
+
+        // Before anything loads the page or runs a script: the project folder's
+        // copy of the scripts must match this app's (see 30-template-sync.js).
+        if let resources = Bundle.main.resourcePath {
+            syncProjectScripts(from: resources + "/ProjectTemplate", into: projectDir)
         }
 
         buildMainMenu()
