@@ -1,0 +1,67 @@
+# Runs the test suite (test/) on every push to a branch and on pull requests
+# to main.
+#
+# ── What it covers, and where ──
+#
+# The suite is plain Node scripts (see test/helpers.js and CONTRIBUTING.md):
+# settings, the collector against a fake Canvas, the page in jsdom, the sync
+# that keeps a project's scripts current, and the Windows app's logic loaded
+# out of electron/main.js into a sandbox. None of it needs a browser, a
+# display, Electron or Xcode, so it runs on stock runners.
+#
+#   ubuntu, Node 20 and 24   the lowest Node the project supports (engines
+#                            says >=18; 20 is the oldest still maintained) and
+#                            the current one
+#   macos,  Node 24          the platform the Mac app runs on
+#
+# Windows isn't in the matrix: the tests use POSIX pieces (sh, chmod, sleep),
+# and the Windows app's LOGIC is tested on every platform anyway.
+#
+# The test dependencies (jsdom) are installed from test/, not the project
+# root, so they can never end up bundled into an installer.
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}, Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 20 }
+          - { os: ubuntu-latest, node: 24 }
+          - { os: macos-latest, node: 24 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            test/package-lock.json
+
+      # The project's own dependencies: the tests run its scripts, which
+      # require playwright and selfsigned. (Playwright downloads its browsers
+      # separately, on request, not on install.)
+      - name: Install the project's dependencies
+        run: npm ci
+
+      - name: Install the test dependencies
+        run: npm ci --prefix test
+
+      - name: Run the tests
+        run: npm test

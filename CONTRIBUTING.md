@@ -239,6 +239,37 @@ project folder.
 
 ---
 
+## Tests
+
+```
+npm ci                # the project's own dependencies (once)
+npm run test:setup    # the test-only ones (jsdom), into test/node_modules (once)
+npm test              # everything, one line per file
+npm test -- shortcuts # only files whose name contains "shortcuts"
+```
+
+The suite is plain Node scripts, `test/*.test.js`, run one per process by `test/run.js` (they change directory, patch modules and start servers, so they can't share one). A file prints only what fails and exits non-zero if anything did. No framework, no browser, no display, no Electron, no Xcode. CI (`.github/workflows/test.yml`) runs it on Linux with Node 20 and 24 and on macOS with Node 24, on every push to a branch and on pull requests to `main`.
+
+**What's covered:**
+
+| files | what |
+|---|---|
+| `settings-*`, `notifier-pending`, `pending-banner` | which settings wait for a fresh check, saving through the notifier, the notice and its button |
+| `canvas`, `collect-browserless` | reading Canvas through the API, the browser fallback, and a real collection with no browser against a fake Canvas server |
+| `account-section`, `setup-buttons`, `shortcuts`, `settings-panel`, `announce-gear` | the settings panel and the page's keyboard shortcuts, in jsdom |
+| `live-*`, `announcements-progress` | the progress bar and live updates |
+| `template-sync`, `running-version`, `restart-api` | keeping a project's scripts current after an update, recording the running version, restarting the home API |
+| `wizard-electron`, `native-setup-windows`, `sync-hook-windows`, `menu-windows` | the Windows app's logic. `electron/main.js` can't run outside Electron, so these cut the relevant functions out of its source and run them in a sandbox with scripted dialogs; if you move or rename one of those functions or the comment marker after it, the test says which marker is missing |
+
+**Isolation is the rule.** A test never touches the project it's run from. `makeProject()` in `test/helpers.js` builds a throwaway project in the temp folder from this repo's own scripts (the same allowlist the apps bundle as their template), links the repo's `node_modules` into it, and returns its path; the scripts read and write their settings and data next to themselves, so everything lands there. Nothing uses the real API port (the restart test uses 18999), and the temp folders are removed on exit. Writing a new test: `const T = require('./helpers')`, `const proj = T.makeProject({ 'settings.json': { language: 'en' } })`, then `T.ok(condition, 'what should be true')` and `T.done()`. `T.classProject()` adds a few classes with an assignment each; `T.redraw(proj)` builds `summary.html`; `T.jsdom()` returns jsdom.
+
+**Things that will bite you:**
+- The test dependencies live in `test/package.json`, not the root, because the apps bundle the root `node_modules` into every installer and jsdom is large. Don't move them.
+- jsdom is pinned to a version that runs on Node 20. Newer ones need Node 22+. `T.jsdom()` gives every page `TextEncoder`/`TextDecoder`, which older jsdom versions lack and every real browser has.
+- macOS reaches its temp folder through a symlink (`/var` → `/private/var`), and Node's module cache is keyed by real paths, so `makeProject()` returns the real path. A test that clears `require.cache` for "modules under this project" needs that.
+- The default language is Russian, so page tests that look for English text must write `language: 'en'`.
+- The timing-based tests (`live-*`, `restart-api`) use real timers, a few seconds each. If one flakes on a slow machine, widen its wait rather than shortening what it checks.
+
 ## Update check
 
 `build.sh` bakes the real version into `CFBundleShortVersionString` —

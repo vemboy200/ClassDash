@@ -1,0 +1,9 @@
+{
+  "name": "classdash-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test-only dependencies, kept out of the project root so they are never bundled into the apps (the app's bundled template ships the root node_modules).",
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}

@@ -15,7 +15,9 @@
     "page": "node 05-playwright-draft.js --redraw",
     "api": "node 17-api.js",
     "config": "node 19-settings.js",
-    "build": "./build.sh"
+    "build": "./build.sh",
+    "test:setup": "npm install --prefix test",
+    "test": "node test/run.js"
   },
   "dependencies": {
     "playwright": "^1.62.1",
