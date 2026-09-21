@@ -60,6 +60,7 @@ const read = f => { try { return JSON.parse(fs.readFileSync(path.join(E2E, f), '
   write('settings.json', base);
   const st = read('check-status.json') || {};
   ok(st.canvas && st.canvas.status === 'ok' && !st.classroom, 'status: Canvas ok, Classroom never recorded');
+  ok(st.canvas.detail === 'Method: API (access token)', 'status: Canvas says it was read through the API: ' + st.canvas.detail);
   const applied = fs.readFileSync(path.join(E2E, 'fetch-applied.json'), 'utf8');
   ok(/"classroomEnabled": false/.test(applied) && !applied.includes(TOKEN), 'applied record has classroomEnabled and only a token fingerprint');
   ok(!/id="pending-banner"/.test(html), 'no "needs a fresh check" banner after the run');

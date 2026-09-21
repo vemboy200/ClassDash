@@ -1028,11 +1028,11 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     // access token there's no tab at all: the API is asked directly.
     let result;
     try {
-      const { items, courses, pending, note } = await collectCanvasPlanned(
+      const { items, courses, pending, note, detail, fallback } = await collectCanvasPlanned(
         CANVAS_PLAN, async () => (await canvasBrowser()).newPage());
       console.log(`  Canvas: courses ${courses.length}, items ${items.length}` +
                   (pending.length ? `, waiting to publish: ${pending.join(', ')}` : ''));
-      result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true, note };
+      result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true, note, detail, fallback: !!fallback };
     } catch (e) {
       console.error(`  error on Canvas: ${e.message}`);
       result = { cls: { id: 'canvas', name: 'Canvas' }, items: [], ok: false, error: e.message };
@@ -2039,9 +2039,13 @@ if (require.main !== module) return;
     recordCheckStatus('classroom', !failed, failed ? `${failed.cls.name}: ${failed.error}` : null);
   }
   const canvasResult = taskResults.find(r => r.cls.id === 'canvas');
-  // A note on a success means the access token failed and the browser
-  // sign-in carried it: still "ok", but the panel shows why.
-  if (canvasResult) recordCheckStatus('canvas', canvasResult.ok, canvasResult.error || canvasResult.note);
+  // Canvas says which way it was read. When the access token failed and the
+  // browser sign-in carried it, that's "fallback" (a yellow dot), not "ok":
+  // nothing is missing, but the token needs a look. The detail says why.
+  if (canvasResult) {
+    recordCheckStatus('canvas', canvasResult.ok, canvasResult.error || canvasResult.detail,
+      { fallback: canvasResult.fallback });
+  }
   const edpuzzleResult = taskResults.find(r => r.cls.id === 'edpuzzle');
   if (edpuzzleResult) recordCheckStatus('edpuzzle', edpuzzleResult.ok, edpuzzleResult.error);
 

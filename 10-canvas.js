@@ -214,6 +214,7 @@ async function collectCanvas(page, way) {
  *                  working token never starts a browser
  */
 async function collectCanvasPlanned(plan, openPage) {
+  const WAY_API = 'API (access token)', WAY_BROWSER = 'Google sign-in';
   const viaBrowser = async () => {
     const page = await openPage();
     try {
@@ -223,22 +224,36 @@ async function collectCanvasPlanned(plan, openPage) {
     }
   };
 
+  // What the result carries about HOW it was read, for the status panel and
+  // /api/check-status: `way` is 'api' or 'browser'; `fallback` is true only
+  // when the API was the plan and the browser sign-in carried it; `detail`
+  // says which in words. The names match the two rows in Settings.
+  const via = (result, way, extra = {}) => {
+    result.way = way;
+    result.detail = `Method: ${way === 'api' ? WAY_API : WAY_BROWSER}`;
+    return Object.assign(result, extra);
+  };
+
   if (plan.api) {
     try {
-      return await collectCanvas(null, 'api');
+      return via(await collectCanvas(null, 'api'), 'api');
     } catch (apiError) {
       if (!plan.sso) throw apiError;
       console.warn(`  Canvas: the access token didn't work (${apiError.message}) — trying the browser sign-in`);
       try {
         const result = await viaBrowser();
-        result.note = `the access token didn't work (${apiError.message}) — read through the browser sign-in instead`;
-        return result;
+        const note = `the access token didn't work (${apiError.message}) — read through the browser sign-in instead`;
+        return via(result, 'browser', {
+          note,
+          fallback: true,
+          detail: `Fallback: the ${WAY_API} didn't work (${apiError.message}), so ${WAY_BROWSER} was used instead`,
+        });
       } catch (browserError) {
         throw new Error(`${apiError.message}; and the browser sign-in didn't work either: ${browserError.message}`);
       }
     }
   }
-  if (plan.sso) return await viaBrowser();
+  if (plan.sso) return via(await viaBrowser(), 'browser');
   throw fatal('Canvas is on, but neither way of reading it is: fill in the access token, ' +
               'or switch on Canvas Google sign-in');
 }

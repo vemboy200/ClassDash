@@ -1,7 +1,12 @@
 /**
- * "Did the last check actually work?" — per platform, three states:
+ * "Did the last check actually work?" — per platform, four states:
  *
  *   ok       — the last real attempt got its data back cleanly
+ *   fallback — it got its data back, but not the way it was set up to: the
+ *              first way failed and a backup carried it (Canvas: the access
+ *              token failed and Google sign-in read it instead). Nothing is
+ *              missing today, but the first way needs attention — `detail`
+ *              says which way was used and why
  *   problem  — the last real attempt failed (network, cookies, a broken
  *              page — see `detail`)
  *   unknown  — never actually attempted, either because it's turned off
@@ -48,14 +53,13 @@ const UNKNOWN = { status: 'unknown', at: null, detail: null };
  * disabled platform's entry just sits frozen (harmless: checkStatus()
  * below overrides it with "unknown" while it stays disabled anyway).
  */
-function record(platform, ok, detail = null) {
+function record(platform, ok, detail = null, { fallback = false } = {}) {
   const all = readRaw();
   all[platform] = {
-    status: ok ? 'ok' : 'problem',
+    status: !ok ? 'problem' : fallback ? 'fallback' : 'ok',
     at: new Date().toISOString(),
-    // A note is allowed on a success too: "ok, but the access token failed
-    // and the browser sign-in was used instead" is worth saying, and the
-    // status panel shows any detail there is.
+    // A detail is allowed on a success too: which way Canvas was read, or
+    // that the backup way was used and why. The status panel shows it.
     detail: detail || null,
   };
   try {

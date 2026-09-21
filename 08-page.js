@@ -1149,7 +1149,7 @@ ${parts.join('\n')}
 /**
  * "Did the last check actually work?" — one small dot per platform, in
  * the header, click to expand into a full per-platform breakdown. See
- * 25-check-status.js for what ok/problem/unknown mean; this just
+ * 25-check-status.js for what ok/fallback/problem/unknown mean; this just
  * renders whatever checkStatus() already decided.
  *
  * The dots keep their own hover tooltips too (the quick answer for one
@@ -1170,6 +1170,7 @@ const CHECK_STATUS_ENTRIES = [
 
 function checkStatusWord(s) {
   return s === 'ok' ? t('checkStatusOk')
+    : s === 'fallback' ? t('checkStatusFallback')
     : s === 'problem' ? t('checkStatusProblem') : t('checkStatusUnknown');
 }
 
@@ -1234,8 +1235,8 @@ ${CHECK_STATUS_ENTRIES.map(([k, l]) => row(k, l)).join('\n')}
 // SVG in a border-image can't read CSS variables, so the two have to be
 // generated from the same place or they'd drift apart.
 const PIXEL_THEME = {
-  light: { bg: '#f6f7f9', card: '#ffffff', line: '#e5e7eb', dim: '#6b7280', warnbg: '#fffaeb', ink: '#101018', new: '#0004ff', hot: '#d40000' },
-  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', ink: '#66718a', new: '#00ffff', hot: '#ff6b6b' },
+  light: { bg: '#f6f7f9', card: '#ffffff', line: '#e5e7eb', dim: '#6b7280', warnbg: '#fffaeb', ink: '#101018', new: '#0004ff', hot: '#d40000', amber: '#f2b600' },
+  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', ink: '#66718a', new: '#00ffff', hot: '#ff6b6b', amber: '#ffd23f' },
 };
 
 // A corner is described the way pixel artists draw a round one: for each
@@ -1357,6 +1358,7 @@ function pixelCornerCss() {
   ${TRACK}, ${THUMB}, ${PROGRESS} { ${src('mini', 'ink', 'card')} }
   ${SLIDER}:hover::-webkit-slider-thumb, ${SLIDER}:active::-webkit-slider-thumb { ${src('mini', 'ink', 'new')} }
   .status-dot.status-ok { background-image: ${pixelDot(t.ink, t.new)}; }
+  .status-dot.status-fallback { background-image: ${pixelDot(t.ink, t.amber)}; }
   .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
   .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }`;
   };
@@ -1409,7 +1411,7 @@ function pixelCornerCss() {
      listed because each one's original background shorthand has the
      same specificity as this rule and would otherwise paint a square
      of solid colour behind the sprite. */
-  .status-dot.status-ok, .status-dot.status-problem, .status-dot.status-unknown {
+  .status-dot.status-ok, .status-dot.status-fallback, .status-dot.status-problem, .status-dot.status-unknown {
     width: 12px; height: 12px; border: 0; border-radius: 0;
     background-color: transparent; background-repeat: no-repeat; background-size: 12px 12px;
   }
@@ -1691,6 +1693,7 @@ function writePage(data, outputPath) {
     cursor: default;
   }
   .status-dot.status-ok { background: var(--new); }
+  .status-dot.status-fallback { background: #f2b600; }
   .status-dot.status-problem { background: var(--hot); }
   .status-dot.status-unknown { background: var(--dim); opacity: .5; }
   .check-status-panel {

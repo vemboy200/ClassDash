@@ -130,6 +130,7 @@ const load = (settings) => {
     opened = 0;
     let r = await canvas.collectCanvasPlanned({ api: true, sso: true }, openPage);
     ok(opened === 0 && r.note === undefined && ids(r).length === 2, 'D2 a working token never opens the browser, no note');
+    ok(r.way === 'api' && !r.fallback && r.detail === 'Method: API (access token)', 'D2 a working token says it was the API, and is not a fallback: ' + r.detail);
 
     // API refused + browser allowed -> falls back, succeeds, and SAYS the token failed
     canvas = load({ canvas: SITE, canvasToken: 'WRONGTOKEN~zzz' });
@@ -137,6 +138,8 @@ const load = (settings) => {
     r = await canvas.collectCanvasPlanned({ api: true, sso: true }, openPage);
     ok(opened === 1 && ids(r).length === 2, 'D2 refused token + browser allowed -> read through the browser');
     ok(/access token didn't work/.test(r.note || '') && /refused the access token/.test(r.note) && !r.note.includes('WRONGTOKEN'), 'D2 the note says the token failed (no token in it): ' + r.note);
+    ok(r.way === 'browser' && r.fallback === true, 'D2 the fallback is flagged, and the way is the browser');
+    ok(/^Fallback: /.test(r.detail) && /API \(access token\)/.test(r.detail) && /Google sign-in was used/.test(r.detail) && /refused the access token/.test(r.detail) && !r.detail.includes('WRONGTOKEN'), 'D2 the detail names both ways and why, without the token: ' + r.detail);
 
     // API refused + browser NOT allowed -> the token error, no browser
     opened = 0; let err = null;
@@ -153,6 +156,7 @@ const load = (settings) => {
     opened = 0;
     r = await canvas.collectCanvasPlanned({ api: false, sso: true }, openPage);
     ok(opened === 1 && ids(r).length === 2 && r.note === undefined, 'D2 no token -> browser is the way, no note');
+    ok(r.way === 'browser' && !r.fallback && r.detail === 'Method: Google sign-in', 'D2 Google sign-in as the plan is not a fallback: ' + r.detail);
 
     // neither -> a clear config error
     err = null;
