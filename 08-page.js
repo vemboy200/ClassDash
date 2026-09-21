@@ -1472,7 +1472,11 @@ function writePage(data, outputPath) {
        ${escapeHtml(t('fromMemoryNotice'))}</div>`
     : '';
 
-  const emptyBanner = !burning.length && !later.length && !newMaterials.length
+  // "You can relax" is a verdict, and a page written while sources are still
+  // being read hasn't got one: nothing due YET isn't nothing due. It's also
+  // where the "new" marks are missing (they're only worked out once
+  // everything is in), so "nothing new" would be wrong for the same reason.
+  const emptyBanner = !reading.length && !burning.length && !later.length && !newMaterials.length
     ? `  <div class="empty">${escapeHtml(t('emptyState'))}</div>`
     : '';
 
@@ -2985,22 +2989,20 @@ function toggleSettingsPanel() {
 
 // The "some settings need a fresh check" notice's button. Starts the same
 // quick pass the home API's reload does (Classroom and Canvas, no
-// Edpuzzle window). The pass runs detached and takes about 17 seconds, so
-// nothing can report back when it's done; the page reloads after a
-// margin, and the notice is gone from that reload if the pass finished
-// and read the new values. Reverts on failure so it's obvious the click
-// didn't go anywhere, same as triggerSignIn.
+// Edpuzzle window). The pass runs detached, so nothing reports back when
+// it's done; the live updates further down reload the page once it has
+// finished, and the notice is gone from that reload if the pass read the
+// new values. Reverts on failure so it's obvious the click didn't go
+// anywhere, same as triggerSignIn.
 function startPendingCheck(link) {
   var original = link.textContent;
   link.textContent = WORDS.pendingChecking;
-  var reloadSoon = function () { setTimeout(function () { location.reload(); }, 30000); };
   if (!hasNativeBridge()) {
     dispatchAction('reload', '');
-    reloadSoon();
     return;
   }
   dispatchAction('reload', '', function (res) {
-    if (res && res.ok) { reloadSoon(); return; }
+    if (res && res.ok) return;
     link.textContent = (res && res.why) || WORDS.checkFailed;
     setTimeout(function () { link.textContent = original; }, 4000);
   });
@@ -3565,10 +3567,9 @@ function filterAnnouncements() {
       freshCheckButton.title = (res && res.why) ? res.why : WORDS.checkFailed;
     });
 
-    // A full check takes about a minute. The page redraws after every
-    // source it reads, so reloading it is safe: you'll see at least
-    // part of it, not nothing.
-    setTimeout(function () { location.reload(); }, 45000);
+    // No reload here: the page reloads once by itself when the check has
+    // finished (see the live updates below), and not before, so it never
+    // swaps in a half-read page.
   });
 })();
 
@@ -3734,10 +3735,12 @@ var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
 //   seconds. The first push switches polling off for good.
 //
 // A newer page is picked up by reloading — there's no way to fetch and
-// patch it in place from a file:// page — so the reload waits for a quiet
-// moment: not while settings are open, a field is being typed in, or
-// anything was clicked, typed or scrolled in the last few seconds. It
-// keeps trying, so it happens the moment things go quiet.
+// patch it in place from a file:// page — so the reload waits until the
+// check has finished (the pages written along the way are half-read drafts,
+// not worth swapping in) and for a quiet moment: not while settings are
+// open, a field is being typed in, or anything was clicked, typed or
+// scrolled in the last few seconds. It keeps trying, so it happens the
+// moment things go quiet.
 var PAGE_VERSION = ${pageVersion};
 var LIVE_POLL_IDLE = 5000;
 var LIVE_POLL_RUNNING = 2000;
@@ -3868,7 +3871,11 @@ function onLiveState(run, version) {
   // Strictly newer, never just different: if the version ever lags or goes
   // missing this can leave a page un-refreshed, but can't make one reload
   // forever.
-  if (newestVersion > PAGE_VERSION) reloadWhenQuiet();
+  // Never while a check is running: every source it reads rewrites the page,
+  // and each of those is a half-read draft. The page stays as it is and the
+  // bar shows progress; it reloads once, when the check has ended and the
+  // finished page is the newest one.
+  if (newestVersion > PAGE_VERSION && !running) reloadWhenQuiet();
   return running;
 }
 

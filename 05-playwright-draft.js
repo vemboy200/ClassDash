@@ -1793,6 +1793,29 @@ function announcementsForProgress(memoryPosts, freshPosts, now) {
   return posts.sort((a, b) => b.sortTime - a.sortTime);
 }
 
+/**
+ * The assignments the page shows WHILE a collection is still running: what
+ * has been read so far, plus memory for everything not read yet.
+ *
+ * A source that finished but FAILED counts as not read. It comes back with no
+ * items, and memory for it must stay on the page — the final write carries a
+ * broken source over from memory (see diffWithPrevious), and the page written
+ * along the way has to agree. It didn't: every class and platform that had
+ * reported in, failed or not, was dropped from memory here, so a Canvas or
+ * class read that failed made all its assignments vanish from the page until
+ * the last write of the pass — or for good, when the pass never got that far.
+ *
+ * @param memory     last run's assignments
+ * @param readItems  what the sources that reported in returned
+ * @param reported   names of every source that reported in, failed or not
+ * @param broken     names of the ones among them that failed
+ */
+function assignmentsForProgress(memory, readItems, reported, broken) {
+  const read = reported.filter(name => !broken.includes(name));
+  const fromMemory = memory.filter(x => !read.includes(x.class) && !read.includes(x.platform));
+  return [...readItems, ...fromMemory];
+}
+
 // ── Entry point ──────────────────────────────────────────────
 
 // This line means: only run the collection if the file was invoked
@@ -1809,7 +1832,7 @@ function announcementsForProgress(memoryPosts, freshPosts, now) {
 // word in this whole thing.
 module.exports = {
   parseDue, deadline, detectErrorPage, notify, diffWithPrevious, rememberCollection,
-  sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress,
+  sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress, assignmentsForProgress,
 };
 if (require.main !== module) return;
 
@@ -1949,15 +1972,12 @@ if (require.main !== module) return;
   setFeedEmail(AUTHUSER);
 
   const { all: collected, announcements, broken, results: taskResults } = await collect(({ items, reading, broken, stillReading, progress, announcements: readSoFar }) => {
-    // Add in from memory whatever hasn't been reached yet, on top of
-    // what's already been read. Same fix as in diffWithPrevious: a
-    // source's name and the class name inside it are different things.
-    // Without checking the platform, Canvas assignments would count as
-    // "not yet read" even after Canvas was done, and land on the page
-    // twice — the fresh ones plus the same ones from memory.
-    const fromMemory = memory.filter(
-      x => !reading.includes(x.class) && !reading.includes(x.platform));
-    const combined = [...items, ...fromMemory];
+    // Add in from memory whatever hasn't been reached yet (or failed), on
+    // top of what's already been read. A source's name and the class name
+    // inside it are different things, as in diffWithPrevious: without
+    // checking the platform, Canvas assignments would count as "not yet
+    // read" even after Canvas was done, and land on the page twice.
+    const combined = assignmentsForProgress(memory, items, reading, broken);
     const { burning, later, undated, deferred, overdue, gone } =
       sortIntoBuckets(combined, now, mutedIds, hiddenIds);
 

@@ -124,6 +124,25 @@ const runState = o => ({ running: true, done: 0, total: 0, at: Date.now(), ...o 
     w.lastInteraction = 0;
     ok('a held-back reload goes through by itself once quiet (no new push needed)', held && await until(() => w.reloadingForLive === true)); close();
   }
+  // ---- a newer page while a check is RUNNING is a half-read draft: no reload until it ends ----
+  {
+    const { w, close } = await open(); w.pageLoadedAt = 0; w.lastInteraction = 0;
+    w.classdashLiveChanged({ run: runState({ done: 2, total: 8 }), version: cur + 1 });
+    w.classdashLiveChanged({ run: runState({ done: 5, total: 8 }), version: cur + 2 });
+    await sleep(300);
+    ok('newer pages while the check runs -> no reload', w.reloadingForLive === false);
+    w.classdashLiveChanged({ run: runState({ done: 8, total: 8 }), version: cur + 3 });
+    await sleep(200);
+    ok('...still none on the last source', w.reloadingForLive === false);
+    w.classdashLiveChanged({ run: runState({ running: false, done: 8, total: 8 }), version: null });
+    ok('...one reload once the check has ended', await until(() => w.reloadingForLive === true)); close();
+  }
+  {
+    const { w, close } = await open(); w.pageLoadedAt = 0; w.lastInteraction = 0;
+    w.classdashLiveChanged({ run: runState({ done: 5, total: 8 }), version: cur + 1 });
+    w.lastRun = runState({ done: 5, total: 8, at: Date.now() - 45000 });   // the run died: heartbeat stopped
+    ok('a check that died no longer holds the reload back', await until(() => w.reloadingForLive === true)); close();
+  }
   { const { w, close } = await open(); w.pageLoadedAt = 0; w.lastInteraction = 0;
     w.classdashLiveChanged({ run: null, version: cur });
     w.classdashLiveChanged({ run: null, version: cur - 3 });

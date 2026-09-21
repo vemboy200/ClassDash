@@ -33,7 +33,7 @@ function load(bridge = true) {
   ok('clicking starts the quick pass (reload action)', posted.length === 1 && posted[0].action === 'reload', JSON.stringify(posted));
   ok('link shows progress', link.textContent === 'Checking…', link.textContent);
   w.classdashBridgeResult(posted[0].id, { ok: true, action: 'reload' });
-  ok('reloads after 30s to let the banner drop', timers.some(([ms]) => ms === 30000));
+  ok('does not reload on a timer: the page reloads itself once the check has finished', !timers.some(([ms]) => ms === 30000 || ms === 45000));
 }
 {
   const { w, d, posted, timers } = load();
@@ -48,12 +48,12 @@ function load(bridge = true) {
   ok('reverted text restored', link.textContent === original, link.textContent);
 }
 {
-  // no bridge: still fires the action (link path) and schedules a reload
+  // no bridge: still fires the action (link path), still no timed reload
   const { w, d, timers } = load(false);
   const link = d.getElementById('pending-banner-link');
   let threw = null; try { w.startPendingCheck(link); } catch (e) { threw = e; }
   ok('no-bridge path does not throw', !threw, String(threw));
-  ok('...and schedules the reload', timers.some(([ms]) => ms === 30000));
+  ok('...and schedules no reload', !timers.some(([ms]) => ms === 30000 || ms === 45000));
 }
 
 // ---- saving an exclusion does NOT hide the class on the page any more ----
