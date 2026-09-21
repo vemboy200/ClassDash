@@ -292,6 +292,12 @@ async function collectCanvasOnce(page, way) {
   return await readCanvas(apiPath => askViaPage(page, apiPath));
 }
 
+/** A course's teachers as one line, "A, B" — or '' when Canvas didn't say. */
+function teacherNames(course) {
+  const list = Array.isArray(course.teachers) ? course.teachers : [];
+  return [...new Set(list.map(t => String((t && t.display_name) || '').trim()).filter(Boolean))].join(', ');
+}
+
 /** Everything after signing in: the same for both ways, given a function
  *  that asks the API for a path. */
 async function readCanvas(ask) {
@@ -302,9 +308,12 @@ async function readCanvas(ask) {
   // include[]=term — the course's term dates come along with it. The
   // interface never shows them at all, but they're needed here to tell
   // last year's courses apart from this year's.
+  // include[]=teachers — each course's teachers' display names, for the
+  // teacher line on the page and the API. It's the same call, so it costs
+  // nothing extra.
   const all = await ask(
     '/api/v1/courses?enrollment_state=active&state[]=unpublished&state[]=available' +
-    '&include[]=term&per_page=100');
+    '&include[]=term&include[]=teachers&per_page=100');
 
   const now = Date.now();
 
@@ -452,8 +461,20 @@ async function readCanvas(ask) {
     // a stale course is a decision to stop reading it, not proof it
     // doesn't exist, and it needs to keep showing up in the exclusions
     // picker so it's still something a person can see and act on.
-    fs.writeFileSync(CLASSES_FILE,
-      JSON.stringify(availableNow.map(c => ({ name: c.name })), null, 2));
+    //
+    // The teacher rides along with the name. A course that comes back
+    // without one this time keeps the one it had: teachers don't leave a
+    // course between two checks, a response missing them does happen.
+    const before = new Map();
+    try {
+      for (const c of JSON.parse(fs.readFileSync(CLASSES_FILE, 'utf8'))) {
+        if (c && c.name && c.teacher) before.set(c.name, c.teacher);
+      }
+    } catch { /* first run, or unreadable: nothing to keep */ }
+    fs.writeFileSync(CLASSES_FILE, JSON.stringify(availableNow.map(c => {
+      const teacher = teacherNames(c) || before.get(c.name);
+      return teacher ? { name: c.name, teacher } : { name: c.name };
+    }), null, 2));
   } catch { /* couldn't write it — the exclusions/filter UI just won't list Canvas courses this time */ }
 
   return { items, courses, pending };

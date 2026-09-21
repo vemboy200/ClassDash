@@ -72,7 +72,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // panel's exclusions checklist uses — classRoster() below reuses it
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
-const { daysUntil, allKnownClasses, knownClassStatus } = require('./08-page.js');
+const { daysUntil, allKnownClasses, knownClassStatus, classTeachers } = require('./08-page.js');
 const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
 // check itself all live in their own leaf module — 21-notifier-actions.js
@@ -151,6 +151,14 @@ function gather() {
  * apart instead — filter, display differently, or ignore, its call, not
  * this server's.
  */
+// The class files are tiny, but every item of a response asks; two seconds
+// is far shorter than a teacher changing and covers a whole response.
+let teacherCache = { at: 0, map: new Map() };
+function teacherOf(className) {
+  if (Date.now() - teacherCache.at > 2000) teacherCache = { at: Date.now(), map: classTeachers() };
+  return teacherCache.map.get(className) || null;
+}
+
 function toPublic(x, now) {
   const tags = [];
   if (x.hidden) tags.push('hidden');
@@ -161,6 +169,8 @@ function toPublic(x, now) {
     id: x.id,
     title: x.title,
     class: x.class,
+    // null when the platform didn't say (today: only Canvas does).
+    teacher: teacherOf(x.class),
     platform: x.platform || 'Google Classroom',
     type: x.type || null,
     link: x.link || null,
@@ -235,6 +245,7 @@ function classRoster(d) {
     ahead: aheadByClass.get(name) || 0,
     overdue: overdueByClass.get(name) || 0,
     status: statusFor(name),
+    teacher: teacherOf(name),
   }));
 
   const settings = require('./19-settings.js').read();
@@ -263,7 +274,7 @@ function classRoster(d) {
       if (present.has(name) || excluded.has(name)) continue;
       if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
       if (skipStale && isClassStale(name)) continue;
-      roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0, status: statusFor(name) });
+      roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0, status: statusFor(name), teacher: teacherOf(name) });
     }
   }
 

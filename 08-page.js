@@ -96,6 +96,17 @@ function when(due, now) {
   return t('inDays', days);
 }
 
+// The teachers for the page being written, set at the top of writePage().
+let teacherByClass = new Map();
+
+/** The teacher line for a card's meta row, or nothing when there's no name. */
+function teacherSpan(className) {
+  const teacher = teacherByClass.get(className);
+  return teacher
+    ? `<span class="teacher" title="${escapeHtml(t('teacherLabel'))}">${escapeHtml(teacher)}</span>`
+    : '';
+}
+
 function itemCard(x, now, isFresh, section) {
   // Same trap as in 05-...js: Classroom's due date arrives as text, while
   // Canvas and Edpuzzle have no text field at all — only the machine one.
@@ -159,6 +170,7 @@ function itemCard(x, now, isFresh, section) {
         <div class="meta">
           <span class="plat">${escapeHtml(x.platform || DEFAULT_PLATFORM)}</span>
           <span class="cls">${escapeHtml(x.class)}</span>
+          ${teacherSpan(x.class)}
           ${due ? `<span class="due">${escapeHtml(due)}</span>` : ''}
           ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
           ${x.removed ? `<span class="removed-badge">${escapeHtml(t('removedBadge'))}</span>` : ''}
@@ -450,6 +462,7 @@ function overdueSection(items, now) {
         <div class="meta">
           <span class="plat">${escapeHtml(x.platform || DEFAULT_PLATFORM)}</span>
           <span class="cls">${escapeHtml(x.class)}</span>
+          ${teacherSpan(x.class)}
           <span class="overdue-since">${escapeHtml(wasDue)} · ${escapeHtml(t('lateByDays', days))}</span>
         </div>
       </a>
@@ -555,6 +568,27 @@ function allKnownClasses() {
  * to actually leave) flooded an HA integration with an entity it had no
  * way to distinguish from a real one.
  */
+/**
+ * Each class's teacher, by class name: { name -> "Ms. Someone" }, for the
+ * classes whose platform said. The class files carry it next to the name
+ * ({name, teacher}) — Canvas writes it today — so a platform that learns to
+ * report teachers only has to write the field, and the page and the API
+ * both pick it up. Same edpuzzleEnabled carve-out as knownClassStatus().
+ */
+function classTeachers() {
+  const files = ['classes.json', 'canvas-classes.json',
+    ...(readSettings().edpuzzleEnabled ? ['edpuzzle-classes.json'] : [])];
+  const teachers = new Map();
+  for (const file of files) {
+    try {
+      for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, file), 'utf8'))) {
+        if (c && c.name && c.teacher && !teachers.has(c.name)) teachers.set(c.name, c.teacher);
+      }
+    } catch { /* not written yet, or unreadable: no teachers from this file */ }
+  }
+  return teachers;
+}
+
 function knownClassStatus() {
   const readNames = (file) => {
     try {
@@ -1391,6 +1425,8 @@ function pixelCornerCss() {
 function writePage(data, outputPath) {
   const { burning, later, undated, freshIds, broken, now } = data;
   const reading = data.reading || [];
+  // Read once per page, not once per card.
+  teacherByClass = classTeachers();
 
   // Stamped into the page and published beside it once it's on disk, so an
   // open copy can tell a newer one exists (see "Live updates" in the page
@@ -1771,6 +1807,7 @@ function writePage(data, outputPath) {
   a.item:hover { border-color: var(--new); }
   .title { font-weight: 600; margin-bottom: 4px; }
   .meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; color: var(--dim); }
+  .meta .teacher { font-style: italic; }
   .due { color: var(--hot); }
   .plat {
     background: var(--line); border-radius: 6px; padding: 0 6px; font-size: 12px;
@@ -3935,4 +3972,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers };

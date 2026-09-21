@@ -11,6 +11,7 @@ const TOKEN = 'TESTTOKEN~abc123';
 const future = new Date(Date.now() + 3 * 864e5).toISOString();
 const seen = [];       // {method, url, auth}
 let mode = 'ok';
+let teachersOn = true;   // whether the fake Canvas reports course teachers this time
 const server = http.createServer((req, res) => {
   seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || null });
   const auth = req.headers.authorization;
@@ -21,7 +22,8 @@ const server = http.createServer((req, res) => {
   const u = req.url;
   if (u.startsWith('/api/v1/courses?')) {
     return send([
-      { id: 1, name: 'English 9', workflow_state: 'available', term: { end_at: new Date(Date.now() + 90 * 864e5).toISOString() } },
+      { id: 1, name: 'English 9', workflow_state: 'available', term: { end_at: new Date(Date.now() + 90 * 864e5).toISOString() },
+        ...(teachersOn ? { teachers: [{ id: 7, display_name: 'Ms. Kirakosyan' }, { id: 8, display_name: 'Mr. Two' }, { id: 9, display_name: 'Ms. Kirakosyan' }] } : {}) },
       { id: 2, name: 'Old Course', workflow_state: 'available', term: { end_at: '2020-01-01T00:00:00Z' } },
       { id: 3, name: 'Not Yet Open', workflow_state: 'unpublished' },
       { id: 4, name: 'No Pages Course', workflow_state: 'available' },
@@ -63,8 +65,21 @@ const load = (settings) => {
     eq(r.pending, ['Not Yet Open'], 'A unpublished courses reported');
     eq(r.items.find(i => i.id === 'canvas-10').description, 'Write it', 'A description cleaned');
     eq(JSON.parse(fs.readFileSync('canvas-classes.json', 'utf8')).map(c => c.name).sort(), ['English 9', 'No Pages Course'], 'A classes file for the picker');
+    ok(seen.some(s => s.url.startsWith('/api/v1/courses?') && s.url.includes('include[]=teachers')), 'A courses are asked for with their teachers');
+    const classes = JSON.parse(fs.readFileSync('canvas-classes.json', 'utf8'));
+    eq(classes.find(c => c.name === 'English 9').teacher, 'Ms. Kirakosyan, Mr. Two', 'A teachers joined, a repeated name once');
+    ok(!('teacher' in classes.find(c => c.name === 'No Pages Course')), 'A a course with no teachers gets no teacher key');
     ok(seen.length > 0 && seen.every(s => s.method === 'GET'), 'A only GET requests');
     ok(seen.every(s => s.auth === `Bearer ${TOKEN}`), 'A every request carried the (trimmed) token');
+  }
+
+  // ── A2: a response that leaves the teachers out keeps the ones already known ──
+  {
+    const canvas = load({ canvas: SITE, canvasToken: TOKEN });
+    teachersOn = false;
+    await canvas.collectCanvas(null, 'api');
+    teachersOn = true;
+    eq(JSON.parse(fs.readFileSync('canvas-classes.json', 'utf8')).find(c => c.name === 'English 9').teacher, 'Ms. Kirakosyan, Mr. Two', 'A2 teacher kept when a response omits them');
   }
 
   // ── B: a refused token — clear message, no leak, no retry wait ──
