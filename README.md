@@ -23,7 +23,7 @@ Four different sites, each with its own idea of what "your assignments" means. C
 
 - **Not an answer machine.** It can fetch a transcript of an Edpuzzle video so you can read what was said, but it will not pull the embedded questions or their answers — that's a deliberate line, not a missing feature.
 - **Not a scraper of other people's data.** Every request goes through your own logged-in browser session (or, for Canvas, your own access token) and returns exactly what your own account can already see.
-- **Built for one school's setup, not every possible one.** Canvas and Edpuzzle are read through real APIs; Google Classroom doesn't offer one to students, so that part reads the actual page and can break if Google changes it. (Classroom assignments do technically also show up through the Google Calendar API — but that requires your school's Google Workspace admin to have that API turned on for student accounts, which most schools don't. Reading the page directly is the one approach that keeps working no matter what a given school has locked down.)
+- **Built for one school's setup, not every possible one.** Canvas has an official API, but Google Classroom doesn't offer one to students, so that part reads the actual page and can break if Google changes it, and Edpuzzle only has internal endpoints that aren't documented. (Classroom assignments do technically also show up through the Google Calendar API — but that requires your school's Google Workspace admin to have that API turned on for student accounts, which most schools don't. Reading the page directly is the one approach that keeps working no matter what a given school has locked down.)
 
 ---
 
@@ -136,6 +136,17 @@ Settings → Account has a checkbox for each thing ClassDash can read:
 Both Canvas ways need your **Canvas address**, which appears once either one is ticked. The email box appears with Google Classroom, and the token box with Canvas — API.
 
 **Only use Canvas?** Untick Google Classroom, Canvas — Google sign-in and Edpuzzle, and use an access token. ClassDash then never opens a browser at all, so there's nothing to install and nothing to sign into. The first-run setup asks what your school uses, so choosing **Only Canvas** and then an access token sets this up for you.
+
+### How the sources compare
+
+Canvas appears twice because the two ways are different things: they ask Canvas for the same information, but sign in differently.
+
+| Source | Method | Official? | Pros | Cons |
+|---|---|---|---|---|
+| Google Classroom | Reads the Classroom pages in a browser signed in to your school Google account | No — Classroom has no API for students | Works whatever your school has locked down; sees exactly what you see, including what's turned in; nothing for your school to approve | Can break when Google changes the page; needs a browser and a sign-in (the session lasts weeks, then you sign in again); slower than an API because it reads every class page |
+| Canvas — Google sign-in | Canvas's API, asked from a page in that same signed-in browser, using your session | The API is official; using your session instead of a token isn't the documented way | Nothing to set up beyond the Canvas address; no token to expire; works when your school won't let students make tokens | Needs a browser and a school Google account; only for schools whose Canvas opens with "Sign in with Google"; Canvas's sign-in redirects sometimes need a retry |
+| Canvas — API (access token) | Canvas's API, asked directly with a token you create | Yes — the documented way | No browser and no sign-in, whatever your school's login is; fast and exact; lets ClassDash run without a browser at all | The token expires (Canvas caps how long, 90 days at most for the school we tried), then you make a new one; some schools don't let students create tokens; a token is like a password and is kept in `settings.json` on your computer |
+| Edpuzzle | Edpuzzle's own site endpoints, asked from a real browser window | No — undocumented, found by watching the site's own traffic | The only way ClassDash has to see Edpuzzle | Refuses invisible browsers, so it needs a real window and only runs on full checks (twice a day, or Fresh check), not every 10 minutes; can break without notice |
 
 ## Home API
 
