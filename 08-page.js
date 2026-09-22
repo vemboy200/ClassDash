@@ -45,9 +45,10 @@ const { readUpdateStatus } = require('./26-update-check.js');
 const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
 const ICON_REFRESH_B64 = readIcon('refresh-icon.png');
 const ICON_FRESHCHECK_B64 = readIcon('freshcheck-icon.png');
-// Placeholder — a plain filled square, not drawn to match the app icon
-// like the others yet. Same 32-shown-at-16 stencil treatment either way,
-// so swapping the file later needs no other change.
+// A filled circle, drawn at 16x16 and stored here upscaled 2x
+// (nearest-neighbor, lossless for a plain solid shape like this one) to
+// match the other header icons' own 32-drawn-shown-at-16 convention —
+// same stencil treatment as the rest either way.
 const ICON_STOP_B64 = readIcon('stop-icon.png');
 const ICON_SETTINGS_B64 = readIcon('settings-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its

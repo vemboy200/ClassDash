@@ -36,7 +36,7 @@ async function open(file, { bridge = true } = {}) {
   const runningHtml = fs.readFileSync(runningPage, 'utf8');
   ok('a page reloaded mid-check shows the button right away, not hidden',
     /id="stop-check-button"/.test(runningHtml) && !/id="stop-check-button"[^>]*\bhidden\b/.test(runningHtml));
-  ok('it has a title (a placeholder icon, no visible label yet)', /id="stop-check-button"[^>]*title="[^"]+"/.test(runningHtml));
+  ok('it has a title (an icon-only button, no visible label)', /id="stop-check-button"[^>]*title="[^"]+"/.test(runningHtml));
 
   // ---- live toggling: appears when a check starts, disappears when it ends ----
   {
