@@ -1,4 +1,4 @@
-// Stop takes over Fresh check's own spot while a check runs: baked-in visibility, live toggling, and the click.
+// Fresh check IS the Stop button while a check runs — one element, not two: baked-in state, live toggling, and the click.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs');
 const proj = T.makeProject({ 'settings.json': { language: 'en' } }); process.chdir(proj);
@@ -25,64 +25,76 @@ async function open(file, { bridge = true } = {}) {
 }
 
 (async () => {
-  // ---- baked-in state: a page written mid-check shows Stop and hides Fresh check; one written idle is the other way round ----
+  // ---- baked-in state: a page written mid-check bakes .running (Stop); one written idle doesn't ----
   const idlePage = path.join(proj, 'idle.html');
   writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [], now: new Date() }, idlePage);
   {
     const idleHtml = fs.readFileSync(idlePage, 'utf8');
-    ok('idle page: Stop is baked in hidden', /id="stop-check-button"[^>]*\bhidden\b/.test(idleHtml));
-    ok('idle page: Fresh check is baked in visible', !/id="freshcheck-button"[^>]*\bhidden\b/.test(idleHtml));
+    ok('idle page: freshcheck-button is not .running', !/id="freshcheck-button"[^>]*\bclass="[^"]*running/.test(idleHtml));
+    ok('idle page: only one header button with this id — never a separate stop-check-button', !/stop-check-button/.test(idleHtml));
+    ok('its title is the Fresh check hint', /id="freshcheck-button"[\s\S]*?title="Checks everything again/.test(idleHtml));
   }
 
   const runningPage = path.join(proj, 'running.html');
   writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [],
     reading: ['Canvas'], progress: { done: 3, total: 8 }, now: new Date() }, runningPage);
   const runningHtml = fs.readFileSync(runningPage, 'utf8');
-  ok('a page reloaded mid-check shows Stop right away, not hidden',
-    /id="stop-check-button"/.test(runningHtml) && !/id="stop-check-button"[^>]*\bhidden\b/.test(runningHtml));
-  ok('...and Fresh check is hidden instead, not sitting beside it',
-    /id="freshcheck-button"[^>]*\bhidden\b/.test(runningHtml));
-  ok('it has a title (an icon-only button, no visible label)', /id="stop-check-button"[^>]*title="[^"]+"/.test(runningHtml));
+  ok('a page reloaded mid-check bakes .running onto the SAME button',
+    /id="freshcheck-button"/.test(runningHtml) && /class="reload named running"\s*\n\s*id="freshcheck-button"/.test(runningHtml));
+  ok('its title is the Stop hint, not the Fresh check one', /id="freshcheck-button"[\s\S]*?title="Stop the check/.test(runningHtml));
+  ok('both icon spans are present (CSS picks which shows)', /icon-freshcheck/.test(runningHtml) && /icon-stop/.test(runningHtml));
 
-  // ---- live toggling: Stop takes Fresh check's spot when a check starts, gives it back when it ends ----
+  // ---- live toggling: becomes Stop the moment a check is heard running, becomes Fresh check again once it ends ----
   {
     const { w, d, close } = await open(idlePage);
-    const stop = d.getElementById('stop-check-button');
-    const fresh = d.getElementById('freshcheck-button');
-    ok('starts hidden on the idle page', stop.hidden === true);
-    ok('...with Fresh check showing', fresh.hidden === false);
+    const button = d.getElementById('freshcheck-button');
+    ok('starts as Fresh check on the idle page', !button.classList.contains('running'));
+    ok('...with the Fresh check hint', button.title === 'Checks everything again, Edpuzzle included — takes about a minute — ⇧⌘R' || /Checks everything again/.test(button.title));
     w.classdashLiveChanged({ run: runState({ done: 2, total: 8 }), version: null });
-    ok('Stop shown once a check is heard running', await until(() => stop.hidden === false));
-    ok('...and Fresh check hides at the same moment', fresh.hidden === true);
+    ok('becomes Stop once a check is heard running', await until(() => button.classList.contains('running')));
+    ok('...and the title switches to the Stop hint', /Stop the check/.test(button.title));
     w.classdashLiveChanged({ run: runState({ running: false, done: 8, total: 8 }), version: null });
-    ok('Stop hidden again once the check ends', await until(() => stop.hidden === true));
-    ok('...and Fresh check is back', fresh.hidden === false);
+    ok('becomes Fresh check again once the check ends', await until(() => !button.classList.contains('running')));
+    ok('...and the title switches back', /Checks everything again/.test(button.title));
     close();
   }
 
-  // ---- clicking it: dispatches stopCheck, disables itself, stays disabled on success ----
+  // ---- clicking it while running: dispatches stopCheck (not check), disables itself, stays disabled on success ----
   {
     const { w, d, posted, close } = await open(runningPage);
-    const button = d.getElementById('stop-check-button');
-    ok('visible to start with (baked in from a running page)', button.hidden === false);
+    const button = d.getElementById('freshcheck-button');
+    ok('already Stop, baked in from a running page', button.classList.contains('running'));
     ok('not disabled before the click', button.disabled === false);
-    w.stopFreshCheck();
-    ok('sends the stopCheck action, nothing else', posted.length === 1 && posted[0].action === 'stopCheck', JSON.stringify(posted));
+    button.click();
+    ok('sends the stopCheck action, nothing else (not a fresh check)', posted.length === 1 && posted[0].action === 'stopCheck', JSON.stringify(posted));
     ok('disables itself right away, not waiting on a reply', button.disabled === true);
     w.classdashBridgeResult(posted[0].id, { ok: true, action: 'stopCheck', stopped: true });
     await sleep(50);
-    ok('stays disabled on a real stop (there is a live update to hide it, not a re-enable)', button.disabled === true);
+    ok('stays disabled while still confirmed running (there is a live update to flip it, not a re-enable here)', button.disabled === true);
+    w.classdashLiveChanged({ run: runState({ running: false, done: 8, total: 8 }), version: null });
+    ok('...and IS re-enabled once the run is actually confirmed over', await until(() => button.disabled === false));
     close();
   }
 
-  // ---- clicking it when nothing was actually running: re-enabled so a retry works ----
+  // ---- clicking it while running, when nothing was actually running server-side: re-enabled immediately so a retry works ----
   {
     const { w, d, posted, close } = await open(runningPage);
-    const button = d.getElementById('stop-check-button');
-    w.stopFreshCheck();
+    const button = d.getElementById('freshcheck-button');
+    button.click();
     w.classdashBridgeResult(posted[0].id, { ok: true, action: 'stopCheck', stopped: false });
     await sleep(50);
     ok('re-enabled when there was nothing to stop', button.disabled === false);
+    close();
+  }
+
+  // ---- clicking it while idle: still starts a fresh check the normal way, not stopCheck ----
+  {
+    const { w, d, posted, close } = await open(idlePage);
+    const button = d.getElementById('freshcheck-button');
+    button.click();
+    ok('idle click sends check, not stopCheck', posted.length === 1 && posted[0].action === 'check', JSON.stringify(posted));
+    ok('spins while dispatched and unconfirmed', button.classList.contains('spinning'));
+    ok('not yet .running (not confirmed by a live update)', !button.classList.contains('running'));
     close();
   }
 
@@ -94,8 +106,8 @@ async function open(file, { bridge = true } = {}) {
     close();
   }
 
-  // ---- the icon is a real stencil, present in both colour skins ----
-  ok('the stop icon is wired up as a mask, like the other header icons', /--icon-stop: url\("data:image\/png;base64,/.test(runningHtml) && /\.icon-stop \{ -webkit-mask-image: var\(--icon-stop\)/.test(runningHtml));
+  // ---- the stop icon is a real stencil, wired up the same way as the other header icons ----
+  ok('the stop icon is wired up as a mask', /--icon-stop: url\("data:image\/png;base64,/.test(runningHtml) && /\.icon-stop \{ -webkit-mask-image: var\(--icon-stop\)/.test(runningHtml));
 
   process.exit(process.exitCode || 0);
 })();

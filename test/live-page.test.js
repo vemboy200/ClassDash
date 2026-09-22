@@ -47,7 +47,12 @@ async function open() {
   ok('percent 30%', d.getElementById('check-progress-pct').textContent === '30%');
   ok('aria-valuenow 30', box.getAttribute('aria-valuenow') === '30');
   ok('not indeterminate once total is known', !box.classList.contains('indeterminate'));
-  ok('Fresh check icon spins while a run is live', d.getElementById('freshcheck-button').classList.contains('spinning'));
+  // Fresh check IS the Stop button while a run is live — not a spinning
+  // Fresh check icon anymore, a static Stop one (see 08-page.js's own
+  // .running class and applyRunState).
+  ok('Fresh check becomes Stop (.running) while a run is live', d.getElementById('freshcheck-button').classList.contains('running'));
+  ok('...and is not spinning (the Stop icon is the "in progress" signal now, not a spin)',
+    !d.getElementById('freshcheck-button').classList.contains('spinning'));
 
   // progress moves on the next poll (heartbeat-stamped)
   setRun({ running: true, done: 7, total: 10, at: Date.now() });
@@ -66,6 +71,7 @@ async function open() {
   setRun({ running: false, done: 10, total: 10, at: Date.now() });
   ok('run ended -> bar hides', await until(() => box.hidden === true));
   ok('...and the icon stops spinning', await until(() => !d.getElementById('freshcheck-button').classList.contains('spinning')));
+  ok('...and it is Fresh check again, not Stop', !d.getElementById('freshcheck-button').classList.contains('running'));
 
   // a dead run: says running, but the heartbeat stopped 40s ago
   setRun({ running: true, done: 4, total: 10, at: Date.now() - 40000 });

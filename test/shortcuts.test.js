@@ -173,7 +173,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   ok(s.reloads.n === 1, 'on Windows the Windows/Meta key is not the command key');
   e = press('KeyR', { ctrlKey: true, shiftKey: true });
   ok(s.sent.length === 1 && s.sent[0].action === 'check' && e.defaultPrevented, 'Shift+Ctrl+R = Fresh check (bridge "check")');
-  ok(d.getElementById('freshcheck-button').classList.contains('spinning'), 'and the button shows it is running');
+  ok(d.getElementById('freshcheck-button').classList.contains('spinning'), 'and the button spins while the dispatch is unconfirmed');
   press('KeyR', { ctrlKey: true, shiftKey: true });
   ok(s.sent.length === 1, 'a second Fresh check is ignored while one is running');
   const panel = d.getElementById('check-status-panel');
