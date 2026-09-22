@@ -1,7 +1,7 @@
 {
   "name": "classdash-windows",
   "version": "1.0.0",
-  "description": "Windows wrapper for ClassDash — the Electron equivalent of the macOS app's 16-summary.swift",
+  "description": "Windows wrapper for ClassDash — the Electron equivalent of the macOS app's mac/16-summary.swift",
   "license": "GPL-3.0-or-later",
   "private": true,
   "main": "main.js",
@@ -33,18 +33,24 @@
     ],
     "extraResources": [
       {
-        "from": "..",
+        "from": "../src",
         "to": "ProjectTemplate",
         "filter": [
           "*.js",
-          "package.json",
           "settings.example.json",
           "refresh-icon.png",
           "freshcheck-icon.png",
           "settings-icon.png",
           "loading-icon.png",
           "loading-icon-light.png",
-          "stop-icon.png",
+          "stop-icon.png"
+        ]
+      },
+      {
+        "from": "..",
+        "to": "ProjectTemplate",
+        "filter": [
+          "package.json",
           "node_modules/**"
         ]
       }

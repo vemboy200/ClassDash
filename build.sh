@@ -125,7 +125,7 @@ if command -v swiftc >/dev/null; then
   # produced from that with nearest-neighbor scaling, not smooth
   # resampling, specifically to keep the pixel art crisp instead of
   # blurring it at the larger sizes macOS actually needs (up to 1024x1024).
-  cp AppIcon.icns "$APP_NAME.app/Contents/Resources/AppIcon.icns"
+  cp assets/AppIcon.icns "$APP_NAME.app/Contents/Resources/AppIcon.icns"
 
   # ── Project template, bundled for the new-project setup wizard ──
   #
@@ -145,8 +145,9 @@ if command -v swiftc >/dev/null; then
   TEMPLATE_DIR="$APP_NAME.app/Contents/Resources/ProjectTemplate"
   rm -rf "$TEMPLATE_DIR"
   mkdir -p "$TEMPLATE_DIR"
-  cp ./*.js "$TEMPLATE_DIR/"
-  cp package.json settings.example.json refresh-icon.png freshcheck-icon.png settings-icon.png loading-icon.png loading-icon-light.png stop-icon.png "$TEMPLATE_DIR/"
+  cp ./src/*.js "$TEMPLATE_DIR/"
+  cp package.json "$TEMPLATE_DIR/"
+  cp src/settings.example.json src/refresh-icon.png src/freshcheck-icon.png src/settings-icon.png src/loading-icon.png src/loading-icon-light.png src/stop-icon.png "$TEMPLATE_DIR/"
   cp -R node_modules "$TEMPLATE_DIR/node_modules"
   echo "  project template bundled ($(du -sh "$TEMPLATE_DIR" | cut -f1))"
 
@@ -188,7 +189,7 @@ PLIST
   # MACOSX_DEPLOYMENT_TARGET alone did not override this; -target does.
   # 11.0 covers everything this app actually uses (NSWindow, WKWebView).
   # $(uname -m) keeps this working on both Apple Silicon and Intel.
-  swiftc -O -target "$(uname -m)-apple-macos11" -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" 16-summary.swift
+  swiftc -O -target "$(uname -m)-apple-macos11" -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" mac/16-summary.swift
   codesign --force -s "$CODESIGN_ID" "$APP_NAME.app" 2>/dev/null
   echo "  built, path baked into Info.plist"
 

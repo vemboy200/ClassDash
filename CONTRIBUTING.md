@@ -26,7 +26,7 @@ Everything that needs a browser runs through one shared Playwright browser insta
 ```bash
 npm install
 npm run setup-browser
-cp settings.example.json settings.json    # then edit it
+cp src/settings.example.json settings.json    # then edit it
 npm run login
 npm run build
 npm start
@@ -66,7 +66,7 @@ npm start
 
 **Known, unresolved consequence of that same fact**: the detached home API server (`17-api.js`) shares process identity with the app — it's also, technically, `ClassDash.exe`. A reinstall or the app's own self-update (both run the installer, which closes anything named `ClassDash.exe` before overwriting it) can kill the API server even though it's supposed to survive the main app closing entirely, the way it does on macOS (a genuinely separate system `node` process there). Toggling **Enable home API** off then on again (each followed by Save) forces a fresh restart and works around it; the real fix would bundle an actual separate portable Node binary for exactly this kind of long-running process, not yet built.
 
-**The new-project wizard's template** comes from `electron/package.json`'s own `build.extraResources` — bundles every `.js` file, `package.json`, `settings.example.json`, the icons (`refresh-icon.png`, `freshcheck-icon.png`, `settings-icon.png` for the header, `loading-icon.png` and `loading-icon-light.png` for the loading indicators — the same sprite twice, the speed-dashes white for the dark theme and near-black for the light one; regenerate the light one if the dashes are ever redrawn), and `node_modules` from the repo root into `resources/ProjectTemplate` inside the packaged app, the Electron equivalent of `build.sh`'s own `Contents/Resources/ProjectTemplate` step for the Mac build. **Needs the root project's own `npm ci` run first** — see the release pipeline below for the real bug this already caused once.
+**The new-project wizard's template** comes from `electron/package.json`'s own `build.extraResources` — two entries, both landing in the same `resources/ProjectTemplate`: every `.js` file, `settings.example.json` and the icons (`refresh-icon.png`, `freshcheck-icon.png`, `settings-icon.png` for the header, `loading-icon.png` and `loading-icon-light.png` for the loading indicators — the same sprite twice, the speed-dashes white for the dark theme and near-black for the light one; regenerate the light one if the dashes are ever redrawn) from `src/`, flattened out of it; `package.json` and `node_modules` from the true repo root, where they actually live. The Electron equivalent of `build.sh`'s own `Contents/Resources/ProjectTemplate` step for the Mac build. **Needs the root project's own `npm ci` run first** — see the release pipeline below for the real bug this already caused once.
 
 **Brave's Windows install is a real system install**, unlike macOS's isolated `.browser/`-folder copy — Windows has no equivalent of "extract an app bundle in isolation and run it from there." Downloads `BraveBrowserStandaloneSilentSetup.exe` (confirmed against Brave's own real [winget package manifest](https://github.com/microsoft/winget-pkgs/tree/master/manifests/b/Brave/Brave) after two wrong URL guesses first — GitHub Releases directly, not `laptop-updates.brave.com` or `referrals.brave.com`) to its standard per-user location. Still safe: the profile isolation that matters comes from Playwright's own `--user-data-dir` flag, not from the install being physically separate.
 
@@ -76,7 +76,7 @@ npm start
 
 #### The Windows icon
 
-`electron/build/icon.ico` is generated, not drawn: `node electron/build/make-icon.js` builds it from `electron/build/icon-source.png` and it's committed. That source is the *rounded* version of the icon (the four corners cut in a 3-2-1 pixel step and transparent); the repo root's `icon-source.png`, which the macOS icon comes from, is the square one — same art otherwise, so change one and the other should follow. and `win.icon` in `electron/package.json` points straight at it. It used to be a single 1024px PNG that electron-builder turned into an `.ico` holding one 256px image, so Windows shrank that with smoothing for every other size — and a smoothing shrink eats one-pixel pixel art: at 16px the icon's eight speed-dashes became four half-strength bands. Now there's one image per size (16, 24, 32, 48, 64, 128, 256). 32, 64, 128 and 256 are whole-number enlargements of the 32px art, so they're exact. 48 is 1.5x, nearest-neighbour: crisp, with dashes alternately 1 and 2 pixels thick. 16 and 24 don't divide evenly (and eight dashes can't fit in 16 rows), so the art *without* its dashes is shrunk and the dashes are drawn back on as crisp lines — four at 16px, all eight at 24. Those two are stand-ins: drop a hand-drawn `icon-16.png` (or `-24`, `-48`, ...) next to the script, exactly that many pixels square and RGBA, and it's used instead. `build/icon.png` (the old 1024px source) isn't used by the Windows build any more.
+`electron/build/icon.ico` is generated, not drawn: `node electron/build/make-icon.js` builds it from `electron/build/icon-source.png` and it's committed. That source is the *rounded* version of the icon (the four corners cut in a 3-2-1 pixel step and transparent); `assets/icon-source.png`, which the macOS icon comes from, is the square one — same art otherwise, so change one and the other should follow. and `win.icon` in `electron/package.json` points straight at it. It used to be a single 1024px PNG that electron-builder turned into an `.ico` holding one 256px image, so Windows shrank that with smoothing for every other size — and a smoothing shrink eats one-pixel pixel art: at 16px the icon's eight speed-dashes became four half-strength bands. Now there's one image per size (16, 24, 32, 48, 64, 128, 256). 32, 64, 128 and 256 are whole-number enlargements of the 32px art, so they're exact. 48 is 1.5x, nearest-neighbour: crisp, with dashes alternately 1 and 2 pixels thick. 16 and 24 don't divide evenly (and eight dashes can't fit in 16 rows), so the art *without* its dashes is shrunk and the dashes are drawn back on as crisp lines — four at 16px, all eight at 24. Those two are stand-ins: drop a hand-drawn `icon-16.png` (or `-24`, `-48`, ...) next to the script, exactly that many pixels square and RGBA, and it's used instead. `build/icon.png` (the old 1024px source) isn't used by the Windows build any more.
 
 ### The release pipeline — both platforms, one tag
 
@@ -268,6 +268,8 @@ The user-facing version is in the [README](README.md#home-api). This is the actu
 ---
 
 ## How it is put together
+
+All of these live under `src/`, except `16-summary.swift` (`mac/`) and the two entries under `electron/` below.
 
 | file | what it does |
 |---|---|

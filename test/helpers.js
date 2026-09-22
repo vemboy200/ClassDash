@@ -5,12 +5,14 @@
  *
  * A test never touches the project it runs from. makeProject() builds a
  * throwaway project in the system's temp folder out of this repo's own code
- * (the same allowlist the apps bundle as their template: the root scripts,
- * package.json, settings.example.json and the icons), links the repo's
- * node_modules into it, and hands back its path. The scripts read and write
- * their settings and data next to themselves, so a test's settings.json,
- * summary.html, logs and pid files all land in the temp folder — never in a
- * developer's real project, and never on a real API port.
+ * (the same allowlist the apps bundle as their template: src/'s scripts,
+ * settings.example.json and the icons, plus package.json from the true
+ * repo root — see 00-project-root.js for why that split matters), links
+ * the repo's node_modules into it, and hands back its path. The scripts
+ * read and write their settings and data next to themselves, so a test's
+ * settings.json, summary.html, logs and pid files all land in the temp
+ * folder — never in a developer's real project, and never on a real API
+ * port.
  *
  * ── Why the test dependencies live in test/, not the root ──
  *
@@ -26,7 +28,7 @@ const cp = require('child_process');
 const REPO = path.resolve(__dirname, '..');
 
 // What the apps bundle as a project template (see build.sh and
-// electron/package.json): nothing else from the repo is a project file.
+// electron/package.json): nothing else in src/ is a project file.
 const ICONS = ['refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png',
                'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png'];
 const isProjectFile = name =>
@@ -65,9 +67,16 @@ function writeFiles(dir, files = {}) {
  */
 function makeProject(files = {}) {
   const dir = tmpDir();
-  for (const entry of fs.readdirSync(REPO, { withFileTypes: true })) {
+  // package.json is the one project file that stays at the true repo
+  // root, never inside src/ — see 00-project-root.js's own header
+  // comment for why that matters: its absence from src/ is exactly what
+  // tells a script running from source "your data is one level up", and
+  // a scratch project must never trigger that (it's meant to look exactly
+  // like a real deployed project, where package.json IS a sibling).
+  fs.copyFileSync(path.join(REPO, 'package.json'), path.join(dir, 'package.json'));
+  for (const entry of fs.readdirSync(path.join(REPO, 'src'), { withFileTypes: true })) {
     if (entry.isFile() && isProjectFile(entry.name)) {
-      fs.copyFileSync(path.join(REPO, entry.name), path.join(dir, entry.name));
+      fs.copyFileSync(path.join(REPO, 'src', entry.name), path.join(dir, entry.name));
     }
   }
   const modules = path.join(REPO, 'node_modules');

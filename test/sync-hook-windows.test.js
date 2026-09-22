@@ -58,7 +58,7 @@ ok(!threw && /ENOENT/.test(w.warns[0]), '9 a spawn failure does not throw: ' + w
   const tmp = () => T.tmpDir('w24-');
   const t = tmp(), p = tmp();
   fs.writeFileSync(path.join(t, '08-page.js'), '// NEW\n'); fs.writeFileSync(path.join(t, 'package.json'), '{"dependencies":{}}');
-  fs.copyFileSync(path.join(REAL, '30-template-sync.js'), path.join(t, '30-template-sync.js'));
+  fs.copyFileSync(path.join(REAL, 'src', '30-template-sync.js'), path.join(t, '30-template-sync.js'));
   fs.writeFileSync(path.join(p, '08-page.js'), '// OLD\n'); fs.writeFileSync(path.join(p, 'settings.json'), '{"keep":"me"}');
   const calls = [];
   const ctx = { path, process: { resourcesPath: '/x', execPath: process.execPath }, projectDir: p, fs: { existsSync: () => true },

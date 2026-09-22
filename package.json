@@ -8,13 +8,13 @@
     "node": ">=18"
   },
   "scripts": {
-    "setup-browser": "node 20-browser.js",
-    "start": "node 05-playwright-draft.js",
-    "login": "node 05-playwright-draft.js --login",
-    "full": "node 05-playwright-draft.js --full",
-    "page": "node 05-playwright-draft.js --redraw",
-    "api": "node 17-api.js",
-    "config": "node 19-settings.js",
+    "setup-browser": "node src/20-browser.js",
+    "start": "node src/05-playwright-draft.js",
+    "login": "node src/05-playwright-draft.js --login",
+    "full": "node src/05-playwright-draft.js --full",
+    "page": "node src/05-playwright-draft.js --redraw",
+    "api": "node src/17-api.js",
+    "config": "node src/19-settings.js",
     "build": "./build.sh",
     "test:setup": "npm install --prefix test",
     "test": "node test/run.js"

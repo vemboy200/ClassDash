@@ -2,7 +2,7 @@
 const T = require('./helpers');
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
 const REAL = T.REPO;
-const sync = require(path.join(REAL, '30-template-sync.js'));
+const sync = require(path.join(REAL, 'src', '30-template-sync.js'));
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log('FAIL', m); } };
 const tmp = () => T.tmpDir('sync-');
@@ -154,7 +154,7 @@ const THEIRS = ['settings.json', 'last-collection.json', 'messages.json', 'не-
   const t = template('new'), p = oldProject();
   const run = args => cp.spawnSync('node', [path.join(t, '30-template-sync.js'), ...args], { encoding: 'utf8' });
   // the script lives in the template in real use; copy the real one in so we run the real thing
-  fs.copyFileSync(path.join(REAL, '30-template-sync.js'), path.join(t, '30-template-sync.js'));
+  fs.copyFileSync(path.join(REAL, 'src', '30-template-sync.js'), path.join(t, '30-template-sync.js'));
   const r = run([t, p]);
   const last = r.stdout.trim().split('\n').pop();
   let parsed; try { parsed = JSON.parse(last); } catch { parsed = null; }
@@ -168,9 +168,10 @@ const THEIRS = ['settings.json', 'last-collection.json', 'messages.json', 'не-
 
 // ── 12: the real template shape (what build.sh / electron-builder ship) ──
 {
-  // everything in the repo root that would be bundled: root *.js + package.json + settings.example.json + the icons
+  // everything that would be bundled: src/'s *.js + settings.example.json + the icons, plus package.json from the true repo root
   const t = tmp();
-  for (const n of fs.readdirSync(REAL)) if (/\.js$/.test(n) || ['package.json', 'settings.example.json', 'refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png', 'loading-icon.png', 'loading-icon-light.png'].includes(n)) fs.copyFileSync(path.join(REAL, n), path.join(t, n));
+  for (const n of fs.readdirSync(path.join(REAL, 'src'))) if (/\.js$/.test(n) || ['settings.example.json', 'refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png', 'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png'].includes(n)) fs.copyFileSync(path.join(REAL, 'src', n), path.join(t, n));
+  fs.copyFileSync(path.join(REAL, 'package.json'), path.join(t, 'package.json'));
   const p = oldProject();
   const r = sync.syncProject(t, p);
   ok(r.ok && r.action === 'synced' && r.changed.length > 20, '12 the real file set syncs: ' + r.changed.length + ' files');

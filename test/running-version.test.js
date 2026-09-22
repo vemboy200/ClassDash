@@ -69,7 +69,7 @@ ok(r.ok && r.changed === false, 'an empty version is ignored');
 const main = fs.readFileSync(path.join(REAL, 'electron/main.js'), 'utf8');
 const i1 = main.indexOf('syncProjectScripts();\n    noteRunningVersion();'), i2 = main.indexOf('buildMenu();', i1), i3 = main.indexOf('createWindow();', i1);
 ok(i1 > 0 && i2 > i1 && i3 > i2, 'Windows: scripts refreshed, then version noted, both BEFORE the window loads the page');
-const sw = fs.readFileSync(path.join(REAL, '16-summary.swift'), 'utf8');
+const sw = fs.readFileSync(path.join(REAL, 'mac', '16-summary.swift'), 'utf8');
 const j1 = sw.indexOf('syncProjectScripts(from:'), j2 = sw.indexOf('"noteVersion"', j1), j3 = sw.indexOf('buildMainMenu()', j2);
 ok(j1 > 0 && j2 > j1 && j3 > j2, 'Mac: scripts refreshed, then version noted, both BEFORE the window is built');
 // the Windows function itself

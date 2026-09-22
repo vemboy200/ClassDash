@@ -16,7 +16,7 @@ const requireFresh = (file) => {
 {
   const dir = T.tmpDir();
   T.writeFiles(dir, { 'package.json': { name: 'x' } });
-  fs.copyFileSync(path.join(T.REPO, '00-project-root.js'), path.join(dir, '00-project-root.js'));
+  fs.copyFileSync(path.join(T.REPO, 'src', '00-project-root.js'), path.join(dir, '00-project-root.js'));
   const { PROJECT_ROOT } = requireFresh(path.join(dir, '00-project-root.js'));
   ok('package.json is my sibling -> PROJECT_ROOT is right here', PROJECT_ROOT === dir, PROJECT_ROOT);
 }
@@ -27,7 +27,7 @@ const requireFresh = (file) => {
   const srcDir = path.join(root, 'src');
   fs.mkdirSync(srcDir, { recursive: true });
   T.writeFiles(root, { 'package.json': { name: 'x' }, 'settings.json': { language: 'en' } });   // the REAL data, one level up
-  fs.copyFileSync(path.join(T.REPO, '00-project-root.js'), path.join(srcDir, '00-project-root.js'));
+  fs.copyFileSync(path.join(T.REPO, 'src', '00-project-root.js'), path.join(srcDir, '00-project-root.js'));
   const { PROJECT_ROOT } = requireFresh(path.join(srcDir, '00-project-root.js'));
   ok('no sibling package.json in src/ -> PROJECT_ROOT is one level up, where the real data is',
     PROJECT_ROOT === root, PROJECT_ROOT);
@@ -40,7 +40,7 @@ const requireFresh = (file) => {
   const root = T.tmpDir();
   const srcDir = path.join(root, 'src');
   fs.mkdirSync(srcDir, { recursive: true });
-  fs.copyFileSync(path.join(T.REPO, '00-project-root.js'), path.join(srcDir, '00-project-root.js'));
+  fs.copyFileSync(path.join(T.REPO, 'src', '00-project-root.js'), path.join(srcDir, '00-project-root.js'));
   const { PROJECT_ROOT } = requireFresh(path.join(srcDir, '00-project-root.js'));
   ok('no package.json anywhere: still falls back one level up, no crash', PROJECT_ROOT === root, PROJECT_ROOT);
 }
