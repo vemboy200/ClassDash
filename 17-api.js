@@ -515,6 +515,15 @@ const WRITE_HANDLERS = {
   // minutesAgo are how a client finds out when it actually has.
   '/api/reload': () => ({ status: 200, body: notifierActions.main('reload', '') }),
   '/api/check': () => ({ status: 200, body: notifierActions.main('check', '') }),
+  // Ends whichever of the above is currently running — the same
+  // stopCheck the page's own Stop button uses (see 08-page.js and
+  // 21-notifier-actions.js's own header comment on it for the mechanics
+  // and the Windows caveat). `stopped` in the response says whether
+  // there actually was one to stop; either way this answers right away,
+  // not once it's actually confirmed over — /api/collection or
+  // /api/status's collecting is how a client finds out when it really
+  // has (see 28-live-state.js's readCollection).
+  '/api/stop': () => ({ status: 200, body: notifierActions.main('stopCheck', '') }),
 
   // Virtual assignments — write side. Same dispatcher
   // (notifierActions.main) the page's own Reminders section uses, so
