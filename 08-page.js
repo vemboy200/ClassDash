@@ -1772,20 +1772,16 @@ function writePage(data, outputPath) {
   .icon-freshcheck { -webkit-mask-image: var(--icon-freshcheck); mask-image: var(--icon-freshcheck); }
   .icon-stop { -webkit-mask-image: var(--icon-stop); mask-image: var(--icon-stop); }
   /* Fresh check IS the Stop button while a check runs — not a second
-     button beside it, the same one: both icons and the label live in the
-     button the whole time, and .running (toggled in applyRunState, or
-     baked in for a page reloaded mid-check) picks which icon shows and
-     drops the label, so it reads as a plain icon button, same as Settings
-     right next to it. */
+     button beside it, the same one: both icons live in the button the
+     whole time, and .running (toggled in applyRunState, or baked in for a
+     page reloaded mid-check) picks which one shows. Stays .named-styled
+     either way — icon plus a real label, same as Refresh and Fresh check
+     itself — with the label's TEXT swapped between Fresh check/Stop by
+     the same code that sets .running, since CSS alone can't change what
+     a span says. */
   #freshcheck-button .icon-stop { display: none; }
   #freshcheck-button.running .icon-freshcheck { display: none; }
   #freshcheck-button.running .icon-stop { display: inline-block; }
-  #freshcheck-button.running .reload-label { display: none; }
-  /* Drops .named's own auto width/padding to match .reload's plain 26x26
-     icon-only square exactly (Settings, right next to it) — otherwise an
-     icon with no label still carries .named's horizontal padding and ends
-     up a wide rectangle instead of a square. */
-  #freshcheck-button.running { width: 26px; height: 26px; padding: 0; gap: 0; }
   /* Its own hover colour while it's Stop — a "cancel this" action, not a
      "refresh" one, so it reads as a warning (the same red as overdue and
      a broken source) instead of the usual cyan/blue every other header
@@ -2356,7 +2352,7 @@ function writePage(data, outputPath) {
          id="refresh-button"
          title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named${progress ? ' running' : ''}"
          id="freshcheck-button"
-         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
+         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
          title="${escapeHtml(t('settingsTitle'))}"><span class="pixel-icon icon-settings"></span><span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
@@ -2436,6 +2432,8 @@ const WORDS = ${JSON.stringify({
   expand: t('expand'),
   collapse: t('collapse'),
   freshCheckHint: t('freshCheckHint'),
+  freshCheckLabel: t('freshCheckLabel'),
+  stopLabel: t('stopLabel'),
   stopCheckHint: t('stopCheckHint'),
   hide: t('hide'),
   restore: t('restore'),
@@ -3913,18 +3911,32 @@ function applyRunState(run) {
   if (freshButton && !unknown) {
     var wasRunning = freshButton.classList.contains('running');
     freshButton.classList.toggle('running', live);
+    var freshLabel = freshButton.querySelector('.reload-label');
     if (live) {
       // Re-enabled every time a check is seen running — otherwise a
       // stopped check's own disabled state (see stopFreshCheck) would
       // never clear for the next one.
       freshButton.disabled = false;
       freshButton.title = WORDS.stopCheckHint;
+      if (freshLabel) freshLabel.textContent = WORDS.stopLabel;
+      // CONSUMED THE MOMENT A RUN IS CONFIRMED, NOT LEFT TO EXPIRE ON ITS
+      // OWN. freshSpinUntil only exists to bridge the click-to-confirmation
+      // gap, which is already over the instant this branch runs — leaving
+      // it set let a check STOPPED EARLY (within 15s of the original
+      // click) start spinning again the moment it ended, since the
+      // spinning check below only looks at whether the clock has passed
+      // it, with no idea this run had already been confirmed live and
+      // stopped in between. Caught live: Stop a check within a few
+      // seconds of starting it, and Fresh check kept spinning afterward
+      // for however long was left of the original 15s window.
+      freshSpinUntil = 0;
     } else if (wasRunning) {
       // Only on the actual transition BACK from being Stop — never on an
       // ordinary idle tick, which would otherwise strip the keyboard-hint
       // suffix tip() appended at page load for no reason at all.
       freshButton.disabled = false;
       freshButton.title = WORDS.freshCheckHint;
+      if (freshLabel) freshLabel.textContent = WORDS.freshCheckLabel;
     }
   }
   if (box && !unknown) {
