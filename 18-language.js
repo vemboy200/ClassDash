@@ -31,8 +31,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const LANGUAGE_FILE = path.join(__dirname, 'language.txt');
+const LANGUAGE_FILE = path.join(PROJECT_ROOT, 'language.txt');
 
 const DICTIONARIES = {
   ru: {

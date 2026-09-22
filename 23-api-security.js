@@ -28,11 +28,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const selfsigned = require('selfsigned');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const CERT_FILE = path.join(__dirname, 'api-cert.pem');
-const KEY_FILE = path.join(__dirname, 'api-key.pem');
-const TOKEN_FILE = path.join(__dirname, 'api-token.txt');
-const PID_FILE = path.join(__dirname, 'api-server.pid');
+const CERT_FILE = path.join(PROJECT_ROOT, 'api-cert.pem');
+const KEY_FILE = path.join(PROJECT_ROOT, 'api-key.pem');
+const TOKEN_FILE = path.join(PROJECT_ROOT, 'api-token.txt');
+const PID_FILE = path.join(PROJECT_ROOT, 'api-server.pid');
 
 /** Generates the self-signed cert + key on first run only — never
  *  regenerated after, since a client pins the fingerprint of whatever

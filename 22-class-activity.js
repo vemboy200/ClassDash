@@ -49,8 +49,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const ACTIVITY_FILE = path.join(__dirname, 'class-activity.json');
+const ACTIVITY_FILE = path.join(PROJECT_ROOT, 'class-activity.json');
 
 function readActivity() {
   if (!fs.existsSync(ACTIVITY_FILE)) return {};

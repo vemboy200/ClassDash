@@ -61,6 +61,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
 const {
   sortIntoBuckets, readMutedIds, readHiddenIds,
@@ -94,11 +95,11 @@ const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
 const { readUpdateStatus } = require('./26-update-check.js');
 
-const STATE_FILE = path.join(__dirname, 'last-collection.json');
-const STREAM_FILE = path.join(__dirname, 'messages.json');
-const CERT_FILE = path.join(__dirname, 'api-cert.pem');
-const KEY_FILE = path.join(__dirname, 'api-key.pem');
-const DIAGNOSTICS_LOG_FILE = path.join(__dirname, 'diagnostics-received.txt');
+const STATE_FILE = path.join(PROJECT_ROOT, 'last-collection.json');
+const STREAM_FILE = path.join(PROJECT_ROOT, 'messages.json');
+const CERT_FILE = path.join(PROJECT_ROOT, 'api-cert.pem');
+const KEY_FILE = path.join(PROJECT_ROOT, 'api-key.pem');
+const DIAGNOSTICS_LOG_FILE = path.join(PROJECT_ROOT, 'diagnostics-received.txt');
 
 const DEFAULT_PORT = require('./19-settings.js').read().apiPort;
 
@@ -759,7 +760,7 @@ function watchForChanges() {
   // replaced by renaming a temp file over it (see 28-live-state.js), which
   // ends a watch on the file. A change in the folder just wakes the same
   // debounced comparison as the others, and only a real difference pushes.
-  for (const file of [STATE_FILE, STREAM_FILE, virtualAssignments.FILE, path.join(__dirname, 'live')]) {
+  for (const file of [STATE_FILE, STREAM_FILE, virtualAssignments.FILE, path.join(PROJECT_ROOT, 'live')]) {
     const tryWatch = () => {
       if (!fs.existsSync(file)) { setTimeout(tryWatch, 5000); return; }
       try {

@@ -33,8 +33,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const FILE = path.join(__dirname, 'check-status.json');
+const FILE = path.join(PROJECT_ROOT, 'check-status.json');
 
 function readRaw() {
   try {

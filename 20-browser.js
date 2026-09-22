@@ -37,10 +37,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-const DIR = path.join(__dirname, '.browser');
+const DIR = path.join(PROJECT_ROOT, '.browser');
 const APP = path.join(DIR, 'Brave Browser.app');
 const BINARY = path.join(APP, 'Contents/MacOS/Brave Browser');
 

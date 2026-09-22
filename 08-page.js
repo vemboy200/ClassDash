@@ -15,6 +15,7 @@ const fs = require('fs');
 const { t, locale } = require('./18-language.js');
 const { read: readSettings, appliedFetchSettings, pendingFetchKeys } = require('./19-settings.js');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 // The API's token/fingerprint aren't settings — nothing here writes
 // them, 23-api-security.js is the only writer — just values this page
 // reads at redraw time to show in the panel. See that file's own
@@ -586,7 +587,7 @@ function classTeachers() {
   const teachers = new Map();
   for (const file of files) {
     try {
-      for (const c of JSON.parse(fs.readFileSync(path.join(__dirname, file), 'utf8'))) {
+      for (const c of JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, file), 'utf8'))) {
         if (c && c.name && c.teacher && !teachers.has(c.name)) teachers.set(c.name, c.teacher);
       }
     } catch { /* not written yet, or unreadable: no teachers from this file */ }
@@ -618,11 +619,11 @@ function knownClassStatus() {
   };
 
   const known = new Set([
-    ...readNames(path.join(__dirname, 'classes.json')),
-    ...readNames(path.join(__dirname, 'canvas-classes.json')),
-    ...(settings.edpuzzleEnabled ? readNames(path.join(__dirname, 'edpuzzle-classes.json')) : []),
+    ...readNames(path.join(PROJECT_ROOT, 'classes.json')),
+    ...readNames(path.join(PROJECT_ROOT, 'canvas-classes.json')),
+    ...(settings.edpuzzleEnabled ? readNames(path.join(PROJECT_ROOT, 'edpuzzle-classes.json')) : []),
   ]);
-  const fromItems = readItemClasses(path.join(__dirname, 'last-collection.json'));
+  const fromItems = readItemClasses(path.join(PROJECT_ROOT, 'last-collection.json'));
 
   const status = new Map();
   for (const name of known) status.set(name, 'known');

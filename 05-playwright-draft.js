@@ -57,6 +57,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
 // ── Timestamps in the log ─────────────────────────────────────
 //
@@ -106,8 +107,8 @@ const path = require('path');
 
 // ── Settings ─────────────────────────────────────────────────
 
-const PROFILE_DIR = path.join(__dirname, 'browser-profile');
-const STATE_FILE = path.join(__dirname, 'last-collection.json');
+const PROFILE_DIR = path.join(PROJECT_ROOT, 'browser-profile');
+const STATE_FILE = path.join(PROJECT_ROOT, 'last-collection.json');
 
 // THERE USED TO BE A SEPARATE NOTIFIER APP HERE.
 //
@@ -139,20 +140,20 @@ const SUMMARY_APP = '/Applications/ClassDash.app';
 // The script hands the popup text to the app through this file.
 // First line is the title, the rest is the body. The app deletes
 // the file right after reading it.
-const NOTIFY_FILE = path.join(__dirname, 'уведомление.txt');
+const NOTIFY_FILE = path.join(PROJECT_ROOT, 'уведомление.txt');
 
 // Log: what's already been reported, and on which day. Needed because the
 // script runs every 10 minutes, while a due-soon assignment stays due for
 // weeks. Without this log, the same popup would show up 48 times a day,
 // and people would stop noticing it — meaning the system would be
 // completely broken.
-const NOTIFY_LOG = path.join(__dirname, 'notification-log.json');
+const NOTIFY_LOG = path.join(PROJECT_ROOT, 'notification-log.json');
 
 // What was new in the last collection. Needed ONLY for redrawing the page
 // without collecting (a language change): freshIds live in the memory of
 // a single pass, and without this file the "new" badges would disappear
 // on every redraw.
-const FRESH_FILE = path.join(__dirname, 'new.json');
+const FRESH_FILE = path.join(PROJECT_ROOT, 'new.json');
 
 // Lock: keeps two collections from running at once.
 //
@@ -161,22 +162,22 @@ const FRESH_FILE = path.join(__dirname, 'new.json');
 // with "Failed to create SingletonLock: File exists". Caught live: a
 // scheduled run started at 10:00, a manual one at 10:01. The same thing
 // happens whenever someone clicks "check now".
-const LOCK_FILE = path.join(__dirname, '.collection-lock');
+const LOCK_FILE = path.join(PROJECT_ROOT, '.collection-lock');
 
 // The summary page. Opens when the notification popup is clicked.
 // Built by an ordinary program, see 08-page.js — no model is involved,
 // so it can be updated every 10 minutes without a second thought.
-const PAGE_FILE = path.join(__dirname, 'summary.html');
+const PAGE_FILE = path.join(PROJECT_ROOT, 'summary.html');
 
 // The notifier appends assignment ids here when the "not urgent" button
 // was clicked on the page. Undated assignments like that stop counting
 // as due soon, but don't disappear from the list.
-const QUIET_FILE = path.join(__dirname, 'не-срочно.txt');
+const QUIET_FILE = path.join(PROJECT_ROOT, 'не-срочно.txt');
 
 // The notifier appends ids of overdue assignments removed from the list
 // here. Removed with a button on the page, with a confirmation.
 // Can be restored from the same place.
-const HIDDEN_FILE = path.join(__dirname, 'скрытые.txt');
+const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
 const { writePage, daysUntil } = require('./08-page.js');
 const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./10-canvas.js');
 const { collectEdpuzzle } = require('./11-edpuzzle.js');
@@ -214,7 +215,7 @@ const BROWSER = SETTINGS.browserPath
 
 // Announcement memory is separate from assignment memory: they have a
 // different nature — no due dates, never "due soon", but freshness matters.
-const STREAM_FILE = path.join(__dirname, 'messages.json');
+const STREAM_FILE = path.join(PROJECT_ROOT, 'messages.json');
 
 // "Full summary" hours: the script reminds about everything due soon at
 // these hours, even if it's long since known. The rest of the time it
@@ -246,7 +247,7 @@ const U = SETTINGS.account;
 // The second mistake costs seconds, the first costs a deadline. So
 // everything is read except exclusions. The same principle already works
 // in Canvas.
-const CLASSES_FILE = path.join(__dirname, 'classes.json');
+const CLASSES_FILE = path.join(PROJECT_ROOT, 'classes.json');
 
 // Classes that don't need reading. CURRENTLY EMPTY, and that's not an
 // oversight: last year's ones (Ethnic Studies, Español) were already
@@ -475,7 +476,7 @@ async function login() {
   // identically on both platforms and needs nothing OS-specific, the
   // same reasoning already behind every other cross-process signal in
   // this project (не-срочно.txt, скрытые.txt, check-status.json, …).
-  const finishFlag = path.join(__dirname, 'login-finish-request.txt');
+  const finishFlag = path.join(PROJECT_ROOT, 'login-finish-request.txt');
   try { fs.unlinkSync(finishFlag); } catch { /* nothing stale to clear */ }
   const finishPoll = setInterval(() => {
     if (!fs.existsSync(finishFlag)) return;

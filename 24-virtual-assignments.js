@@ -38,9 +38,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 const crypto = require('crypto');
 
-const FILE = path.join(__dirname, 'virtual-assignments.json');
+const FILE = path.join(PROJECT_ROOT, 'virtual-assignments.json');
 
 // A week. Long enough to notice and undo an accidental "done" click,
 // short enough that finished reminders don't pile up forever the way a

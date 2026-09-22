@@ -45,6 +45,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
 const SITE = 'https://edpuzzle.com';
 
@@ -54,7 +55,7 @@ const SITE = 'https://edpuzzle.com';
 // filter — the same reason Classroom's own class list lives in
 // classes.json. Deliberately the post-filtering list: an excluded or
 // stale class shouldn't reappear here just because this exists.
-const CLASSES_FILE = path.join(__dirname, 'edpuzzle-classes.json');
+const CLASSES_FILE = path.join(PROJECT_ROOT, 'edpuzzle-classes.json');
 
 // Shared with Classroom: a class excluded by name there is excluded here
 // too. One list instead of two, since it's the same underlying school

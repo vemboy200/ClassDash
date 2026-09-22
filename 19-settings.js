@@ -29,8 +29,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const FILE = path.join(__dirname, 'settings.json');
+const FILE = path.join(PROJECT_ROOT, 'settings.json');
+// EXAMPLE stays on __dirname deliberately: it's a template-sibling file
+// (settings.example.json), always shipped right next to this script (real
+// deploy, test scratch, and now this checkout's own src/ too) — never
+// personal data, so it's never one level up like FILE can be.
 const EXAMPLE = path.join(__dirname, 'settings.example.json');
 
 /**
@@ -430,7 +435,7 @@ function validate(key, raw) {
 // difference, not a flag set on save, so putting a setting back the way it
 // was makes the notice go away by itself, and a setting changed while a
 // collection is mid-run correctly stays pending.
-const APPLIED_FILE = path.join(__dirname, 'fetch-applied.json');
+const APPLIED_FILE = path.join(PROJECT_ROOT, 'fetch-applied.json');
 const FETCH_AFFECTING = ['exclusions', 'canvas', 'canvasToken', 'classroomEnabled',
                          'canvasApiEnabled', 'canvasSsoEnabled'];
 

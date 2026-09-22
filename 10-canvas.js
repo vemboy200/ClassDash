@@ -52,6 +52,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
 // The school's Canvas address comes from settings: every school has its own.
 //
@@ -80,7 +81,7 @@ const { isClassStale } = require('./22-class-activity.js');
 // in the exclusions picker and (with showEmptyClasses on) the class
 // filter — the same reason Classroom's own class list lives in
 // classes.json.
-const CLASSES_FILE = path.join(__dirname, 'canvas-classes.json');
+const CLASSES_FILE = path.join(PROJECT_ROOT, 'canvas-classes.json');
 
 // How much to truncate an assignment's description to. The user asked
 // for these to be kept around for later — to eventually show right on

@@ -22,10 +22,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawn } = require('child_process');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const QUIET_FILE = path.join(__dirname, 'не-срочно.txt');
-const HIDDEN_FILE = path.join(__dirname, 'скрытые.txt');
-const ACTION_LOG = path.join(__dirname, 'notifier-log.txt');
+const QUIET_FILE = path.join(PROJECT_ROOT, 'не-срочно.txt');
+const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
+const ACTION_LOG = path.join(PROJECT_ROOT, 'notifier-log.txt');
 
 /**
  * Records every action that arrives here, and how it ended.

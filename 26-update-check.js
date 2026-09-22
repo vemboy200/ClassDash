@@ -33,8 +33,9 @@
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
+const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const FILE = path.join(__dirname, 'update-status.json');
+const FILE = path.join(PROJECT_ROOT, 'update-status.json');
 
 // Named for the extension the release actually shipped (.dmg on macOS,
 // .exe on Windows), not hardcoded to one platform — this file is the one
@@ -47,7 +48,7 @@ function destPathFor(downloadURL) {
   try {
     ext = path.extname(new URL(downloadURL).pathname) || ext;
   } catch { /* keep the fallback */ }
-  return path.join(__dirname, 'update-download' + ext);
+  return path.join(PROJECT_ROOT, 'update-download' + ext);
 }
 
 /**
