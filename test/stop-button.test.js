@@ -1,4 +1,4 @@
-// The Stop button next to Fresh check: baked-in visibility, live toggling, and the click.
+// Stop takes over Fresh check's own spot while a check runs: baked-in visibility, live toggling, and the click.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs');
 const proj = T.makeProject({ 'settings.json': { language: 'en' } }); process.chdir(proj);
@@ -25,28 +25,38 @@ async function open(file, { bridge = true } = {}) {
 }
 
 (async () => {
-  // ---- baked-in state: a page written mid-check shows the button already, one written idle doesn't ----
+  // ---- baked-in state: a page written mid-check shows Stop and hides Fresh check; one written idle is the other way round ----
   const idlePage = path.join(proj, 'idle.html');
   writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [], now: new Date() }, idlePage);
-  ok('idle page: the button is baked in hidden', /id="stop-check-button"[^>]*\bhidden\b/.test(fs.readFileSync(idlePage, 'utf8')));
+  {
+    const idleHtml = fs.readFileSync(idlePage, 'utf8');
+    ok('idle page: Stop is baked in hidden', /id="stop-check-button"[^>]*\bhidden\b/.test(idleHtml));
+    ok('idle page: Fresh check is baked in visible', !/id="freshcheck-button"[^>]*\bhidden\b/.test(idleHtml));
+  }
 
   const runningPage = path.join(proj, 'running.html');
   writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [],
     reading: ['Canvas'], progress: { done: 3, total: 8 }, now: new Date() }, runningPage);
   const runningHtml = fs.readFileSync(runningPage, 'utf8');
-  ok('a page reloaded mid-check shows the button right away, not hidden',
+  ok('a page reloaded mid-check shows Stop right away, not hidden',
     /id="stop-check-button"/.test(runningHtml) && !/id="stop-check-button"[^>]*\bhidden\b/.test(runningHtml));
+  ok('...and Fresh check is hidden instead, not sitting beside it',
+    /id="freshcheck-button"[^>]*\bhidden\b/.test(runningHtml));
   ok('it has a title (an icon-only button, no visible label)', /id="stop-check-button"[^>]*title="[^"]+"/.test(runningHtml));
 
-  // ---- live toggling: appears when a check starts, disappears when it ends ----
+  // ---- live toggling: Stop takes Fresh check's spot when a check starts, gives it back when it ends ----
   {
     const { w, d, close } = await open(idlePage);
-    const button = d.getElementById('stop-check-button');
-    ok('starts hidden on the idle page', button.hidden === true);
+    const stop = d.getElementById('stop-check-button');
+    const fresh = d.getElementById('freshcheck-button');
+    ok('starts hidden on the idle page', stop.hidden === true);
+    ok('...with Fresh check showing', fresh.hidden === false);
     w.classdashLiveChanged({ run: runState({ done: 2, total: 8 }), version: null });
-    ok('shown once a check is heard running', await until(() => button.hidden === false));
+    ok('Stop shown once a check is heard running', await until(() => stop.hidden === false));
+    ok('...and Fresh check hides at the same moment', fresh.hidden === true);
     w.classdashLiveChanged({ run: runState({ running: false, done: 8, total: 8 }), version: null });
-    ok('hidden again once the check ends', await until(() => button.hidden === true));
+    ok('Stop hidden again once the check ends', await until(() => stop.hidden === true));
+    ok('...and Fresh check is back', fresh.hidden === false);
     close();
   }
 

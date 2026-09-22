@@ -2341,7 +2341,7 @@ function writePage(data, outputPath) {
          id="refresh-button"
          title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named"
          id="freshcheck-button"
-         title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload stop"
+         title="${escapeHtml(t('freshCheckHint'))}"${progress ? ' hidden' : ''}><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload stop"
          id="stop-check-button" onclick="stopFreshCheck()"
          title="${escapeHtml(t('stopCheckHint'))}"${progress ? '' : ' hidden'}><span class="pixel-icon icon-stop"></span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
@@ -3878,12 +3878,22 @@ function applyRunState(run) {
   var unknown = !run && (Date.now() - pageLoadedAt) < LIVE_UNKNOWN_MS;
   var box = document.getElementById('check-progress');
   var stop = document.getElementById('stop-check-button');
-  if (stop && !unknown) {
-    stop.hidden = !live;
-    // Re-enabled once a check is actually seen running again — otherwise a
-    // stopped check's own button would stay disabled forever the next time
-    // one starts.
-    if (live) stop.disabled = false;
+  var freshButton = document.getElementById('freshcheck-button');
+  // Stop takes over Fresh check's own spot rather than sitting beside it —
+  // one button there at a time, matching what's actually clickable: while
+  // a check is running, clicking Fresh check again does nothing useful
+  // (see its own click handler — dispatchAction('check', ...) would just
+  // queue behind the current pass), so a click there should always mean
+  // Stop.
+  if (!unknown) {
+    if (stop) {
+      stop.hidden = !live;
+      // Re-enabled once a check is actually seen running again —
+      // otherwise a stopped check's own button would stay disabled
+      // forever the next time one starts.
+      if (live) stop.disabled = false;
+    }
+    if (freshButton) freshButton.hidden = live;
   }
   if (box && !unknown) {
     if (!live) {
@@ -3911,10 +3921,9 @@ function applyRunState(run) {
         filled > 0 ? (filled * 8 - 2) + 'px' : '0px';
     }
   }
-  var fresh = document.getElementById('freshcheck-button');
-  if (fresh) {
-    if (live || Date.now() < freshSpinUntil) fresh.classList.add('spinning');
-    else fresh.classList.remove('spinning');
+  if (freshButton) {
+    if (live || Date.now() < freshSpinUntil) freshButton.classList.add('spinning');
+    else freshButton.classList.remove('spinning');
   }
   return live;
 }
