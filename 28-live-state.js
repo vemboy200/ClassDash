@@ -51,6 +51,11 @@ const path = require('path');
 
 const HEARTBEAT_MS = 4000;
 
+// A run whose stamp is older than this counts as over. The page uses the same
+// number (LIVE_STALE_MS in 08-page.js), so the page and the API never
+// disagree about whether a check is running.
+const STALE_MS = 30000;
+
 function liveDir(baseDir) {
   return path.join(baseDir, 'live');
 }
@@ -125,4 +130,39 @@ function endRun() {
   writeRun();
 }
 
-module.exports = { publishPageVersion, startRun, setProgress, endRun, HEARTBEAT_MS };
+/**
+ * The collection as the home API reports it (/api/collection), read from
+ * the file a run writes, so it works from any process — the API doesn't
+ * need to be the one collecting.
+ *
+ *   running    a run is under way: it said so AND its heartbeat is recent.
+ *              A run that died can't write "finished", so a stopped
+ *              heartbeat counts as over, same as on the page.
+ *   done/total sources read of sources to read. total is 0 while the class
+ *              list is still being read ("starting").
+ *   percent    0-100 once total is known; null while starting.
+ *   updatedAt  the run's last heartbeat, ISO — the run's own, not the clock's.
+ *
+ * done, total and percent are null unless a run is going: the numbers of a
+ * finished or dead run describe nothing anyone can act on.
+ */
+function readCollection(baseDir, now = Date.now()) {
+  let file = null;
+  try {
+    file = JSON.parse(fs.readFileSync(path.join(liveDir(baseDir), 'check-run.json'), 'utf8'));
+  } catch { /* no run has ever been written, or it's mid-rename: nothing running */ }
+
+  const stamp = file && Number.isFinite(file.at) ? file.at : null;
+  const running = !!(file && file.running === true && stamp !== null && now - stamp < STALE_MS);
+  const total = running ? Math.max(0, Number(file.total) || 0) : null;
+  const done = running ? Math.min(Math.max(0, Number(file.done) || 0), total) : null;
+  return {
+    running,
+    done,
+    total,
+    percent: running && total > 0 ? Math.round(done / total * 100) : null,
+    updatedAt: stamp !== null ? new Date(stamp).toISOString() : null,
+  };
+}
+
+module.exports = { publishPageVersion, startRun, setProgress, endRun, readCollection, HEARTBEAT_MS, STALE_MS };

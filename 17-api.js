@@ -73,6 +73,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
 const { daysUntil, allKnownClasses, knownClassStatus, classTeachers } = require('./08-page.js');
+const { readCollection } = require('./28-live-state.js');
 const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
 // check itself all live in their own leaf module — 21-notifier-actions.js
@@ -306,7 +307,15 @@ const HANDLERS = {
     removed: d.gone.length,
     done: d.done.length,
     language: currentLanguage(),
+    // Also here so the once-a-minute heartbeat event carries it: a run that
+    // died sends no last word, and a push-only client would otherwise keep
+    // believing it's running.
+    collecting: readCollection(__dirname).running,
   }),
+
+  // The check that's running right now, if any: {running, done, total,
+  // percent, updatedAt} — see readCollection() in 28-live-state.js.
+  '/api/collection': () => readCollection(__dirname),
 
   '/api/due-soon': (d) => d.burning.map(x => toPublic(x, d.now)),
   '/api/ahead': (d) => d.later.map(x => toPublic(x, d.now)),
@@ -710,9 +719,15 @@ function broadcastIfChanged() {
   // that would mean this never actually stays quiet, so the comparison
   // is done with them zeroed out. The real values still go out in what's
   // actually sent, so a client still knows how fresh this is.
+  //
+  // The collection's own heartbeat (updatedAt) is left out for the same
+  // reason, and matters more: it advances every four seconds for as long as
+  // a check runs. What a client hears about is the state changing — running,
+  // done, total, percent — not the clock ticking.
   const comparable = JSON.stringify({
     ...data,
     status: { ...data.status, collectedAt: null, minutesAgo: null },
+    collection: { ...data.collection, updatedAt: null },
   });
   if (comparable === lastBroadcast) return;
   lastBroadcast = comparable;
@@ -731,7 +746,11 @@ function watchForChanges() {
   // reminder ever created), and fs.watch throws immediately on a path
   // that isn't there. Falls back to polling every 5s until the file
   // shows up, then switches to the real watch.
-  for (const file of [STATE_FILE, STREAM_FILE, virtualAssignments.FILE]) {
+  // The live/ folder is watched, not check-run.json itself: that file is
+  // replaced by renaming a temp file over it (see 28-live-state.js), which
+  // ends a watch on the file. A change in the folder just wakes the same
+  // debounced comparison as the others, and only a real difference pushes.
+  for (const file of [STATE_FILE, STREAM_FILE, virtualAssignments.FILE, path.join(__dirname, 'live')]) {
     const tryWatch = () => {
       if (!fs.existsSync(file)) { setTimeout(tryWatch, 5000); return; }
       try {
