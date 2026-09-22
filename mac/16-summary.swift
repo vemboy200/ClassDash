@@ -358,6 +358,21 @@ func updateSettingsFile(in dir: String, _ changes: [String: Any]) {
     }
 }
 
+// Where a project script actually is: flat in the project folder for a
+// real, deployed project (ProjectTemplate copied there by the wizard,
+// scripts sitting right at the top level — the normal case, everyone but
+// this app's own developer). src/ underneath it for the one exception —
+// this app's own source checkout pointed at itself as its project folder,
+// where the scripts live in src/ and nothing else does (see
+// 00-project-root.js's own comment on the Node side of this same split).
+// Checked by asking the disk, not by guessing from the folder's shape —
+// simplest thing that's actually correct either way.
+func scriptPath(_ script: String, in dir: String) -> String {
+    let flat = dir + "/" + script
+    if FileManager.default.fileExists(atPath: flat) { return flat }
+    return dir + "/src/" + script
+}
+
 // Runs a node script from the given project folder, blocking until it
 // exits — for one-shot setup steps (the --redraw pass above, installing
 // Brave below) where the next step genuinely can't start until this one
@@ -367,7 +382,7 @@ func updateSettingsFile(in dir: String, _ changes: [String: Any]) {
 func runNodeScriptSync(_ script: String, args: [String], in dir: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["node", dir + "/" + script] + args
+    process.arguments = ["node", scriptPath(script, in: dir)] + args
     var env = ProcessInfo.processInfo.environment
     let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
@@ -381,7 +396,7 @@ func runNodeScriptSync(_ script: String, args: [String], in dir: String) {
 func runNodeScriptCapture(_ script: String, args: [String], in dir: String) -> String {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["node", dir + "/" + script] + args
+    process.arguments = ["node", scriptPath(script, in: dir)] + args
     var env = ProcessInfo.processInfo.environment
     let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
@@ -449,7 +464,7 @@ func runNodeScriptDetached(_ script: String, args: [String], in dir: String,
                             onExit: (() -> Void)? = nil) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = ["node", dir + "/" + script] + args
+    process.arguments = ["node", scriptPath(script, in: dir)] + args
     var env = ProcessInfo.processInfo.environment
     let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
@@ -1116,7 +1131,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
                             completion: @escaping (String) -> Void) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", projectDir + "/21-notifier-actions.js", action, arg]
+        process.arguments = ["node", scriptPath("21-notifier-actions.js", in: projectDir), action, arg]
 
         // THE SAME FIX AS THE APPLESCRIPT ONE, DONE THE WAY THIS PROCESS
         // ACTUALLY SUPPORTS.

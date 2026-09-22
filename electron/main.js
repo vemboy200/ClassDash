@@ -53,12 +53,27 @@ function nodeEnv() {
   return { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
 }
 
+// Where a project script actually is: flat in the project folder for a
+// real, deployed project (ProjectTemplate copied there by the wizard,
+// scripts sitting right at the top level — the normal case, everyone but
+// this app's own developer). src/ underneath it for the one exception —
+// this app's own source checkout pointed at itself as its project folder,
+// where the scripts live in src/ and nothing else does (see
+// 00-project-root.js's own comment on the Node side of this same split).
+// Checked by asking the disk, not by guessing from the folder's shape —
+// simplest thing that's actually correct either way. Mirrors scriptPath
+// in 16-summary.swift.
+function scriptPath(script, dir) {
+  const flat = path.join(dir, script);
+  return fs.existsSync(flat) ? flat : path.join(dir, 'src', script);
+}
+
 // Blocking — for one-shot setup steps (the --redraw pass in
 // setUpNewProject() below) where the next step genuinely can't start
 // until this one has actually finished. Mirrors runNodeScriptSync in
 // 16-summary.swift.
 function runNodeScriptSync(script, args, dir) {
-  spawnSync(process.execPath, [path.join(dir, script), ...args], {
+  spawnSync(process.execPath, [scriptPath(script, dir), ...args], {
     cwd: dir,
     env: nodeEnv(),
     stdio: 'ignore',
@@ -140,7 +155,7 @@ function noteRunningVersion() {
 function runNodeScriptDetached(script, args, dir, checkAfterMs, completion, onExit) {
   let child;
   try {
-    child = spawn(process.execPath, [path.join(dir, script), ...args], {
+    child = spawn(process.execPath, [scriptPath(script, dir), ...args], {
       cwd: dir,
       env: nodeEnv(),
       detached: true,
@@ -320,7 +335,7 @@ function runAction(action, arg) {
     let child;
     try {
       child = spawn(process.execPath,
-        [path.join(projectDir, '21-notifier-actions.js'), action, arg || ''],
+        [scriptPath('21-notifier-actions.js', projectDir), action, arg || ''],
         { cwd: projectDir, env: nodeEnv() });
     } catch (e) {
       resolve({ ok: false, action, why: e.message });
