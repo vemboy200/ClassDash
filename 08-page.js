@@ -45,6 +45,10 @@ const { readUpdateStatus } = require('./26-update-check.js');
 const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
 const ICON_REFRESH_B64 = readIcon('refresh-icon.png');
 const ICON_FRESHCHECK_B64 = readIcon('freshcheck-icon.png');
+// Placeholder — a plain filled square, not drawn to match the app icon
+// like the others yet. Same 32-shown-at-16 stencil treatment either way,
+// so swapping the file later needs no other change.
+const ICON_STOP_B64 = readIcon('stop-icon.png');
 const ICON_SETTINGS_B64 = readIcon('settings-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
@@ -1748,6 +1752,7 @@ function writePage(data, outputPath) {
   :root {
     --icon-refresh: url("data:image/png;base64,${ICON_REFRESH_B64}");
     --icon-freshcheck: url("data:image/png;base64,${ICON_FRESHCHECK_B64}");
+    --icon-stop: url("data:image/png;base64,${ICON_STOP_B64}");
     --icon-settings: url("data:image/png;base64,${ICON_SETTINGS_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
@@ -1764,6 +1769,12 @@ function writePage(data, outputPath) {
   }
   .icon-refresh { -webkit-mask-image: var(--icon-refresh); mask-image: var(--icon-refresh); }
   .icon-freshcheck { -webkit-mask-image: var(--icon-freshcheck); mask-image: var(--icon-freshcheck); }
+  .icon-stop { -webkit-mask-image: var(--icon-stop); mask-image: var(--icon-stop); }
+  /* Its own hover colour — a stop is a "cancel this" action, not a
+     "refresh" one, so it reads as a warning (the same red as overdue and
+     a broken source) instead of the usual cyan/blue every other header
+     button hovers to. */
+  .reload.stop:hover { color: var(--hot); border-color: var(--hot); }
   .icon-settings { -webkit-mask-image: var(--icon-settings); mask-image: var(--icon-settings); }
   .reload:hover { color: var(--new); border-color: var(--new); }
   /* Spins while a check is running. Only the ICON spins, not the whole
@@ -2329,7 +2340,9 @@ function writePage(data, outputPath) {
          id="refresh-button"
          title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named"
          id="freshcheck-button"
-         title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload"
+         title="${escapeHtml(t('freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-label">${escapeHtml(t('freshCheckLabel'))}</span></button><button class="reload stop"
+         id="stop-check-button" onclick="stopFreshCheck()"
+         title="${escapeHtml(t('stopCheckHint'))}"${progress ? '' : ' hidden'}><span class="pixel-icon icon-stop"></span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
          title="${escapeHtml(t('settingsTitle'))}"><span class="pixel-icon icon-settings"></span><span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
@@ -3048,6 +3061,22 @@ function startPendingCheck(link) {
   });
 }
 
+// The Stop button next to Fresh check — only ever visible while a check is
+// actually running (see applyRunState). Disabled the instant it's clicked,
+// not waiting on the round trip: stopCheck ends the collector process
+// itself, so there's nothing further for THIS click to do, and the live
+// updates below hide the button the normal way once the run's heartbeat
+// actually stops, whether that takes a moment or (rarely) the full 30s
+// staleness window.
+function stopFreshCheck() {
+  var button = document.getElementById('stop-check-button');
+  if (!button) return;
+  button.disabled = true;
+  dispatchAction('stopCheck', '', function (res) {
+    if (res && res.ok && res.stopped === false) button.disabled = false; // nothing was running — try again is fine
+  });
+}
+
 function toggleCheckStatusDetail() {
   var panel = document.getElementById('check-status-panel');
   if (!panel) return;
@@ -3756,6 +3785,9 @@ var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
   };
   tip(document.getElementById('refresh-button'), mac ? '\u2318R' : 'Ctrl+R');
   tip(document.getElementById('freshcheck-button'), mac ? '\u21E7\u2318R' : 'Ctrl+Shift+R');
+  // stop-check-button has no shortcut of its own: it's only ever visible
+  // for the length of a running check, not a standing part of the header
+  // the keyboard-hints IIFE below decorates everything else in.
   tip(document.querySelector('.check-status'), mac ? '\u2318S' : 'Ctrl+S');
 })();
 
@@ -3844,6 +3876,14 @@ function applyRunState(run) {
   var live = !!(run && run.running && (Date.now() - run.at) < LIVE_STALE_MS);
   var unknown = !run && (Date.now() - pageLoadedAt) < LIVE_UNKNOWN_MS;
   var box = document.getElementById('check-progress');
+  var stop = document.getElementById('stop-check-button');
+  if (stop && !unknown) {
+    stop.hidden = !live;
+    // Re-enabled once a check is actually seen running again — otherwise a
+    // stopped check's own button would stay disabled forever the next time
+    // one starts.
+    if (live) stop.disabled = false;
+  }
   if (box && !unknown) {
     if (!live) {
       if (!box.hidden && document.querySelector('.live')) reportLiveDecision(run);

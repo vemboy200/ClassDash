@@ -146,7 +146,7 @@ if command -v swiftc >/dev/null; then
   rm -rf "$TEMPLATE_DIR"
   mkdir -p "$TEMPLATE_DIR"
   cp ./*.js "$TEMPLATE_DIR/"
-  cp package.json settings.example.json refresh-icon.png freshcheck-icon.png settings-icon.png loading-icon.png loading-icon-light.png "$TEMPLATE_DIR/"
+  cp package.json settings.example.json refresh-icon.png freshcheck-icon.png settings-icon.png loading-icon.png loading-icon-light.png stop-icon.png "$TEMPLATE_DIR/"
   cp -R node_modules "$TEMPLATE_DIR/node_modules"
   echo "  project template bundled ($(du -sh "$TEMPLATE_DIR" | cut -f1))"
 

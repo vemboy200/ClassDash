@@ -857,6 +857,29 @@ function releaseLock() {
  * Classroom, Edpuzzle in a full check, and Canvas when it has no token
  * (which is also the case worth spelling out, since a token needs none).
  */
+/**
+ * Kills whatever's left of the browser this pass opened, keyed by its
+ * profile path so a person's own everyday browser is never touched.
+ *
+ * Node exiting normally closes Playwright's browser along with it — this
+ * is only for when node is forced to exit while the browser is still
+ * mid-request (the watchdog below, a manual Stop, or Ctrl+C): without it,
+ * Chrome keeps holding the profile folder and the next run crashes right
+ * away with "Failed to create SingletonLock: File exists".
+ *
+ * MAC/LINUX ONLY. pkill isn't a Windows command, and there's no
+ * equivalent here yet — a forced stop on Windows may leave Chrome or
+ * Brave running and the profile folder locked, the same way this exact
+ * gap already existed for the watchdog before Stop existed. Exported so
+ * 21-notifier-actions.js's stopCheck can call it too, right after asking
+ * the collector process itself to end.
+ */
+function killLeftoverBrowser() {
+  try {
+    require('child_process').execFileSync('pkill', ['-f', `user-data-dir=${PROFILE_DIR}`]);
+  } catch { /* nothing to kill, or pkill isn't here (Windows) — either way, fine */ }
+}
+
 async function launchForCollection(withEdpuzzle, options) {
   try {
     return await chromium.launchPersistentContext(PROFILE_DIR, options);
@@ -1833,6 +1856,7 @@ function assignmentsForProgress(memory, readItems, reported, broken) {
 module.exports = {
   parseDue, deadline, detectErrorPage, notify, diffWithPrevious, rememberCollection,
   sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress, assignmentsForProgress,
+  LOCK_FILE, PROFILE_DIR, killLeftoverBrowser,
 };
 if (require.main !== module) return;
 
@@ -1865,8 +1889,13 @@ if (require.main !== module) return;
   // reason: whatever way this dies, the page shouldn't keep showing a bar.
   live.startRun(__dirname);
   process.on('exit', live.endRun);
-  process.on('SIGINT', () => process.exit(1));
-  process.on('SIGTERM', () => process.exit(1));
+  // Same cleanup as the watchdog below, for the same reason: node exiting
+  // normally closes Playwright's browser along with it, but a forced exit
+  // while it's mid-request doesn't (see killLeftoverBrowser's own comment).
+  // A manual Stop (see 21-notifier-actions.js's stopCheck) sends this same
+  // signal from outside.
+  process.on('SIGINT', () => { killLeftoverBrowser(); process.exit(1); });
+  process.on('SIGTERM', () => { killLeftoverBrowser(); process.exit(1); });
 
   // WATCHDOG: a pass shouldn't be able to run forever (see PASS_LIMIT).
   //
@@ -1880,16 +1909,7 @@ if (require.main !== module) return;
       : `${Math.round(PASS_LIMIT / 1000)} s`;
     console.error(`\nPass has been running longer than ${limitStr} — cutting it off. ` +
                   'The lock will clear, the next run will proceed on schedule.');
-
-    // Finish off the browser. A killed node process doesn't close Chrome
-    // behind it, and Chrome keeps holding the profile folder — the next
-    // run would crash right away with "Failed to create SingletonLock:
-    // File exists". Targeted specifically by the profile path, not by
-    // Chrome's name, so a person's regular browser isn't touched.
-    try {
-      require('child_process').execFileSync('pkill', ['-f', `user-data-dir=${PROFILE_DIR}`]);
-    } catch { /* nothing to kill — pkill complains, and that's fine */ }
-
+    killLeftoverBrowser();
     process.exit(1);
   }, PASS_LIMIT);
   watchdog.unref();

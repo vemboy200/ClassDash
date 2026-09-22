@@ -91,6 +91,61 @@ function fullCheck() {
   child.unref();
 }
 
+/**
+ * Stops whatever collection is running right now, if any.
+ *
+ * `05-playwright-draft.js`'s own lock file holds the pid of the process
+ * running it (see acquireLock() there) — that's already exactly the
+ * "is a check running, and which process" this needs, kept up to date by
+ * the collector itself, so nothing new has to track it separately.
+ *
+ * SIGTERM, not SIGKILL: on macOS and Linux this reaches the collector's
+ * own handler, which cleans up the lock and the live/ run state properly
+ * (same code path as Ctrl+C) before exiting — a well-behaved stop, not a
+ * yank. On WINDOWS, Node emulates SIGTERM sent to another process by
+ * forcibly terminating it; the collector's own handler never gets to
+ * run there, so its cleanup is skipped. That's not silently broken,
+ * though: the lock is pid-checked and self-clears the moment something
+ * next tries to collect (see acquireLock()'s own comment), and a run
+ * whose heartbeat stops reads as over everywhere that checks it (the
+ * page, /api/collection) within its own 30-second staleness window —
+ * both already exist for "a run that died", which is exactly what this
+ * looks like from outside on Windows. What Windows genuinely loses here
+ * is prompt browser cleanup — see killLeftoverBrowser()'s own comment.
+ *
+ * killLeftoverBrowser() runs unconditionally, not only as a fallback: on
+ * Windows it's the only cleanup this gets at all, and running it after an
+ * already-clean Mac/Linux exit costs nothing (there's nothing left for it
+ * to find).
+ */
+function stopCheck() {
+  // 05-playwright-draft.js patches console.log/warn/error the moment it's
+  // required at all — even just for these two things — timestamping every
+  // line for its own runs.log (see its own "Timestamps in the log" header
+  // comment). Harmless there, but this file's OWN final console.log is a
+  // single JSON line the native bridge parses literally (see this file's
+  // own CLI entry point comment): a leaked timestamp in front of it broke
+  // that parse, caught live — every stopCheck response failed to parse on
+  // the Electron/Swift side even though the check itself had genuinely
+  // stopped. Saved and restored right around the require so it can't
+  // leak into anything this file prints afterward.
+  const original = { log: console.log, warn: console.warn, error: console.error };
+  const { LOCK_FILE, killLeftoverBrowser } = require('./05-playwright-draft.js');
+  Object.assign(console, original);
+
+  let pid = null;
+  try { pid = parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10); } catch { /* nothing running */ }
+  if (!pid || Number.isNaN(pid)) return { stopped: false };
+
+  let alive = false;
+  try { process.kill(pid, 0); alive = true; } catch { /* no such process — already over */ }
+  if (!alive) return { stopped: false };
+
+  try { process.kill(pid, 'SIGTERM'); } catch { /* gone between the check above and here — fine */ }
+  killLeftoverBrowser();
+  return { stopped: true };
+}
+
 /** Same idea as fullCheck(), but the quick pass (Classroom + Canvas,
  *  no Edpuzzle window, ~17 seconds) — enough to make a saved exclusion
  *  or Canvas address actually apply. Those only change what gets fetched
@@ -314,6 +369,11 @@ function main(action, arg) {
     case 'check':
       fullCheck();
       return { ok: true, action };
+    case 'stopCheck': {
+      const { stopped } = stopCheck();
+      logAction(stopped ? '  check stopped' : '  stopCheck: nothing was running');
+      return { ok: true, action, stopped };
+    }
     // The quick pass (Classroom + Canvas, ~17s, no Edpuzzle window) —
     // what the page's "some settings need a fresh check" notice starts,
     // and what the home API's /api/reload uses: the same "lighter than a

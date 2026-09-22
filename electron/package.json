@@ -44,6 +44,7 @@
           "settings-icon.png",
           "loading-icon.png",
           "loading-icon-light.png",
+          "stop-icon.png",
           "node_modules/**"
         ]
       }
