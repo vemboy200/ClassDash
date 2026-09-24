@@ -93,6 +93,10 @@ const SETUP = 'Set Up a Browser for Collection';
   w = world({});
   r = await w.ctx.run('setupSignIn');
   ok(r.ok && w.log.logins === 1, '9 setupSignIn starts the sign-in and answers at once');
+  w = world({});
+  r = await w.ctx.run('signIn');
+  ok(r.ok && w.log.logins === 1, '9 the page\'s "sign in again" banner (signIn) gets the same flow, Done button included');
+  ok(/NATIVE_SETUP_ACTIONS = \[[^\]]*'signIn'/.test(src), '9 ...and signIn is kept away from the notifier (whose signIn has no Done button)');
 
   // 10. an exception is answered, and the sink is still cleared
   w = world({});

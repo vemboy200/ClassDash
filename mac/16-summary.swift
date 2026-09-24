@@ -1087,7 +1087,10 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     //                   cleared to "", null if nothing about it changed.
     //   pickBrowserApp  just the file picker, with its safety warning.
     //   setupSignIn     the real sign-in flow (permission heads-up, the browser
-    //                   window, the Done button), answered at once.
+    //                   window, the Done button), answered at once. The page's
+    //                   "sign in again" banner (signIn) gets the same flow; the
+    //                   notifier's own signIn has no Done button, so it's only
+    //                   for a plain browser tab.
     private func handleNativeSetupAction(_ action: String, requestId: String) -> Bool {
         switch action {
         case "setupBrowser", "pickBrowserApp":
@@ -1115,7 +1118,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
                 chooseCustomBrowser { finish() }
             }
             return true
-        case "setupSignIn":
+        case "setupSignIn", "signIn":
             attemptLogin()
             deliver(requestId: requestId, resultJSON: "{\"ok\":true}")
             return true

@@ -399,11 +399,13 @@ ipcMain.on('classdash-action', async (_event, body) => {
 //                   nothing about it changed.
 //   pickBrowserApp  just the file picker, with its safety warning.
 //   setupSignIn     the real sign-in flow (the browser window, the Done
-//                   button), answered at once.
-const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn'];
+//                   button), answered at once. The page's "sign in again"
+//                   banner (signIn) gets the same flow; the notifier's own
+//                   signIn has no Done button, so it's only for a plain tab.
+const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn', 'signIn'];
 
 async function runNativeSetupAction(action) {
-  if (action === 'setupSignIn') {
+  if (action === 'setupSignIn' || action === 'signIn') {
     attemptLogin();
     return { ok: true, action };
   }
