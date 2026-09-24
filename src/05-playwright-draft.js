@@ -208,7 +208,7 @@ const { isClassStale, recordActivity } = require('./22-class-activity.js');
 const { record: recordCheckStatus } = require('./25-check-status.js');
 const live = require('./28-live-state.js');
 const BROWSER = SETTINGS.browserPath
-  ? { executablePath: path.resolve(__dirname, SETTINGS.browserPath) }
+  ? { executablePath: path.resolve(PROJECT_ROOT, SETTINGS.browserPath) }
   : ownBrowserInstalled()
   ? { executablePath: OWN_BROWSER }
   : { channel: 'chrome' };
@@ -1888,7 +1888,7 @@ if (require.main !== module) return;
   // Tells an open page a collection is running, so it can show a progress
   // bar (see 28-live-state.js). Ended on 'exit' like the lock, for the same
   // reason: whatever way this dies, the page shouldn't keep showing a bar.
-  live.startRun(__dirname);
+  live.startRun(PROJECT_ROOT);
   process.on('exit', live.endRun);
   // Same cleanup as the watchdog below, for the same reason: node exiting
   // normally closes Playwright's browser along with it, but a forced exit

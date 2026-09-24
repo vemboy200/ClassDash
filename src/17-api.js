@@ -311,12 +311,12 @@ const HANDLERS = {
     // Also here so the once-a-minute heartbeat event carries it: a run that
     // died sends no last word, and a push-only client would otherwise keep
     // believing it's running.
-    collecting: readCollection(__dirname).running,
+    collecting: readCollection(PROJECT_ROOT).running,
   }),
 
   // The check that's running right now, if any: {running, done, total,
   // percent, updatedAt} — see readCollection() in 28-live-state.js.
-  '/api/collection': () => readCollection(__dirname),
+  '/api/collection': () => readCollection(PROJECT_ROOT),
 
   '/api/due-soon': (d) => d.burning.map(x => toPublic(x, d.now)),
   '/api/ahead': (d) => d.later.map(x => toPublic(x, d.now)),

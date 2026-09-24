@@ -45,4 +45,29 @@ const requireFresh = (file) => {
   ok('no package.json anywhere: still falls back one level up, no crash', PROJECT_ROOT === root, PROJECT_ROOT);
 }
 
+// ---- every __dirname left in src/ is one of the known template-sibling uses ----
+// Data paths must go through PROJECT_ROOT. The reorg missed live.startRun(__dirname)
+// and readCollection(__dirname), which put the progress bar's file in src/live/.
+{
+  const allowed = [
+    /^const PROJECT_ROOT = fs\.existsSync\(path\.join\(__dirname, 'package\.json'\)\)$/,
+    /^\? __dirname$/,
+    /^: path\.dirname\(__dirname\);$/,
+    /^\*/,
+    /^const readIcon = name => fs\.readFileSync\(path\.join\(__dirname, name\)\)/,
+    /path\.join\(__dirname, 'settings\.example\.json'\)/,
+    /path\.join\(__dirname, '(05-playwright-draft|17-api)\.js'\)/,
+    /cwd: __dirname/,
+  ];
+  const srcDir = path.join(T.REPO, 'src');
+  const stray = [];
+  for (const f of fs.readdirSync(srcDir).filter(f => f.endsWith('.js'))) {
+    fs.readFileSync(path.join(srcDir, f), 'utf8').split('\n').forEach((line, i) => {
+      const code = line.replace(/\/\/.*$/, '').trim();
+      if (code.includes('__dirname') && !allowed.some(re => re.test(code))) stray.push(`${f}:${i + 1}: ${code}`);
+    });
+  }
+  ok('no data path in src/ is built from __dirname (use PROJECT_ROOT)', stray.length === 0, '\n' + stray.join('\n'));
+}
+
 process.exit(process.exitCode || 0);
