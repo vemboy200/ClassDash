@@ -3674,7 +3674,8 @@ function filterAnnouncements() {
 //   1-9, 0, -, =        toggle the 1st to 12th class in the class filter
 //   Shift + those       the 1st to 12th class in the announcement filters
 //   A, C, M             Assignment, Completed, Material in the type filter
-//   N                   "No due date" in the due filter
+//   T, W, H, O, N       the due filter: today and tomorrow, this week, this
+//                       month, overdue, no due date
 //
 // One handler for the page in every host — the Mac app, the Windows app, a
 // plain browser tab — and the two native apps' View menus call the same three
@@ -3694,6 +3695,9 @@ var SHORTCUT_PAD = ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4', 'Numpad5', 'Nump
 var SHORTCUT_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 var TYPE_SHORTCUTS = { KeyA: 'assignment', KeyC: 'completed', KeyM: 'material' };
 var TYPE_SHORTCUT_LABELS = { assignment: 'A', completed: 'C', material: 'M' };
+// M is Material, so this month is H (from montH).
+var DUE_SHORTCUTS = { KeyT: '1', KeyW: '7', KeyH: '31', KeyO: 'past', KeyN: 'none' };
+var DUE_SHORTCUT_LABELS = { '1': 'T', '7': 'W', '31': 'H', past: 'O', none: 'N' };
 
 function shortcutSlot(code) {
   var i = SHORTCUT_SLOTS.indexOf(code);
@@ -3772,7 +3776,7 @@ document.addEventListener('keydown', function (e) {
   }
   if (e.shiftKey) return;
   var box = null;
-  if (e.code === 'KeyN') box = document.querySelector('.filters input[data-group="days"][value="none"]');
+  if (DUE_SHORTCUTS[e.code]) box = document.querySelector('.filters input[data-group="days"][value="' + DUE_SHORTCUTS[e.code] + '"]');
   else if (TYPE_SHORTCUTS[e.code]) box = typeFilterBox(TYPE_SHORTCUTS[e.code]);
   if (box) { e.preventDefault(); box.click(); }
 });
@@ -3806,7 +3810,7 @@ var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
     }
     return '';
   });
-  each('.filters input[data-group="days"][value="none"]', function () { return 'N'; });
+  each('.filters input[data-group="days"]', function (b) { return DUE_SHORTCUT_LABELS[b.value] || ''; });
 
   var tip = function (el, keys) {
     if (el) el.title = (el.title ? el.title + ' \u2014 ' : '') + keys;

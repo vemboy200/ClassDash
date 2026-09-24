@@ -19,6 +19,8 @@ names.forEach((c, i) => {
 items.push({ class: names[0], id: 'm1', type: 'Material', title: 'Read me', due: null, due_iso: null, link: 'x' });          // a fresh material
 items.push({ class: names[1], id: 'c1', type: 'Completed Assignment', title: 'Done', due: null, due_iso: soon(3), link: 'x', removed: true, removedAt: new Date().toISOString() });   // shows via "removed"
 items.push({ class: names[2], id: 'u1', type: 'Assignment', title: 'No date', due: null, due_iso: null, link: 'x' });         // muted -> "no due date"
+items.push({ class: names[3], id: 'd1', type: 'Assignment', title: 'Due today', due: null, due_iso: soon(0.5), link: 'x' });    // "today and tomorrow"
+items.push({ class: names[4], id: 'o1', type: 'Assignment', title: 'Late', due: null, due_iso: soon(-2), link: 'x' });          // "overdue"
 fs.writeFileSync('last-collection.json', JSON.stringify(items));
 fs.writeFileSync('new.json', JSON.stringify({ assignments: ['m1'], announcements: [] }));
 fs.writeFileSync('не-срочно.txt', 'u1\n');
@@ -72,6 +74,9 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   if (typeHint(/^completed/i) !== null) ok(typeHint(/^completed/i) === 'C', 'the Completed type row shows C');
   const none = d.querySelector('.filters input[data-group="days"][value="none"]');
   ok(none.nextElementSibling.textContent === 'N', 'the no-due-date row shows N');
+  const dueBox = v => d.querySelector('.filters input[data-group="days"][value="' + v + '"]');
+  const DUE = [['1', 'KeyT', 'T', 'today and tomorrow'], ['7', 'KeyW', 'W', 'this week'], ['31', 'KeyH', 'H', 'this month'], ['past', 'KeyO', 'O', 'overdue'], ['none', 'KeyN', 'N', 'no due date']];
+  for (const [v, , key, label] of DUE) ok(dueBox(v) && dueBox(v).nextElementSibling.textContent === key, 'the ' + label + ' row shows ' + key);
   ok(/Ctrl\+R/.test(d.getElementById('refresh-button').title) && /Ctrl\+Shift\+R/.test(d.getElementById('freshcheck-button').title) && /Ctrl\+S/.test(d.querySelector('.check-status').title), 'header tooltips carry the shortcuts (Windows style)');
 
   // ── class filter: every slot, digit row and numpad ──
@@ -124,9 +129,9 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
     ok(b.checked !== before && e.defaultPrevented, code + ' toggles the ' + label + ' type');
     press(code);
   }
-  {
-    const before = none.checked; const e = press('KeyN');
-    ok(none.checked !== before && e.defaultPrevented, 'N toggles "no due date"'); press('KeyN');
+  for (const [v, code, key, label] of DUE) {
+    const b = dueBox(v); const before = b.checked; const e = press(code);
+    ok(b.checked !== before && e.defaultPrevented, key + ' toggles "' + label + '"'); press(code);
   }
   // physical keys: a Russian layout types other letters on the same keys
   {
@@ -136,7 +141,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   }
 
   // ── guards ──
-  const snapshot = () => state(clsBoxes(d)) + '|' + state(annBoxes(d)) + '|' + [...d.querySelectorAll('.filters input[data-group="type"]')].map(b => +b.checked).join('') + none.checked;
+  const snapshot = () => state(clsBoxes(d)) + '|' + state(annBoxes(d)) + '|' + [...d.querySelectorAll('.filters input[data-group="type"]')].map(b => +b.checked).join('') + [...d.querySelectorAll('.filters input[data-group="days"]')].map(b => +b.checked).join('');
   const base = snapshot();
   const nothingHappened = (label, code, opts, target) => { const e = press(code, opts, target); ok(snapshot() === base && !e.defaultPrevented, label); };
   nothingHappened('Ctrl+C is not the Completed filter (Windows: ctrl is the command key, but C is not one of ours)', 'KeyC', { ctrlKey: true });
@@ -146,6 +151,8 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   nothingHappened('a held-down key does not repeat', 'Digit1', { repeat: true });
   nothingHappened('Shift+A is not the Assignment filter', 'KeyA', { shiftKey: true });
   nothingHappened('Shift+N is not "no due date"', 'KeyN', { shiftKey: true });
+  nothingHappened('Shift+H is not "this month"', 'KeyH', { shiftKey: true });
+  nothingHappened('Cmd+W (close window) is left alone', 'KeyW', { metaKey: true });
   nothingHappened('IME composition is ignored', 'Digit1', { isComposing: true });
   // typing
   const field = d.createElement('input'); field.type = 'text'; d.body.appendChild(field);

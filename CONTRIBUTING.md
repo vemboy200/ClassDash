@@ -195,7 +195,7 @@ Files a later version *removes* are left behind in the project (nothing is ever 
 
 ### Keyboard shortcuts
 
-One `keydown` handler in `08-page.js` serves every host (the Mac app, the Windows app, a plain browser tab). Cmd/Ctrl+R is Refresh, Shift+Cmd/Ctrl+R is Fresh check, Cmd/Ctrl+S toggles the status panel; 1-9, 0, `-`, `=` (and the numpad's 1-9, 0, `-`, `+`) toggle the 1st-12th class in the class filter, with Shift the same slots in the announcement filters; A/C/M toggle the Assignment/Completed/Material type rows and N the "no due date" row. Design points worth keeping:
+One `keydown` handler in `08-page.js` serves every host (the Mac app, the Windows app, a plain browser tab). Cmd/Ctrl+R is Refresh, Shift+Cmd/Ctrl+R is Fresh check, Cmd/Ctrl+S toggles the status panel; 1-9, 0, `-`, `=` (and the numpad's 1-9, 0, `-`, `+`) toggle the 1st-12th class in the class filter, with Shift the same slots in the announcement filters; A/C/M toggle the Assignment/Completed/Material type rows, and T/W/H/O/N the due rows (today and tomorrow, this week, this month, overdue, no due date; month is H because M is Material). Design points worth keeping:
 
 - **Physical keys (`event.code`), not characters.** The default language is Russian; on a Russian layout the A key types "ф" but is still `KeyA`.
 - **The plain keys never fire while typing** (text inputs, textareas, dropdowns, contenteditable — but a focused checkbox is fine), **never with the settings panel open, never with Ctrl/Cmd/Alt held** (Cmd+C is copy, not "Completed"), and **never on key repeat**. Refresh and Fresh check are skipped while the settings panel holds unsaved edits (a reload would discard them), and Fresh check is skipped while one is already spinning (it opens a real browser window).
