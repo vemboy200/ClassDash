@@ -732,11 +732,15 @@ function teacherNamesFromPeoplePage() {
   const region = heading && heading.closest('[role="region"]');
   if (!region) return null;
   const names = [];
+  // Only the teachers' own list items: each one's options menu ("Email",
+  // "Remove") is a list of its own inside it.
   for (const li of region.querySelectorAll('li')) {
+    if (li.parentElement.closest('li')) continue;
     const walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const text = n.textContent.trim();
-      if (text && !n.parentElement.closest('[role="tooltip"], button')) { names.push(text); break; }
+      if (!text || text.includes('@')) continue;
+      if (!n.parentElement.closest('[role="tooltip"], [role="menu"], button')) { names.push(text); break; }
     }
   }
   return names;

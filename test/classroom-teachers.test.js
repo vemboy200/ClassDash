@@ -14,7 +14,8 @@ const teacher = (name, email, removable) => `
   <li><div><div><span><img alt=""></span><span class="sCv5Q">${name}</span></div></div>
     <div><div><button aria-label="Options for teacher ${name}"><span></span><span>more_vert</span></button>
       <span>Email</span>${removable ? '<span>Remove</span>' : ''}</div>
-      <div><span><a aria-label="Email ${email}"></a></span><div role="tooltip">Email ${email}</div></div></div></li>`;
+      <div><span><a aria-label="Email ${email}"></a></span><div role="tooltip">Email ${email}</div></div></div>
+    <ul role="menu"><li role="menuitem"><a href="mailto:${email}">${email}</a></li><li role="menuitem"><span>Email</span></li></ul></li>`;
 const people = (teachers) => `<html><body><nav><h2>Sidebar</h2><ul><li>Home</li></ul></nav><main>
   <div role="region"><div><h2>Teachers</h2><div><span><button aria-label="Invite teachers"><span>add</span></button>
     <div role="tooltip">Invite teachers</div></span></div></div>
@@ -31,7 +32,11 @@ const run = html => {
   const names = run(people(teacher('Aurora Barboza Flores', 'a@x', false) + teacher('Narine Gabuchian', 'n@x', true)));
   ok('reads every teacher, in order', JSON.stringify(names) === '["Aurora Barboza Flores","Narine Gabuchian"]', JSON.stringify(names));
 }
-ok('never picks up classmates, buttons or tooltips', !JSON.stringify(run(people(teacher('A B', 'a@x')))).match(/Aaron|Invite|Email|more_vert|Remove/));
+ok('never picks up classmates, buttons, tooltips or the options menu', !JSON.stringify(run(people(teacher('A B', 'a@x')))).match(/Aaron|Invite|Email|more_vert|Remove|@/), JSON.stringify(run(people(teacher('A B', 'a@x')))));
+{
+  const bare = `<html><body><main><div role="region"><h2>Teachers</h2><ul><li><span>teacher@school.org</span><span>Real Name</span></li></ul></div></main></body></html>`;
+  ok('an email is never taken as a name', JSON.stringify(run(bare)) === '["Real Name"]', JSON.stringify(run(bare)));
+}
 ok('a page without the People layout gives null (so it is retried, not saved as "no teacher")',
   run('<html><body><main><p>Something went wrong</p></main></body></html>') === null);
 
