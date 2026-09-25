@@ -26,6 +26,7 @@ const { isClassStale } = require('./22-class-activity.js');
 const { checkStatus } = require('./25-check-status.js');
 const { publishPageVersion } = require('./28-live-state.js');
 const { readUpdateStatus } = require('./26-update-check.js');
+const classLinks = require('./29-class-links.js');
 
 // THE HEADER ICONS ARE PIXEL ART, NOT TEXT CHARACTERS.
 //
@@ -278,14 +279,14 @@ ${cards}
 function activeReminderItems(now) {
   const { burning, later, overdue, undated } =
     virtualAssignments.bucketed(now, readSettings().treatUndatedAsUrgent);
-  return [...overdue, ...burning, ...later, ...undated].filter(x => !x.hidden);
+  return classLinks.linkItems([...overdue, ...burning, ...later, ...undated].filter(x => !x.hidden));
 }
 
 function remindersSection(now) {
   const settings = readSettings();
   const { burning, later, overdue, undated, done } =
     virtualAssignments.bucketed(now, settings.treatUndatedAsUrgent);
-  const all = [...overdue, ...burning, ...later, ...undated];
+  const all = classLinks.linkItems([...overdue, ...burning, ...later, ...undated]);
   const active = all.filter(x => !x.hidden)
     .sort((a, b) => {
       if (!a.due_at && !b.due_at) return 0;
@@ -381,8 +382,8 @@ function remindersSection(now) {
   // still in the data until the next collection purges it, and this list
   // should change at that moment along with everything else.
   const excludedClasses = new Set(appliedFetchSettings(settings).exclusions);
-  const classOptions = allKnownClasses()
-    .filter(name => !excludedClasses.has(name))
+  const classOptions = classLinks.linkedClassNames(allKnownClasses()
+    .filter(name => !excludedClasses.has(name)))
     .map(name => `<option value="${escapeHtml(name)}">`).join('');
 
   const addForm = `      <div class="reminder-add">
@@ -691,6 +692,56 @@ ${rows}
 }
 
 /**
+ * Settings → Classes: class links (see 29-class-links.js). Each link is a
+ * row — a name and a dropdown of every known class, real names, the same
+ * <details> picker as the exclusions — and the page script keeps one hidden
+ * data-key="classLinks" field holding them all as JSON, so collectSettings(),
+ * dirty tracking and save-on-close treat it like any other setting. The row
+ * checkboxes deliberately have no data-key of their own.
+ */
+function classLinksField(links) {
+  const classes = allKnownClasses();
+  // A member no longer listed anywhere stays in the list, ticked, so saving
+  // doesn't silently drop it — same as exclusionsField().
+  for (const link of links) for (const c of link.classes) if (!classes.includes(c)) classes.push(c);
+
+  const row = (link) => {
+    const members = link ? link.classes : [];
+    const boxes = classes.map(name =>
+      `            <label class="check-row"><input type="checkbox" class="class-link-member"` +
+      ` onchange="updateClassLinks()" value="${escapeHtml(name)}"${members.includes(name) ? ' checked' : ''}>` +
+      `<span class="label-text">${escapeHtml(name)}</span></label>`).join('\n');
+    return `        <div class="class-link">
+          <input type="text" class="class-link-name" placeholder="${escapeHtml(t('classLinkName'))}" value="${escapeHtml(link ? link.name : '')}" oninput="updateClassLinks()">
+          <details class="class-picker link-picker">
+            <summary><span class="link-summary">${escapeHtml(members.length ? members.join(', ') : t('classLinkNone'))}</span></summary>
+            <div class="class-list">
+${boxes}
+            </div>
+          </details>
+          <button type="button" class="mini-btn" onclick="removeClassLink(this)">${escapeHtml(t('classLinkRemove'))}</button>
+        </div>`;
+  };
+
+  return `      <div class="setting-row stacked">
+        <span class="field-name">${escapeHtml(t('settingsClassLinks'))}</span>
+        <input type="hidden" data-key="classLinks" id="class-links-value" value="${escapeHtml(JSON.stringify(links))}">
+        <div class="class-links-box">
+          <div id="class-links">
+${links.map(row).join('\n')}
+          </div>
+          <template id="class-link-template">
+${row(null)}
+          </template>
+          ${classes.length
+            ? `<button type="button" class="mini-btn" onclick="addClassLink()">${escapeHtml(t('classLinkAdd'))}</button>`
+            : `<span class="field-hint">${escapeHtml(t('settingsClassLinksEmpty'))}</span>`}
+        </div>
+        <span class="field-hint">${escapeHtml(t('settingsClassLinksHint'))}</span>
+      </div>`;
+}
+
+/**
  * Read-only version info row for the Advanced section — CFBundleShort-
  * VersionString (see build.sh), plus whatever the last update check
  * found. Never a data-key: saveSettings() walks [data-key]/
@@ -892,6 +943,8 @@ ${exclusionsField(s.exclusions)}
         <input type="checkbox" class="toggle" data-bool-key="showKeyHints"${s.showKeyHints !== false ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsKeyHintsHint'))}</span>
       </label>` },
+    { id: 'classes', label: t('settingsSectionClasses'), body: `
+${classLinksField(s.classLinks)}` },
     { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
@@ -1118,11 +1171,16 @@ ${content.join('\n')}
     // here can never disagree about which classes count as stale.
     const skipStale = filterSettings.skipStaleClasses;
 
+    // Checked by real name (exclusions and staleness are per platform class),
+    // listed by linked name, once.
+    const links = classLinks.linkMap();
     for (const name of allKnownClasses()) {
-      if (present.has(name) || excluded.has(name)) continue;
-      if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
+      const shown = classLinks.linkedName(name, links);
+      if (present.has(shown) || excluded.has(name)) continue;
+      if (hideInactive && !everHadClasswork.has(shown) && !everHadAnnouncement.has(shown)) continue;
       if (skipStale && isClassStale(name)) continue;
-      classCounts.push([name, 0]);
+      classCounts.push([shown, 0]);
+      present.add(shown);
     }
     classCounts = classCounts.sort((a, b) => a[0].localeCompare(b[0], 'ru'));
   }
@@ -1431,10 +1489,20 @@ function pixelCornerCss() {
  * @param {string} outputPath — where to write the html
  */
 function writePage(data, outputPath) {
+  // Linked classes (Settings → Classes) take their linked name here, once,
+  // so everything below that groups by class groups by the linked name.
+  const links = classLinks.linkMap();
+  data = { ...data };
+  for (const key of ['burning', 'later', 'undated', 'deferred', 'overdue', 'gone', 'items', 'announcements']) {
+    if (data[key]) data[key] = classLinks.linkItems(data[key], links);
+  }
+  for (const key of ['broken', 'reading']) {
+    if (data[key]) data[key] = classLinks.linkedClassNames(data[key], links);
+  }
   const { burning, later, undated, freshIds, broken, now } = data;
   const reading = data.reading || [];
   // Read once per page, not once per card.
-  teacherByClass = classTeachers();
+  teacherByClass = classLinks.linkedTeachers(classTeachers(), links);
 
   // Stamped into the page and published beside it once it's on disk, so an
   // open copy can tell a newer one exists (see "Live updates" in the page
@@ -2188,6 +2256,24 @@ function writePage(data, outputPath) {
      narrow column they fall apart. The hint moves under the list. */
   .setting-row.wide { grid-template-columns: 190px minmax(0, 1fr); }
   .setting-row.wide .field-hint { grid-column: 2; margin-top: 4px; }
+  /* Settings → Classes: one row per link — its name, its classes, Remove. */
+  .class-links-box { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+  #class-links { display: flex; flex-direction: column; gap: 8px; align-self: stretch; }
+  #class-links:empty { display: none; }
+  /* Name and Remove on top, the class dropdown full width under them: the
+     settings column is narrow, and class names are long. */
+  .class-link {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; align-items: center;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .class-link .link-picker { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+  .class-link > .mini-btn { grid-column: 2; grid-row: 1; }
+  /* This tab has the whole column to itself: the label goes on top. */
+  .setting-row.stacked { grid-template-columns: minmax(0, 1fr); }
+  .setting-row.stacked .field-hint { grid-column: 1; margin-top: 4px; }
+  .setting-row .class-link input.class-link-name { width: 100%; min-width: 0; box-sizing: border-box; }
+  .link-summary { color: var(--text); overflow-wrap: anywhere; }
+  .class-link-member:disabled + .label-text { color: var(--dim); opacity: .6; }
   .item.overdue-item { border-left: 3px solid var(--hot); }
   .overdue-since { color: var(--hot); }
   /* The "hide" button is deliberately unobtrusive: so it isn't hit by
@@ -2455,6 +2541,7 @@ const WORDS = ${JSON.stringify({
   progressStarting: t('progressStarting'),
   progressFinishing: t('progressFinishing'),
   signInNow: t('signInNow'),
+  classLinkNone: t('classLinkNone'),
   signInOpening: t('signInOpening'),
   signInFailed: t('signInFailed'),
   saving: t('settingsSaving'),
@@ -3361,10 +3448,53 @@ function toBase64Url(str) {
 
 // The counter in the picker's summary. Recomputed immediately on click,
 // otherwise the heading lies until the next collection.
+// Settings → Classes. Rebuilds the hidden classLinks field from the rows,
+// labels each row's dropdown with its classes, and greys out a class in
+// every other row once one row has it — a class can be in one link only.
+function updateClassLinks() {
+  var rows = document.querySelectorAll('#class-links .class-link');
+  var links = [], owner = {};
+  for (var i = 0; i < rows.length; i++) {
+    var name = rows[i].querySelector('.class-link-name').value.trim();
+    var boxes = rows[i].querySelectorAll('.class-link-member');
+    var members = [];
+    for (var j = 0; j < boxes.length; j++) {
+      if (boxes[j].checked) { members.push(boxes[j].value); owner[boxes[j].value] = i; }
+    }
+    var summary = rows[i].querySelector('.link-summary');
+    if (summary) summary.textContent = members.length ? members.join(', ') : WORDS.classLinkNone;
+    if (name || members.length) links.push({ name: name, classes: members });
+  }
+  for (var r = 0; r < rows.length; r++) {
+    var all = rows[r].querySelectorAll('.class-link-member');
+    for (var k = 0; k < all.length; k++) {
+      all[k].disabled = !all[k].checked && owner[all[k].value] !== undefined && owner[all[k].value] !== r;
+    }
+  }
+  var field = document.getElementById('class-links-value');
+  if (field) field.value = JSON.stringify(links);
+}
+
+function addClassLink() {
+  var template = document.getElementById('class-link-template');
+  var list = document.getElementById('class-links');
+  if (!template || !list) return;
+  list.appendChild(template.content.cloneNode(true));
+  updateClassLinks();
+  var names = list.querySelectorAll('.class-link-name');
+  if (names.length) names[names.length - 1].focus();
+}
+
+function removeClassLink(button) {
+  var row = button.closest('.class-link');
+  if (row) row.parentNode.removeChild(row);
+  updateClassLinks();
+}
+
 function updateSelectionCount() {
   // The exclusions list's own dropdown — not the sources one, which comes
   // first on the page and would otherwise be found instead.
-  var box = document.querySelector('.class-picker:not(.source-picker)');
+  var box = document.querySelector('.class-picker:not(.source-picker):not(.link-picker)');
   if (!box) return;
   var all = box.querySelectorAll('input[type="checkbox"]');
   var count = 0;
@@ -3405,6 +3535,10 @@ function collectSettings() {
   }
   return payload;
 }
+
+// Grey out classes already in a link before the baseline is taken; the
+// field it rewrites comes out the same as the saved value.
+updateClassLinks();
 
 // What the panel held when the page loaded, or when it was last saved.
 var settingsBaseline = JSON.stringify(collectSettings());

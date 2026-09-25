@@ -248,4 +248,17 @@ function bucketed(now, treatUndatedAsUrgent) {
   return { burning, later, overdue, undated, done };
 }
 
-module.exports = { FILE, readAll, create, edit, markDone, setHidden, remove, bucketed };
+/** Moves reminders from one class name to another (old -> new), for when a
+ *  class link is renamed or removed. Returns how many moved. */
+function renameClasses(renames) {
+  if (!renames.size) return 0;
+  const list = readRaw();
+  let moved = 0;
+  for (const v of list) {
+    if (v.class && renames.has(v.class)) { v.class = renames.get(v.class); moved++; }
+  }
+  if (moved) writeRaw(list);
+  return moved;
+}
+
+module.exports = { FILE, readAll, create, edit, markDone, setHidden, remove, bucketed, renameClasses };

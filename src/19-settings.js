@@ -271,6 +271,11 @@ const DEFAULTS = {
   // week starts checked, instead of silently missing from a saved list of
   // what was checked. See the filterState kind in validate() below.
   filterUnchecked: { cls: [], type: [], days: [] },
+
+  // Class links: several platforms' classes shown as one, or one class
+  // shown under a nicer name. [{ name, classes: [real names] }]. Display
+  // only (see 29-class-links.js): what gets read never changes.
+  classLinks: [],
 };
 
 const TYPES = {
@@ -287,7 +292,7 @@ const TYPES = {
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
-  filterUnchecked: 'filterState',
+  filterUnchecked: 'filterState', classLinks: 'classLinks',
 };
 
 function read() {
@@ -336,6 +341,36 @@ function validate(key, raw) {
         return { ok: false, why: group + ' needs to be a list of up to 500 short strings' };
       }
       out[group] = list;
+    }
+    return { ok: true, value: out };
+  }
+  if (kind === 'classLinks') {
+    // A string is parsed first: the page sends it from a hidden JSON field,
+    // and it works from the command line the same way.
+    let list = raw;
+    if (typeof raw === 'string') {
+      try { list = JSON.parse(raw || '[]'); } catch { return { ok: false, why: 'needs to be JSON like [{"name":"...","classes":["..."]}]' }; }
+    }
+    if (!Array.isArray(list) || list.length > 200) return { ok: false, why: 'needs to be a list of links' };
+    const out = [], names = new Set(), members = new Set();
+    for (const link of list) {
+      if (!link || typeof link !== 'object') return { ok: false, why: 'each link needs a name and classes' };
+      const name = String(link.name || '').trim();
+      const classes = [...new Set((Array.isArray(link.classes) ? link.classes : [])
+        .map(c => String(c).trim()).filter(Boolean))];
+      if (!name && !classes.length) continue;   // a blank row left in the panel
+      if (!name) return { ok: false, why: 'a class link needs a name' };
+      if (!classes.length) return { ok: false, why: `"${name}" needs at least one class` };
+      if (name.length > 200 || classes.length > 50 || classes.some(c => c.length > 300)) {
+        return { ok: false, why: `"${name}" is too long` };
+      }
+      if (names.has(name)) return { ok: false, why: `two links are both named "${name}"` };
+      names.add(name);
+      for (const c of classes) {
+        if (members.has(c)) return { ok: false, why: `"${c}" is in two links` };
+        members.add(c);
+      }
+      out.push({ name, classes });
     }
     return { ok: true, value: out };
   }

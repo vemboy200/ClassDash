@@ -279,6 +279,8 @@ function main(action, arg) {
   switch (action) {
     case 'config': {
       const { applyBatch } = require('./19-settings.js');
+      const classLinks = require('./29-class-links.js');
+      const linksBefore = classLinks.readLinks();
       const result = applyBatch(arg);
       if (!result.ok) {
         // Two different failures share this branch: the chunk didn't
@@ -336,6 +338,14 @@ function main(action, arg) {
         } else {
           logAction('  home API server stopped');
         }
+      }
+
+      // Reminders saved under a link's name follow it when it's renamed or
+      // removed (see renamesAfter() in 29-class-links.js).
+      if (result.changed.includes('classLinks')) {
+        const renames = classLinks.renamesAfter(linksBefore, classLinks.readLinks());
+        const moved = require('./24-virtual-assignments.js').renameClasses(renames);
+        if (moved) logAction(`  reminders moved to renamed classes: ${moved}`);
       }
 
       redraw();

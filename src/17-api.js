@@ -74,6 +74,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
 const { daysUntil, allKnownClasses, knownClassStatus, classTeachers } = require('./08-page.js');
+const classLinks = require('./29-class-links.js');
 const { readCollection } = require('./28-live-state.js');
 const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
@@ -122,8 +123,11 @@ function readJson(file) {
  * startup would keep serving yesterday's and never admit it.
  */
 function gather() {
-  const items = readJson(STATE_FILE);
-  const announcements = readJson(STREAM_FILE);
+  // Linked classes (Settings → Classes) take their linked name here, so
+  // every handler below groups by it; items keep the real one as sourceClass.
+  const links = classLinks.linkMap();
+  const items = classLinks.linkItems(readJson(STATE_FILE), links);
+  const announcements = classLinks.linkItems(readJson(STREAM_FILE), links);
   const now = new Date();
 
   const { burning, later, undated, deferred, overdue, gone, done } =
@@ -157,7 +161,9 @@ function gather() {
 // is far shorter than a teacher changing and covers a whole response.
 let teacherCache = { at: 0, map: new Map() };
 function teacherOf(className) {
-  if (Date.now() - teacherCache.at > 2000) teacherCache = { at: Date.now(), map: classTeachers() };
+  if (Date.now() - teacherCache.at > 2000) {
+    teacherCache = { at: Date.now(), map: classLinks.linkedTeachers(classTeachers()) };
+  }
   return teacherCache.map.get(className) || null;
 }
 
@@ -171,7 +177,10 @@ function toPublic(x, now) {
     id: x.id,
     title: x.title,
     class: x.class,
-    // null when the platform didn't say (today: only Canvas does).
+    // The platform's own name for the class; differs from `class` only
+    // when the class is linked in Settings → Classes.
+    sourceClass: x.sourceClass || x.class,
+    // null when the platform didn't say.
     teacher: teacherOf(x.class),
     platform: x.platform || 'Google Classroom',
     type: x.type || null,
@@ -239,16 +248,21 @@ function classRoster(d) {
   // an ordinary class in this list. Caught live — exactly this
   // ambiguity is what flooded a Home Assistant integration with an
   // entity for a class the student had genuinely moved on from.
-  const classStatus = knownClassStatus();
+  const links = classLinks.readLinks();
+  const map = classLinks.linkMap(links);
+  const classStatus = classLinks.linkedStatus(knownClassStatus(), map);
   const statusFor = (name) => classStatus.get(name) || 'known';
-  const roster = [...present].map(name => ({
+  const entry = (name, counts) => ({
     name,
-    dueSoon: dueSoonByClass.get(name) || 0,
-    ahead: aheadByClass.get(name) || 0,
-    overdue: overdueByClass.get(name) || 0,
+    dueSoon: counts ? dueSoonByClass.get(name) || 0 : 0,
+    ahead: counts ? aheadByClass.get(name) || 0 : 0,
+    overdue: counts ? overdueByClass.get(name) || 0 : 0,
     status: statusFor(name),
     teacher: teacherOf(name),
-  }));
+    // The real platform classes behind this one: a link's members, or itself.
+    classes: classLinks.membersOf(name, links),
+  });
+  const roster = [...present].map(name => entry(name, true));
 
   const settings = require('./19-settings.js').read();
   if (settings.showEmptyClasses) {
@@ -272,11 +286,15 @@ function classRoster(d) {
     // being fetched can never disagree.
     const skipStale = settings.skipStaleClasses;
 
+    // Checked by real name (exclusions and staleness are per platform
+    // class), listed by linked name, once — same as the page's filter.
     for (const name of allKnownClasses()) {
-      if (present.has(name) || excluded.has(name)) continue;
-      if (hideInactive && !everHadClasswork.has(name) && !everHadAnnouncement.has(name)) continue;
+      const shown = classLinks.linkedName(name, map);
+      if (present.has(shown) || excluded.has(name)) continue;
+      if (hideInactive && !everHadClasswork.has(shown) && !everHadAnnouncement.has(shown)) continue;
       if (skipStale && isClassStale(name)) continue;
-      roster.push({ name, dueSoon: 0, ahead: 0, overdue: 0, status: statusFor(name), teacher: teacherOf(name) });
+      roster.push(entry(shown, false));
+      present.add(shown);
     }
   }
 
@@ -294,7 +312,7 @@ const HANDLERS = {
     // ClassDash know about, full stop", not "...that currently have
     // something due", which would make an existing client's total
     // silently shrink and grow with a setting it doesn't know about.
-    classes: allKnownClasses().length,
+    classes: classLinks.linkedClassNames(allKnownClasses()).length,
     total: d.items.length,
     dueSoon: d.burning.length,
     // Still the actionable count, not the raw bucket size: a hidden
@@ -338,6 +356,7 @@ const HANDLERS = {
   '/api/announcements': (d) => d.announcements.map(p => ({
     id: p.id,
     class: p.class,
+    sourceClass: p.sourceClass || p.class,
     author: p.author || null,
     date: p.date || null,
     title: p.title || null,
