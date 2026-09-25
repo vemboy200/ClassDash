@@ -714,6 +714,71 @@ async function getClasses(page) {
   });
 }
 
+// ── Teachers ──────────────────────────────────────────────────
+//
+// The class list page doesn't show teachers any more (it became a to-do
+// list), so they come from each class's People page (/r/<id>/sort-last-name),
+// ~5 s a class. Teachers rarely change, so a class is looked up at most once
+// a week, a few per pass, and the answer is kept in classes.json, where the
+// page and the API already read a `teacher` field (Canvas fills its own).
+const TEACHER_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+const TEACHER_LOOKUPS_PER_PASS = 3;
+
+/** Runs in the page. The first region of the People page is the teachers
+ *  (a heading, then one list item each); the name is an item's first text.
+ *  Matched by structure, not by Google's generated class names or wording. */
+function teacherNamesFromPeoplePage() {
+  const heading = document.querySelector('main h2, [role="main"] h2');
+  const region = heading && heading.closest('[role="region"]');
+  if (!region) return null;
+  const names = [];
+  for (const li of region.querySelectorAll('li')) {
+    const walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = n.textContent.trim();
+      if (text && !n.parentElement.closest('[role="tooltip"], button')) { names.push(text); break; }
+    }
+  }
+  return names;
+}
+
+async function readClassroomTeachers(page, cls) {
+  await page.goto(`https://classroom.google.com/u/${U}/r/${cls.id}/sort-last-name`,
+                  { waitUntil: 'domcontentloaded', timeout: TIMEOUT });
+  await page.waitForSelector('main [role="region"] li', { timeout: 20000 });
+  const names = await page.evaluate(teacherNamesFromPeoplePage);
+  if (!names) throw new Error('no teacher list on the People page');
+  return [...new Set(names)].join(', ');
+}
+
+/** Which classes to look up this pass: never looked up, or over a week ago. */
+function classesNeedingTeacher(classes, now = Date.now()) {
+  return classes
+    .filter(c => !c.teacherAt || now - Date.parse(c.teacherAt) > TEACHER_REFRESH_MS)
+    .slice(0, TEACHER_LOOKUPS_PER_PASS);
+}
+
+/** A freshly read class list keeps what's already known about each class's teacher. */
+function withKnownTeachers(found, previous) {
+  const byId = new Map(previous.map(c => [c.id, c]));
+  return found.map(c => {
+    const known = byId.get(c.id);
+    return known && known.teacherAt ? { ...c, teacher: known.teacher, teacherAt: known.teacherAt } : c;
+  });
+}
+
+/** Writes this pass's lookups (id -> "A, B") into classes.json. */
+function saveClassroomTeachers(found, now = new Date()) {
+  if (!found.size) return;
+  const list = JSON.parse(fs.readFileSync(CLASSES_FILE, 'utf8'));
+  for (const c of list) {
+    if (!found.has(c.id)) continue;
+    c.teacher = found.get(c.id);
+    c.teacherAt = now.toISOString();
+  }
+  fs.writeFileSync(CLASSES_FILE, JSON.stringify(list, null, 2));
+}
+
 /** The last class list that was read successfully. */
 function classesFromMemory() {
   if (fs.existsSync(CLASSES_FILE)) {
@@ -757,6 +822,7 @@ async function resolveClasses(page) {
   // it comes back on its own the moment it has real activity again,
   // since classLastActivity() only ever looks forward from whatever it
   // reads in memory.
+  found = withKnownTeachers(found, classesFromMemory());
   fs.writeFileSync(CLASSES_FILE, JSON.stringify(found, null, 2));
 
   const stale = found.filter(c => !EXCLUSIONS.includes(c.name) && isClassStale(c.name));
@@ -1084,6 +1150,9 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     return result;
   })();
 
+  const teacherDue = new Set(classesNeedingTeacher(classes).map(c => c.id));
+  const teachersFound = new Map();
+
   const classTasks = classes.map(async (cls) => {
     console.log(`Reading: ${cls.name}`);
     // A class that's never had an assignment gets less time.
@@ -1111,6 +1180,14 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
         announcements = await collectFeed(page, cls, U);
       } catch (e) {
         console.warn(`  feed for ${cls.name}: ${e.message}`);
+      }
+
+      if (teacherDue.has(cls.id)) {
+        try {
+          teachersFound.set(cls.id, await readClassroomTeachers(page, cls));
+        } catch (e) {
+          console.warn(`  teachers for ${cls.name}: ${e.message}`);
+        }
       }
 
       result = { cls, items, announcements, ok: true };
@@ -1158,6 +1235,13 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     }
   }
   console.log(`Read in ${Math.round((Date.now() - startTime) / 1000)}s`);
+
+  try {
+    saveClassroomTeachers(teachersFound);
+    if (teachersFound.size) console.log(`Teachers looked up: ${[...teachersFound.values()].join(' | ')}`);
+  } catch (e) {
+    console.warn('failed to save teachers:', e.message);
+  }
 
   return {
     all: results.flatMap(r => r.items),
@@ -1858,6 +1942,7 @@ module.exports = {
   parseDue, deadline, detectErrorPage, notify, diffWithPrevious, rememberCollection,
   sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress, assignmentsForProgress,
   LOCK_FILE, PROFILE_DIR, killLeftoverBrowser,
+  teacherNamesFromPeoplePage, classesNeedingTeacher, withKnownTeachers, saveClassroomTeachers,
 };
 if (require.main !== module) return;
 
