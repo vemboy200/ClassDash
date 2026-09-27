@@ -122,11 +122,10 @@ function partsBadge(x) {
     : '';
 }
 
-// A card's buttons sit over its top-right corner and only show while the
-// card is hovered (or has keyboard focus), so they take no room on every
-// card. They go in a wrapper beside the card, not inside it: the card is
-// usually a link itself, and a link can't hold links. On a screen with no
-// hover (touch) they stay visible beside the card instead.
+// A card's buttons only show while the card is hovered (or has keyboard
+// focus), so they take no room on every card; on a screen with no hover
+// (touch) they always show. They go in a wrapper beside the card, not
+// inside it: the card is usually a link itself, and a link can't hold links.
 function cardWithActions(card, actions) {
   return `<div class="card-wrap">${card}${actions.trim()
     ? `\n        <span class="card-actions">${actions}</span>` : ''}
@@ -2334,14 +2333,11 @@ function writePage(data, outputPath) {
      and then the card's other buttons step aside. */
   .card-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
   .card-wrap > .item { flex: 1; min-width: 0; }
-  /* A card's buttons: over its top-right corner, only while hovered. */
-  .card-actions { position: absolute; top: 8px; right: 8px; display: none; gap: 6px; }
+  /* A card's buttons, full size in their usual place beside the card, but
+     only while the card is hovered (or focused); always on a touch screen. */
+  .card-actions { display: none; gap: 8px; margin-left: 8px; }
   .row:hover .card-actions, .card-wrap:focus-within .card-actions { display: flex; }
-  .card-actions .quiet { padding: 3px 10px; }
-  @media (hover: none) {
-    .card-actions { position: static; display: flex; margin-left: 8px; }
-    .card-actions .quiet { padding: 0 12px; }
-  }
+  @media (hover: none) { .card-actions { display: flex; } }
   .quiet.link-here { display: none; cursor: pointer; font: inherit; font-size: 13px; }
   body.linking .row.link-target .quiet.link-here { display: flex; }
   body.linking .row .quiet:not(.link-here) { display: none; }

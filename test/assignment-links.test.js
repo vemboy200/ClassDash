@@ -106,7 +106,7 @@ const { JSDOM, VirtualConsole } = T.jsdom();
     !!row('cr1').querySelector('.card-actions .also') && !row('cr1').querySelector(':scope > .quiet:not(.link-here)'));
   ok('...which is hidden until the card is hovered', /\.card-actions \{[^}]*display: none/.test(d.querySelector('style').textContent) &&
     /\.row:hover \.card-actions/.test(d.querySelector('style').textContent));
-  ok('...but shown beside the card on a screen with no hover', /@media \(hover: none\)[^@]*\.card-actions \{[^}]*display: flex/.test(d.querySelector('style').textContent));
+  ok('...but always shown on a screen with no hover', /@media \(hover: none\) \{ \.card-actions \{ display: flex/.test(d.querySelector('style').textContent));
   ok('"Link here" stays beside the card (seen without hovering while picking)', !!row('cr1').querySelector(':scope > .link-here'));
   const rem = d.querySelector('.row[data-title]');
   ok('reminder cards get the overlay too', !!rem && (!!rem.querySelector('.card-actions') && !rem.querySelector(':scope > .quiet')));
