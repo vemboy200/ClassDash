@@ -83,6 +83,7 @@ writeLinks([]);
 
 // ── the page ──
 writeLinks([{ items: ['cr1', 'edp1'] }]);
+require(path.join(proj, '24-virtual-assignments.js')).create({ title: 'Bring permission slip', class: HIST, due: '' });
 cp.spawnSync('node', ['05-playwright-draft.js', '--redraw'], { cwd: proj });
 const { JSDOM, VirtualConsole } = T.jsdom();
 
@@ -100,6 +101,15 @@ const { JSDOM, VirtualConsole } = T.jsdom();
   const also = row('cr1').querySelector('.quiet.also');
   ok('...and a link to the other part, beside the card', also && also.getAttribute('href') === 'https://x/edp1' && /Edpuzzle/.test(also.textContent), also && also.outerHTML);
   ok('...and Unlink', /unlinkAssignment/.test(row('cr1').innerHTML));
+  ok('every card button sits in the hover-only overlay, not beside the card',
+    !!row('m1').querySelector('.card-actions .link-start') && !!row('cr1').querySelector('.card-actions [onclick*="unlinkItem"]') &&
+    !!row('cr1').querySelector('.card-actions .also') && !row('cr1').querySelector(':scope > .quiet:not(.link-here)'));
+  ok('...which is hidden until the card is hovered', /\.card-actions \{[^}]*display: none/.test(d.querySelector('style').textContent) &&
+    /\.row:hover \.card-actions/.test(d.querySelector('style').textContent));
+  ok('...but shown beside the card on a screen with no hover', /@media \(hover: none\)[^@]*\.card-actions \{[^}]*display: flex/.test(d.querySelector('style').textContent));
+  ok('"Link here" stays beside the card (seen without hovering while picking)', !!row('cr1').querySelector(':scope > .link-here'));
+  const rem = d.querySelector('.row[data-title]');
+  ok('reminder cards get the overlay too', !!rem && (!!rem.querySelector('.card-actions') && !rem.querySelector(':scope > .quiet')));
 
   const start = id => row(id).querySelector('.link-start');
   w.startLink(null, start('cr2'));

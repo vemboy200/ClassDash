@@ -122,21 +122,36 @@ function partsBadge(x) {
     : '';
 }
 
-// What sits beside the card: the other parts of a linked assignment (they
-// can't go inside the card, which is a link itself), Unlink, Link, and the
-// "Link here" button the page shows while another card is picking a partner.
-function linkControls(x) {
+// A card's buttons sit over its top-right corner and only show while the
+// card is hovered (or has keyboard focus), so they take no room on every
+// card. They go in a wrapper beside the card, not inside it: the card is
+// usually a link itself, and a link can't hold links. On a screen with no
+// hover (touch) they stay visible beside the card instead.
+function cardWithActions(card, actions) {
+  return `<div class="card-wrap">${card}${actions.trim()
+    ? `\n        <span class="card-actions">${actions}</span>` : ''}
+      </div>`;
+}
+
+// A linked assignment's other parts (with a ✓ once turned in), Unlink, and
+// Link — for cardWithActions().
+function linkButtons(x) {
   if (x.removed) return '';
   const id = escapeHtml(x.id);
   const others = (x.parts || []).filter(p => p.id !== x.id && p.link && !p.removed)
-    .map(p => `\n      <a class="quiet also" href="${escapeHtml(p.link)}" target="_blank" rel="noopener"` +
+    .map(p => `<a class="quiet also" href="${escapeHtml(p.link)}" target="_blank" rel="noopener"` +
       ` title="${escapeHtml(p.title || '')}">${escapeHtml(p.platform || DEFAULT_PLATFORM)}${p.done ? ' ✓' : ''}</a>`).join('');
   const unlink = x.parts
-    ? `\n      <a class="quiet quiet-faint" href="napominalka://unlinkAssignment/${id}" onclick="return unlinkItem(event, this)">${escapeHtml(t('unlink'))}</a>`
+    ? `<a class="quiet" href="napominalka://unlinkAssignment/${id}" onclick="return unlinkItem(event, this)">${escapeHtml(t('unlink'))}</a>`
     : '';
-  return `${others}${unlink}
-      <a class="quiet quiet-faint link-start" href="#" onclick="return startLink(event, this)">${escapeHtml(t('linkStart'))}</a>
-      <button type="button" class="quiet link-here" onclick="linkHere(this)">${escapeHtml(t('linkHere'))}</button>`;
+  return `${others}${unlink}<a class="quiet link-start" href="#" onclick="return startLink(event, this)">${escapeHtml(t('linkStart'))}</a>`;
+}
+
+// "Link here" stays beside the card: it's only there while another card is
+// picking a partner, and has to be seen without hovering.
+function linkHereButton(x) {
+  return x.removed ? ''
+    : `\n      <button type="button" class="quiet link-here" onclick="linkHere(this)">${escapeHtml(t('linkHere'))}</button>`;
 }
 
 function itemCard(x, now, isFresh, section) {
@@ -198,8 +213,7 @@ function itemCard(x, now, isFresh, section) {
                   ` data-sect="${escapeHtml(section || '')}"` +
                   (x.removed ? '' : ' data-linkable="yes"');
 
-  return `      <div class="row${x.removed ? ' gone' : ''}"${tags}>
-      <${tag}${href} class="item${isFresh ? ' new' : ''}">
+  const card = `<${tag}${href} class="item${isFresh ? ' new' : ''}">
         <div class="title">${escapeHtml(x.title)}</div>
         <div class="meta">
           <span class="plat">${escapeHtml(x.platform || DEFAULT_PLATFORM)}</span>
@@ -210,7 +224,9 @@ function itemCard(x, now, isFresh, section) {
           ${x.removed ? `<span class="removed-badge">${escapeHtml(t('removedBadge'))}</span>` : ''}
           ${partsBadge(x)}
         </div>
-      </${tag}>${linkControls(x)}${button}
+      </${tag}>`;
+  return `      <div class="row${x.removed ? ' gone' : ''}"${tags}>
+      ${cardWithActions(card, linkButtons(x) + button)}${linkHereButton(x)}
       </div>`;
 }
 
@@ -368,15 +384,14 @@ function remindersSection(now) {
            data-raw-due="${escapeHtml(x.rawDue || '')}"
            data-cls="${escapeHtml(x.class || '')}" data-type="${escapeHtml(x.type || '')}"
            data-days="${days}">
-      <div class="item">
+      ${cardWithActions(`<div class="item">
         <div class="title">${escapeHtml(x.title)}</div>
         <div class="meta">
           <span class="plat">${escapeHtml(t('reminderPlatform'))}</span>
           ${x.class ? `<span class="cls">${escapeHtml(x.class)}</span>` : ''}
           <span class="due">${escapeHtml(dueText(x, kind))}</span>
         </div>
-      </div>
-      ${actions}
+      </div>`, actions)}
       </div>`;
   };
 
@@ -492,8 +507,7 @@ function overdueSection(items, now) {
                     ` data-sect="overdue"` +
                     ' data-linkable="yes"';
 
-    return `      <div class="row${x.hidden ? ' hidden-row' : ''}" data-id="${escapeHtml(x.id)}"${tags}>
-      <a href="${escapeHtml(x.link || '#')}" target="_blank" rel="noopener" class="item overdue-item">
+    const card = `<a href="${escapeHtml(x.link || '#')}" target="_blank" rel="noopener" class="item overdue-item">
         <div class="title">${escapeHtml(x.title)}</div>
         <div class="meta">
           <span class="plat">${escapeHtml(x.platform || DEFAULT_PLATFORM)}</span>
@@ -502,12 +516,13 @@ function overdueSection(items, now) {
           <span class="overdue-since">${escapeHtml(wasDue)} · ${escapeHtml(t('lateByDays', days))}</span>
           ${partsBadge(x)}
         </div>
-      </a>${linkControls(x)}
-      ${x.hidden
+      </a>`;
+    return `      <div class="row${x.hidden ? ' hidden-row' : ''}" data-id="${escapeHtml(x.id)}"${tags}>
+      ${cardWithActions(card, linkButtons(x) + (x.hidden
         ? `<a class="quiet" href="napominalka://unhide/${escapeHtml(x.id)}"
              onclick="restoreOverdueItem(event, this)">${escapeHtml(t('restore'))}</a>`
         : `<a class="quiet quiet-faint" href="napominalka://hide/${escapeHtml(x.id)}"
-             onclick="return hideOverdueItem(event, this)">${escapeHtml(t('hide'))}</a>`}
+             onclick="return hideOverdueItem(event, this)">${escapeHtml(t('hide'))}</a>`))}${linkHereButton(x)}
       </div>`;
   };
 
@@ -2317,6 +2332,16 @@ function writePage(data, outputPath) {
   .row:hover .quiet.quiet-faint { opacity: 1; }
   /* Assignment links. "Link here" only while another card is picking one,
      and then the card's other buttons step aside. */
+  .card-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
+  .card-wrap > .item { flex: 1; min-width: 0; }
+  /* A card's buttons: over its top-right corner, only while hovered. */
+  .card-actions { position: absolute; top: 8px; right: 8px; display: none; gap: 6px; }
+  .row:hover .card-actions, .card-wrap:focus-within .card-actions { display: flex; }
+  .card-actions .quiet { padding: 3px 10px; }
+  @media (hover: none) {
+    .card-actions { position: static; display: flex; margin-left: 8px; }
+    .card-actions .quiet { padding: 0 12px; }
+  }
   .quiet.link-here { display: none; cursor: pointer; font: inherit; font-size: 13px; }
   body.linking .row.link-target .quiet.link-here { display: flex; }
   body.linking .row .quiet:not(.link-here) { display: none; }
