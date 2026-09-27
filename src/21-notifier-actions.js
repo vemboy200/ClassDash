@@ -271,6 +271,10 @@ function stopApiServer() {
  * something genuinely unexpected, which the CLI entry point below
  * turns into a result too rather than letting it vanish.
  */
+function safeDecode(s) {
+  try { return decodeURIComponent(String(s || '')); } catch { return String(s || ''); }
+}
+
 function main(action, arg) {
   // A settings save carries every setting, the Canvas access token and the
   // email included, so its payload is never logged — the "applied:" line
@@ -369,6 +373,21 @@ function main(action, arg) {
       removeLine(QUIET_FILE, arg);
       redraw();
       return { ok: true, action };
+    // Assignment links (31-assignment-links.js): arg "a,b" links b to a;
+    // unlinkAssignment undoes the whole link an assignment is in. An id that
+    // came through a napominalka:// URL may still be percent-encoded.
+    case 'linkAssignments': {
+      const [a, b] = String(arg || '').split(',').map(safeDecode);
+      const result = require('./31-assignment-links.js').link(a, b);
+      if (result.ok) redraw();
+      else logAction(`  not linked: ${result.why}`);
+      return { ...result, action };
+    }
+    case 'unlinkAssignment': {
+      const result = require('./31-assignment-links.js').unlink(safeDecode(arg));
+      if (result.ok) redraw();
+      return { ...result, action };
+    }
     case 'hide':
       appendLine(HIDDEN_FILE, arg);
       redraw();

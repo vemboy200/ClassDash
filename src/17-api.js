@@ -182,6 +182,11 @@ function toPublic(x, now) {
     sourceClass: x.sourceClass || x.class,
     // null when the platform didn't say.
     teacher: teacherOf(x.class),
+    // Linked assignments (31-assignment-links.js): null, or how many parts
+    // are done and each part.
+    linked: x.parts
+      ? { done: x.partsDone, total: x.partsTotal, parts: x.parts.map(p => ({ ...p })) }
+      : null,
     platform: x.platform || 'Google Classroom',
     type: x.type || null,
     link: x.link || null,
@@ -479,6 +484,23 @@ function toConfigChunk(obj) {
  * this matches THAT convention instead.
  */
 const WRITE_HANDLERS = {
+  // Assignment links: {ids: [a, b]} links b to a (a leads); {id} undoes the
+  // link that assignment is in. Same rules as the page, same-class included.
+  '/api/link': (body) => {
+    if (!body || !Array.isArray(body.ids) || body.ids.length !== 2 ||
+        body.ids.some(id => typeof id !== 'string' || !id || id.includes(','))) {
+      return { status: 400, body: { error: 'expected a JSON body: {"ids": ["...", "..."]}' } };
+    }
+    const result = notifierActions.main('linkAssignments', body.ids.join(','));
+    return { status: result.ok ? 200 : 409, body: result };
+  },
+  '/api/unlink': (body) => {
+    if (!body || typeof body.id !== 'string' || !body.id) {
+      return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };
+    }
+    const result = notifierActions.main('unlinkAssignment', body.id);
+    return { status: result.ok ? 200 : 404, body: result };
+  },
   '/api/hide': (body) => {
     if (!body || typeof body.id !== 'string' || !body.id) {
       return { status: 400, body: { error: 'expected a JSON body: {"id": "..."}' } };

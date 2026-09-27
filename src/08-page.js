@@ -114,6 +114,31 @@ function teacherSpan(className) {
     : '';
 }
 
+// Assignment links (31-assignment-links.js). A linked card's meta gets a
+// "1 of 2 done" pill while some parts are still open.
+function partsBadge(x) {
+  return x.partsTotal > 1 && x.partsDone > 0 && x.partsDone < x.partsTotal
+    ? `<span class="plat parts-badge">${escapeHtml(t('partsDone', x.partsDone, x.partsTotal))}</span>`
+    : '';
+}
+
+// What sits beside the card: the other parts of a linked assignment (they
+// can't go inside the card, which is a link itself), Unlink, Link, and the
+// "Link here" button the page shows while another card is picking a partner.
+function linkControls(x) {
+  if (x.removed) return '';
+  const id = escapeHtml(x.id);
+  const others = (x.parts || []).filter(p => p.id !== x.id && p.link && !p.removed)
+    .map(p => `\n      <a class="quiet also" href="${escapeHtml(p.link)}" target="_blank" rel="noopener"` +
+      ` title="${escapeHtml(p.title || '')}">${escapeHtml(p.platform || DEFAULT_PLATFORM)}${p.done ? ' ✓' : ''}</a>`).join('');
+  const unlink = x.parts
+    ? `\n      <a class="quiet quiet-faint" href="napominalka://unlinkAssignment/${id}" onclick="return unlinkItem(event, this)">${escapeHtml(t('unlink'))}</a>`
+    : '';
+  return `${others}${unlink}
+      <a class="quiet quiet-faint link-start" href="#" onclick="return startLink(event, this)">${escapeHtml(t('linkStart'))}</a>
+      <button type="button" class="quiet link-here" onclick="linkHere(this)">${escapeHtml(t('linkHere'))}</button>`;
+}
+
 function itemCard(x, now, isFresh, section) {
   // Same trap as in 05-...js: Classroom's due date arrives as text, while
   // Canvas and Edpuzzle have no text field at all — only the machine one.
@@ -165,11 +190,13 @@ function itemCard(x, now, isFresh, section) {
   // means there's no due date at all. Computed here, not in the browser,
   // because "now" at the moment the page is built is known here.
   const days = x.due_at ? daysUntil(now, x.due_at) : 'none';
-  const tags = ` data-cls="${escapeHtml(x.class)}"` +
+  const tags = ` data-id="${escapeHtml(x.id)}"` +
+                  ` data-cls="${escapeHtml(x.class)}"` +
                   ` data-type="${escapeHtml(x.type || '')}"` +
                   ` data-days="${days}"` +
                   ` data-removed="${x.removed ? 'yes' : 'no'}"` +
-                  ` data-sect="${escapeHtml(section || '')}"`;
+                  ` data-sect="${escapeHtml(section || '')}"` +
+                  (x.removed ? '' : ' data-linkable="yes"');
 
   return `      <div class="row${x.removed ? ' gone' : ''}"${tags}>
       <${tag}${href} class="item${isFresh ? ' new' : ''}">
@@ -181,8 +208,9 @@ function itemCard(x, now, isFresh, section) {
           ${due ? `<span class="due">${escapeHtml(due)}</span>` : ''}
           ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
           ${x.removed ? `<span class="removed-badge">${escapeHtml(t('removedBadge'))}</span>` : ''}
+          ${partsBadge(x)}
         </div>
-      </${tag}>${button}
+      </${tag}>${linkControls(x)}${button}
       </div>`;
 }
 
@@ -461,7 +489,8 @@ function overdueSection(items, now) {
     const tags = ` data-cls="${escapeHtml(x.class)}"` +
                     ` data-type="${escapeHtml(x.type || '')}"` +
                     ` data-days="${-days}"` +
-                    ` data-sect="overdue"`;
+                    ` data-sect="overdue"` +
+                    ' data-linkable="yes"';
 
     return `      <div class="row${x.hidden ? ' hidden-row' : ''}" data-id="${escapeHtml(x.id)}"${tags}>
       <a href="${escapeHtml(x.link || '#')}" target="_blank" rel="noopener" class="item overdue-item">
@@ -471,8 +500,9 @@ function overdueSection(items, now) {
           <span class="cls">${escapeHtml(x.class)}</span>
           ${teacherSpan(x.class)}
           <span class="overdue-since">${escapeHtml(wasDue)} · ${escapeHtml(t('lateByDays', days))}</span>
+          ${partsBadge(x)}
         </div>
-      </a>
+      </a>${linkControls(x)}
       ${x.hidden
         ? `<a class="quiet" href="napominalka://unhide/${escapeHtml(x.id)}"
              onclick="restoreOverdueItem(event, this)">${escapeHtml(t('restore'))}</a>`
@@ -944,7 +974,12 @@ ${exclusionsField(s.exclusions)}
         <span class="field-hint">${escapeHtml(t('settingsKeyHintsHint'))}</span>
       </label>` },
     { id: 'classes', label: t('settingsSectionClasses'), body: `
-${classLinksField(s.classLinks)}` },
+${classLinksField(s.classLinks)}
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsAssignmentLinksSameClass'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="assignmentLinksSameClass"${s.assignmentLinksSameClass ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsAssignmentLinksSameClassHint'))}</span>
+      </label>` },
     { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
@@ -2280,6 +2315,15 @@ function writePage(data, outputPath) {
      accident. Appears when hovering over the card. */
   .quiet.quiet-faint { opacity: .25; }
   .row:hover .quiet.quiet-faint { opacity: 1; }
+  /* Assignment links. "Link here" only while another card is picking one,
+     and then the card's other buttons step aside. */
+  .quiet.link-here { display: none; cursor: pointer; font: inherit; font-size: 13px; }
+  body.linking .row.link-target .quiet.link-here { display: flex; }
+  body.linking .row .quiet:not(.link-here) { display: none; }
+  body.linking .row:not(.link-target):not(.link-source) { opacity: .35; }
+  body.linking .row.link-source .item { outline: 2px dashed var(--new); outline-offset: 2px; }
+  .link-bar { position: sticky; top: 8px; z-index: 5; justify-content: space-between; }
+  .link-bar[hidden] { display: none; }
   /* Removed by the teacher: visible that the entry exists, but it's no
      longer about actual work. */
   .row.gone .item { opacity: .55; border-style: dashed; }
@@ -2449,6 +2493,10 @@ ${progressBar}
 ${inProgress}
 ${setupBanner}
 ${signInBanner}
+  <div class="warn link-bar" id="link-bar" hidden>
+    <span><span id="link-bar-text"></span> <b id="link-bar-title"></b><span id="link-bar-hint"></span></span>
+    <button type="button" class="mini-btn" onclick="cancelLink()">${escapeHtml(t('linkCancel'))}</button>
+  </div>
 ${pendingBanner}
 ${updateBanner}
 ${warning}
@@ -2541,6 +2589,10 @@ const WORDS = ${JSON.stringify({
   progressStarting: t('progressStarting'),
   progressFinishing: t('progressFinishing'),
   signInNow: t('signInNow'),
+  linkPick: t('linkPick'),
+  linkPickSameClass: t('linkPickSameClass'),
+  linkNoTargets: t('linkNoTargets'),
+  linkFailed: t('linkFailed'),
   classLinkNone: t('classLinkNone'),
   signInOpening: t('signInOpening'),
   signInFailed: t('signInFailed'),
@@ -3880,6 +3932,77 @@ function runShortcut(name) {
   }
 }
 window.classdashShortcut = runShortcut;
+
+// ── Assignment links ──
+//
+// "Link" on a card starts picking: the bar says what's being linked, and
+// "Link here" shows on the cards it can be linked with (the same class as
+// shown, unless that's switched off in Settings → Classes). The notifier
+// writes assignment-links.json and redraws; the page reloads to show it.
+var ASSIGNMENT_LINKS_SAME_CLASS = ${readSettings().assignmentLinksSameClass ? 'true' : 'false'};
+var linkSource = null;
+
+function startLink(e, button) {
+  if (e) e.preventDefault();
+  cancelLink();
+  var row = button.closest('.row');
+  linkSource = row;
+  var cls = row.getAttribute('data-cls');
+  var rows = document.querySelectorAll('.row[data-linkable="yes"]');
+  var targets = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var ok = rows[i] !== row && (!ASSIGNMENT_LINKS_SAME_CLASS || rows[i].getAttribute('data-cls') === cls);
+    rows[i].classList.toggle('link-target', ok);
+    if (ok) targets++;
+  }
+  row.classList.add('link-source');
+  var title = row.querySelector('.title');
+  document.getElementById('link-bar-text').textContent = WORDS.linkPick;
+  document.getElementById('link-bar-title').textContent = title ? title.textContent : '';
+  document.getElementById('link-bar-hint').textContent = !targets ? ' — ' + WORDS.linkNoTargets
+    : (ASSIGNMENT_LINKS_SAME_CLASS ? ' ' + WORDS.linkPickSameClass : '');
+  document.getElementById('link-bar').hidden = false;
+  document.body.classList.add('linking');
+  return false;
+}
+
+function cancelLink() {
+  document.body.classList.remove('linking');
+  var marked = document.querySelectorAll('.row.link-target, .row.link-source');
+  for (var i = 0; i < marked.length; i++) marked[i].classList.remove('link-target', 'link-source');
+  var bar = document.getElementById('link-bar');
+  if (bar) bar.hidden = true;
+  linkSource = null;
+}
+
+// Reload once the notifier has redrawn; a plain browser tab gets no answer
+// back (napominalka:// is fire-and-forget), so it just waits a moment.
+function afterLinkChange(res) {
+  if (res && res.ok === false) {
+    document.getElementById('link-bar-hint').textContent = ' — ' + WORDS.linkFailed + (res.why ? ': ' + res.why : '');
+    return;
+  }
+  location.reload();
+}
+
+function linkHere(button) {
+  if (!linkSource) return;
+  var a = linkSource.getAttribute('data-id');
+  var b = button.closest('.row').getAttribute('data-id');
+  dispatchAction('linkAssignments', a + ',' + b, afterLinkChange);
+  if (!hasNativeBridge()) setTimeout(function () { location.reload(); }, 1500);
+}
+
+function unlinkItem(e, button) {
+  if (e) e.preventDefault();
+  dispatchAction('unlinkAssignment', button.closest('.row').getAttribute('data-id'), afterLinkChange);
+  if (!hasNativeBridge()) setTimeout(function () { location.reload(); }, 1500);
+  return false;
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && document.body.classList.contains('linking')) cancelLink();
+});
 
 document.addEventListener('keydown', function (e) {
   if (e.isComposing || e.altKey) return;

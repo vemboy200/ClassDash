@@ -276,6 +276,10 @@ const DEFAULTS = {
   // shown under a nicer name. [{ name, classes: [real names] }]. Display
   // only (see 29-class-links.js): what gets read never changes.
   classLinks: [],
+
+  // Assignment links (31-assignment-links.js) only between assignments in
+  // the same class — the class as shown, so class links count.
+  assignmentLinksSameClass: true,
 };
 
 const TYPES = {
@@ -292,7 +296,7 @@ const TYPES = {
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
-  filterUnchecked: 'filterState', classLinks: 'classLinks',
+  filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
 };
 
 function read() {

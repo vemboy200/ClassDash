@@ -1506,6 +1506,10 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   if (require('./19-settings.js').read().classroomEnabled === false) {
     items = items.filter(x => x.platform);
   }
+  // Assignments linked on the page become one item here, before anything is
+  // bucketed (see 31-assignment-links.js).
+  const assignmentLinks = require('./31-assignment-links.js');
+  items = assignmentLinks.mergeLinked(items, assignmentLinks.readLinks(), x => deadline(x, now));
 
   const burning = [], later = [], undated = [], deferred = [], done = [];
   // Overdue items are no longer just counted, they're collected into a list.
@@ -1529,6 +1533,12 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
     // It's not due soon, not overdue, not "ahead": the work doesn't exist
     // anymore, only a trace that it once did.
     if (x.removed) { gone.push(x); continue; }
+
+    // A linked assignment with every part handed in.
+    if (x.allDone) {
+      done.push({ ...x, done: true, due_at: deadline(x, now) });
+      continue;
+    }
 
     // TURNED-IN WORK DOESN'T GO IN A DUE-DATE BUCKET.
     //
