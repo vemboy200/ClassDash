@@ -128,7 +128,7 @@ function partsBadge(x) {
 // inside it: the card is usually a link itself, and a link can't hold links.
 function cardWithActions(card, actions) {
   return `<div class="card-wrap">${card}${actions.trim()
-    ? `\n        <span class="card-actions">${actions}</span>` : ''}
+    ? `\n        <span class="card-actions"><span class="card-actions-inner">${actions}</span></span>` : ''}
       </div>`;
 }
 
@@ -2334,10 +2334,19 @@ function writePage(data, outputPath) {
   .card-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
   .card-wrap > .item { flex: 1; min-width: 0; }
   /* A card's buttons, full size in their usual place beside the card, but
-     only while the card is hovered (or focused); always on a touch screen. */
-  .card-actions { display: none; gap: 8px; margin-left: 8px; }
-  .row:hover .card-actions, .card-wrap:focus-within .card-actions { display: flex; }
-  @media (hover: none) { .card-actions { display: flex; } }
+     only while the card is hovered (or focused); always on a touch screen.
+     They slide out from the card's edge and fade in: a grid column going
+     from 0fr to 1fr animates to exactly the buttons' own width, which
+     display: none (or a guessed max-width) can't. The padding keeps the
+     buttons' pixel shadow from being clipped. */
+  .card-actions {
+    display: grid; grid-template-columns: 0fr; margin-left: 0; opacity: 0;
+    transition: grid-template-columns .18s ease, margin-left .18s ease, opacity .18s ease;
+  }
+  .card-actions-inner { display: flex; gap: 8px; min-width: 0; overflow: hidden; padding: 0 4px 4px 0; margin: 0 -4px -4px 0; }
+  .row:hover .card-actions, .card-wrap:focus-within .card-actions { grid-template-columns: 1fr; margin-left: 8px; opacity: 1; }
+  @media (hover: none) { .card-actions { grid-template-columns: 1fr; margin-left: 8px; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .card-actions { transition: none; } }
   .quiet.link-here { display: none; cursor: pointer; font: inherit; font-size: 13px; }
   body.linking .row.link-target .quiet.link-here { display: flex; }
   body.linking .row .quiet:not(.link-here) { display: none; }

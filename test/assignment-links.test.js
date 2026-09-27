@@ -104,9 +104,12 @@ const { JSDOM, VirtualConsole } = T.jsdom();
   ok('every card button sits in the hover-only overlay, not beside the card',
     !!row('m1').querySelector('.card-actions .link-start') && !!row('cr1').querySelector('.card-actions [onclick*="unlinkItem"]') &&
     !!row('cr1').querySelector('.card-actions .also') && !row('cr1').querySelector(':scope > .quiet:not(.link-here)'));
-  ok('...which is hidden until the card is hovered', /\.card-actions \{[^}]*display: none/.test(d.querySelector('style').textContent) &&
-    /\.row:hover \.card-actions/.test(d.querySelector('style').textContent));
-  ok('...but always shown on a screen with no hover', /@media \(hover: none\) \{ \.card-actions \{ display: flex/.test(d.querySelector('style').textContent));
+  const css = d.querySelector('style').textContent;
+  ok('...which is collapsed until the card is hovered', /\.card-actions \{[^}]*grid-template-columns: 0fr[^}]*opacity: 0/.test(css) &&
+    /\.row:hover \.card-actions[^{]*\{ grid-template-columns: 1fr/.test(css));
+  ok('...slides and fades rather than popping', /\.card-actions \{[^}]*transition: grid-template-columns/.test(css));
+  ok('...not for someone who asked for less motion', /prefers-reduced-motion: reduce\) \{ \.card-actions \{ transition: none/.test(css));
+  ok('...and always open on a screen with no hover', /@media \(hover: none\) \{ \.card-actions \{ grid-template-columns: 1fr/.test(css));
   ok('"Link here" stays beside the card (seen without hovering while picking)', !!row('cr1').querySelector(':scope > .link-here'));
   const rem = d.querySelector('.row[data-title]');
   ok('reminder cards get the overlay too', !!rem && (!!rem.querySelector('.card-actions') && !rem.querySelector(':scope > .quiet')));
