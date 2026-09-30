@@ -25,6 +25,7 @@ api-token.txt
 api-server.pid
 api-log.txt
 api-log.old.txt
+turned-in-log.txt
 assignment-links.json
 notification-log.json
 notifier-log.txt

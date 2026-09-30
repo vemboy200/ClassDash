@@ -559,17 +559,26 @@ async function scrapeClass(page, cls, timeoutMs = TIMEOUT) {
     // missing 17 would come back on the next run looking new.
     //
     // So it waits until the assignment count stops growing.
-    let previousCount = -1, stableRounds = 0;
+    //
+    // AND UNTIL THE CARDS' TEXT STOPS CHANGING, NOT JUST THEIR NUMBER.
+    // Caught on September 30th: turned-in work read as not turned in on
+    // some passes and showed up as overdue, then was fine again ten
+    // minutes later. The best guess is that "Completed" is filled into a
+    // card a moment after the card itself appears, so a steady count
+    // isn't a finished page. The text is compared whole, so any late
+    // change resets the wait.
+    let previousText = null, stableRounds = 0;
     for (let i = 0; i < 40; i++) {
-      const currentCount = await page.evaluate(
-        () => document.querySelectorAll('li[data-stream-item-id]').length);
-      if (currentCount === previousCount) {
+      const currentText = await page.evaluate(
+        () => [...document.querySelectorAll('li[data-stream-item-id]')]
+          .map(el => el.innerText || '').join('\u0001'));
+      if (currentText === previousText) {
         // Three measurements in a row with no change — call it rendered.
         if (++stableRounds >= 3) break;
       } else {
         stableRounds = 0;
       }
-      previousCount = currentCount;
+      previousText = currentText;
       await page.waitForTimeout(500);
     }
   } catch {
@@ -645,6 +654,100 @@ async function scrapeClass(page, cls, timeoutMs = TIMEOUT) {
       };
     }).filter(x => x.title);
   }, { className: cls.name, classId: cls.id, authuser: AUTHUSER });
+}
+
+// ── Turned-in work that reads as not turned in ────────────────
+//
+// Caught on September 30th: on some passes, a handful of assignments
+// the user had turned in on time read as plain "Assignment" instead of
+// "Completed Assignment", so they landed in overdue (6, then 12 of
+// them), and ten minutes later they were fine again. Nothing had
+// changed on Classroom's side; the read was wrong.
+//
+// Three layers, cheapest first:
+//   1. scrapeClass waits for the cards' text to settle, not just their count.
+//   2. If 2 or more, or all, of a class's turned-in assignments suddenly
+//      read as not turned in, the class is read once more before
+//      believing it (the user's idea: a whole batch flipping at once is
+//      the tell). The read with fewer flips wins.
+//   3. Whatever still flips, even one assignment, stays turned in until
+//      TURNED_IN_THRESHOLD reads in a row say otherwise. Unsubmitting, or
+//      a teacher returning the work, is real and permanent, and still
+//      shows up, half an hour later. Same idea as MISSING_THRESHOLD.
+//
+// Classroom only: Canvas and Edpuzzle never return turned-in work at all,
+// so there's no "Completed" to lose.
+const TURNED_IN_THRESHOLD = 3;
+const TURNED_IN_LOG = path.join(PROJECT_ROOT, 'turned-in-log.txt');
+const isTurnedIn = x => /^completed\b/i.test(x.type || '');
+
+/** Ids of this read's items that were turned in last time and aren't now. */
+function flippedFromTurnedIn(items, previous) {
+  const before = new Map(previous.filter(x => !x.platform).map(x => [x.id, x]));
+  return items
+    .filter(x => x.id && !isTurnedIn(x) && before.has(x.id) && isTurnedIn(before.get(x.id)))
+    .map(x => x.id);
+}
+
+/** Worth a second read: 2 or more flipped, or every turned-in one did. */
+function looksMisread(items, previous, className) {
+  const flipped = flippedFromTurnedIn(items, previous);
+  if (!flipped.length) return false;
+  const present = new Set(items.map(x => x.id));
+  const wasTurnedIn = previous.filter(x => !x.platform && x.class === className &&
+                                           isTurnedIn(x) && present.has(x.id)).length;
+  return flipped.length >= 2 || flipped.length === wasTurnedIn;
+}
+
+/**
+ * Layer 3: keeps a flipped assignment turned in (last read's type, with
+ * a turnedInMisses count) until TURNED_IN_THRESHOLD reads in a row agree
+ * it isn't. A read that says "Completed" again comes from the page and
+ * has no count, so the count resets itself.
+ */
+function keepTurnedIn(items, previous) {
+  const before = new Map(previous.filter(x => !x.platform).map(x => [x.id, x]));
+  let held = 0, released = 0;
+  const out = items.map(x => {
+    const old = x.id && before.get(x.id);
+    if (!old || isTurnedIn(x) || !isTurnedIn(old)) return x;
+    const turnedInMisses = (old.turnedInMisses || 0) + 1;
+    if (turnedInMisses >= TURNED_IN_THRESHOLD) { released++; return x; }
+    held++;
+    return { ...x, type: old.type, turnedInMisses };
+  });
+  return { items: out, held, released };
+}
+
+/** One line per event, counts and the class only. Kept to the last 500 lines. */
+function logTurnedIn(line) {
+  try {
+    let lines = [];
+    try { lines = fs.readFileSync(TURNED_IN_LOG, 'utf8').split('\n').filter(Boolean); } catch {}
+    lines.push(`${new Date().toISOString()}  ${line}`);
+    fs.writeFileSync(TURNED_IN_LOG, lines.slice(-500).join('\n') + '\n');
+  } catch { /* a log that can't be written isn't worth failing a pass over */ }
+  console.log(`  ${line}`);
+}
+
+/**
+ * Reads a class, and if turned-in work came back looking not turned in,
+ * applies layers 2 and 3. `previous` is memory from the last pass.
+ */
+async function scrapeClassChecked(page, cls, timeoutMs, previous) {
+  let items = await scrapeClass(page, cls, timeoutMs);
+  if (looksMisread(items, previous, cls.name)) {
+    const first = flippedFromTurnedIn(items, previous).length;
+    const again = await scrapeClass(page, cls, timeoutMs);
+    const second = flippedFromTurnedIn(again, previous).length;
+    if (second < first) items = again;
+    logTurnedIn(`${cls.name}: ${first} turned-in read as not turned in, re-read says ${second}` +
+                (second < first ? ' (using the re-read)' : ''));
+  }
+  const kept = keepTurnedIn(items, previous);
+  if (kept.held) logTurnedIn(`${cls.name}: kept ${kept.held} as turned in (not yet ${TURNED_IN_THRESHOLD} reads in a row)`);
+  if (kept.released) logTurnedIn(`${cls.name}: ${kept.released} no longer turned in (${TURNED_IN_THRESHOLD} reads in a row)`);
+  return kept.items;
 }
 
 // ── Where the class list comes from ───────────────────────────
@@ -1157,6 +1260,11 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   const teacherDue = new Set(classesNeedingTeacher(classes).map(c => c.id));
   const teachersFound = new Map();
 
+  // Last pass's memory, for catching turned-in work that reads as not
+  // turned in (scrapeClassChecked).
+  let previousItems = [];
+  try { previousItems = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
+
   const classTasks = classes.map(async (cls) => {
     console.log(`Reading: ${cls.name}`);
     // A class that's never had an assignment gets less time.
@@ -1174,7 +1282,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     let result;
     try {
       page = await ctx.newPage();
-      const items = await scrapeClass(page, cls, timeoutMs);
+      const items = await scrapeClassChecked(page, cls, timeoutMs, previousItems);
 
       // The same class's feed — teacher announcements. Read with the same
       // tab right after the assignments: no reason to open a separate
@@ -1957,6 +2065,7 @@ module.exports = {
   sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress, assignmentsForProgress,
   LOCK_FILE, PROFILE_DIR, killLeftoverBrowser,
   teacherNamesFromPeoplePage, classesNeedingTeacher, withKnownTeachers, saveClassroomTeachers,
+  flippedFromTurnedIn, looksMisread, keepTurnedIn, scrapeClassChecked, TURNED_IN_THRESHOLD, TURNED_IN_LOG,
 };
 if (require.main !== module) return;
 
