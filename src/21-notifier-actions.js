@@ -26,6 +26,8 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 
 const QUIET_FILE = path.join(PROJECT_ROOT, 'не-срочно.txt');
 const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
+const API_LOG = path.join(PROJECT_ROOT, 'api-log.txt');
+const API_LOG_OLD = path.join(PROJECT_ROOT, 'api-log.old.txt');
 const ACTION_LOG = path.join(PROJECT_ROOT, 'notifier-log.txt');
 
 /**
@@ -201,9 +203,27 @@ function startApiServer(network) {
   security.ensureToken();
   const args = [path.join(__dirname, '17-api.js')];
   if (network) args.push('--network');
+  // Its output goes to api-log.txt, so a server that stops has left a note
+  // saying why. Kept to about a megabyte: the previous one is moved aside.
+  try {
+    if (fs.statSync(API_LOG).size > 1024 * 1024) fs.renameSync(API_LOG, API_LOG_OLD);
+  } catch { /* no log yet */ }
+  const log = fs.openSync(API_LOG, 'a');
   const child = spawn(process.execPath, args,
-    { detached: true, stdio: 'ignore', cwd: __dirname });
+    { detached: true, stdio: ['ignore', log, log], cwd: __dirname });
+  fs.closeSync(log);
   child.unref();
+}
+
+/** Starts the home API server again if it's switched on but not running —
+ *  it stopped for some reason nothing caught. Called on every check, so it's
+ *  back within one check interval instead of down until someone notices. */
+function ensureApiServer() {
+  const { apiEnabled, apiNetwork } = require('./19-settings.js').read();
+  if (!apiEnabled || require('./23-api-security.js').isServerRunning()) return false;
+  startApiServer(apiNetwork);
+  logAction('  home API server was switched on but not running — started it again (see api-log.txt)');
+  return true;
 }
 
 /** Blocks the calling thread — Node has no sleep() built in, and this
@@ -397,6 +417,7 @@ function main(action, arg) {
       redraw();
       return { ok: true, action };
     case 'check':
+      ensureApiServer();
       fullCheck();
       return { ok: true, action };
     case 'stopCheck': {
@@ -553,7 +574,7 @@ function main(action, arg) {
   }
 }
 
-module.exports = { main, appendLine, removeLine, readLines };
+module.exports = { main, appendLine, removeLine, readLines, ensureApiServer };
 
 if (require.main === module) {
   const [action, arg] = process.argv.slice(2);

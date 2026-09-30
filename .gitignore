@@ -23,6 +23,9 @@ api-cert.pem
 api-key.pem
 api-token.txt
 api-server.pid
+api-log.txt
+api-log.old.txt
+assignment-links.json
 notification-log.json
 notifier-log.txt
 diagnostics-received.txt

@@ -805,7 +805,15 @@ function watchForChanges() {
     const tryWatch = () => {
       if (!fs.existsSync(file)) { setTimeout(tryWatch, 5000); return; }
       try {
-        fs.watch(file, debounced);
+        // A watch can break later (the file replaced, the folder removed);
+        // it's closed and set up again rather than left to take the
+        // server down.
+        const watcher = fs.watch(file, debounced);
+        watcher.on('error', (e) => {
+          console.error(`watch on ${file} broke (${e.message}), watching it again`);
+          try { watcher.close(); } catch {}
+          setTimeout(tryWatch, 5000);
+        });
       } catch (e) {
         console.error(`could not watch ${file}, push disabled for it:`, e.message);
       }
@@ -847,7 +855,29 @@ function sendHeartbeat() {
   for (const res of sseClients) res.write(`event: heartbeat\ndata: ${payload}\n\n`);
 }
 
+// Started from the settings panel, this runs for days with its output going
+// to api-log.txt (see startApiServer() in 21-notifier-actions.js): every line
+// gets a timestamp, and an error nothing else caught is written down and the
+// server carries on. It used to die silently instead — Home Assistant lost
+// it for a day, with nothing anywhere to say why.
+function keepRunningThroughErrors() {
+  // Written straight out, replacing (not wrapping) the time-of-day stamp
+  // 05-playwright-draft.js puts on every line when loaded: a log that spans
+  // days needs the date.
+  const util = require('util');
+  for (const [name, stream] of [['log', process.stdout], ['warn', process.stderr], ['error', process.stderr]]) {
+    console[name] = (...args) => stream.write(`${new Date().toISOString()} ${util.format(...args)}\n`);
+  }
+  process.on('uncaughtException', (e) => {
+    console.error('unexpected error, still running:', e && e.stack || e);
+  });
+  process.on('unhandledRejection', (e) => {
+    console.error('unexpected rejection, still running:', e && e.stack || e);
+  });
+}
+
 function start() {
+  keepRunningThroughErrors();
   const args = process.argv;
   const onNetwork = args.includes('--network');
   const portIndex = args.indexOf('--port');
@@ -946,9 +976,15 @@ function start() {
       // Sends the current state immediately, THEN only again on change —
       // a client that just connected shouldn't have to wait for the next
       // collection pass to find out anything at all.
-      res.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
+      try {
+        res.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
+      } catch (e) {
+        console.error('stream: could not build the first update:', e.message);
+      }
       sseClients.push(res);
-      req.on('close', () => { sseClients = sseClients.filter(r => r !== res); });
+      const drop = () => { sseClients = sseClients.filter(r => r !== res); };
+      req.on('close', drop);
+      res.on('error', drop);
       return;
     }
 
@@ -993,7 +1029,11 @@ function start() {
     // running when the real one never even started.
     writePid();
     console.log(`Home API listening on https://${host}:${port}`);
-    console.log(`Bearer token (needed on every request): ${currentToken()}`);
+    // Printed only to a real terminal: started from the settings panel the
+    // output goes to api-log.txt, and the access key has no business in a log.
+    console.log(process.stdout.isTTY
+      ? `Bearer token (needed on every request): ${currentToken()}`
+      : 'Bearer token: in api-token.txt (Settings → Home API shows it)');
     console.log(`Certificate fingerprint (pin this, don't trust it blind): ${certFingerprint()}`);
     if (onNetwork) {
       const addresses = Object.values(os.networkInterfaces()).flat()
