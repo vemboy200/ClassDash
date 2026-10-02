@@ -295,6 +295,21 @@ function safeDecode(s) {
   try { return decodeURIComponent(String(s || '')); } catch { return String(s || ''); }
 }
 
+/** What the page's calendar script draws from: { read, ics, overrides }. */
+function calendarPayload(store) {
+  const cal = store.readCalendar();
+  return { read: cal.pdf || null, ics: cal.ics || null, overrides: cal.overrides || {} };
+}
+
+/** Fetches the calendar feed and saves its events (or why it failed), then redraws. */
+function refreshIcs(url) {
+  return require('./33-school-calendar.js').refreshFeed(url).then(result => {
+    if (!result.ok) logAction(`  calendar feed not read: ${result.why}`);
+    redraw();
+    return result;
+  });
+}
+
 function main(action, arg) {
   // A settings save carries every setting, the Canvas access token and the
   // email included, so its payload is never logged — the "applied:" line
@@ -420,7 +435,7 @@ function main(action, arg) {
         if (!read.ok) { logAction(`  calendar PDF not read: ${read.why}`); return { ...read, action }; }
         const saved = require('./33-school-calendar.js').importRead(read, file);
         redraw();
-        return { ok: true, action, calendar: { read: saved.pdf, overrides: saved.overrides } };
+        return { ok: true, action, calendar: calendarPayload(require('./33-school-calendar.js')) };
       });
     }
     case 'saveCalendar': {
@@ -434,6 +449,20 @@ function main(action, arg) {
       const result = require('./33-school-calendar.js').saveChoices(choices);
       if (result.ok) redraw();
       return { ...result, action };
+    }
+    // The calendar feed (ICS): setCalendarIcs saves its link and fetches it
+    // at once (an empty link removes the feed), refreshCalendarIcs fetches it
+    // again. Both answer later, like importCalendarPdf.
+    case 'setCalendarIcs':
+    case 'refreshCalendarIcs': {
+      const store = require('./33-school-calendar.js');
+      const url = action === 'setCalendarIcs' ? safeDecode(arg).trim() : ((store.readCalendar().ics || {}).url || '');
+      if (!url) {
+        store.clearIcs();
+        redraw();
+        return { ok: true, action, calendar: calendarPayload(store) };
+      }
+      return refreshIcs(url).then(result => ({ ...result, action, calendar: calendarPayload(store) }));
     }
     case 'clearCalendar': {
       const result = require('./33-school-calendar.js').clearCalendar();

@@ -738,43 +738,6 @@ ${rows}
 
 // ── School calendar (33-school-calendar.js) ──
 
-/** "Mon, Oct 12", or "Today" / "Tomorrow". */
-function calendarDayLabel(key, now) {
-  const [y, m, d] = key.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diff = Math.round((date - today) / 864e5);
-  if (diff === 0) return t('calendarToday');
-  if (diff === 1) return t('calendarTomorrow');
-  return date.toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-/**
- * Above "Due soon": no-school and minimum days in the next two weeks, so a
- * day off (or a short one) isn't a surprise. Nothing at all when there's
- * no calendar or nothing coming up.
- */
-function comingUpStrip(now) {
-  const runs = schoolCalendar.upcoming(now, 14);
-  if (!runs.length) return '';
-  const rows = runs.map(r => {
-    const when = r.from === r.to
-      ? calendarDayLabel(r.from, now)
-      : `${calendarDayLabel(r.from, now)} – ${calendarDayLabel(r.to, now)}`;
-    const what = t(r.kind === 'noSchool' ? 'calendarNoSchool' : 'calendarMinimumDay');
-    // The legend's words, unless they only say the same thing again ("Minimum Day").
-    const label = r.label && r.label.toLowerCase() !== what.toLowerCase() ? r.label : '';
-    return `      <li class="coming-up-${r.kind}"><b>${escapeHtml(when)}</b>: ${escapeHtml(what)}` +
-      `${label ? ` <span class="dim">(${escapeHtml(label)})</span>` : ''}</li>`;
-  }).join('\n');
-  return `    <section class="coming-up" id="coming-up">
-      <h2>${escapeHtml(t('calendarComingUp'))}</h2>
-      <ul>
-${rows}
-      </ul>
-    </section>`;
-}
-
 /**
  * The Calendar section, at the top of the right-hand column: the month,
  * with any day clickable to change it. Everything that sets the calendar up
@@ -786,10 +749,10 @@ ${rows}
 function calendarSection() {
   const cal = schoolCalendar.readCalendar();
   const pdf = cal.pdf;
-  const saved = pdf ? { read: pdf, overrides: cal.overrides || {} } : null;
+  const saved = { read: pdf || null, ics: cal.ics || null, overrides: cal.overrides || {} };
   return `    <section class="calendar-section" id="calendar-section">
       <h2>${escapeHtml(t('calendarTitle'))}</h2>
-      <p class="hint" id="calendar-empty"${pdf ? ' hidden' : ''}>${escapeHtml(t('calendarEmpty'))}</p>
+      <p class="hint" id="calendar-empty"${schoolCalendar.hasCalendar(cal) ? ' hidden' : ''}>${escapeHtml(t('calendarEmpty'))}</p>
       <div id="calendar-view"></div>
       <span class="hint calendar-save-state"></span>
       <script type="application/json" id="calendar-saved">${jsonForScript(saved)}</script>
@@ -821,7 +784,26 @@ function calendarSettings() {
         <span class="field-hint">${escapeHtml(t('calendarPdfHint'))}</span>
         <span class="field-hint calendar-error" id="calendar-error" hidden></span>
       </div>
-      <div id="calendar-settings-view"></div>`;
+      <div id="calendar-settings-view"></div>
+      <div class="setting-row stacked calendar-settings">
+        <span class="field-name">${escapeHtml(t('calendarIcs'))}</span>
+        <span class="field-with-value calendar-buttons">
+          <input type="url" class="calendar-ics-url" id="calendar-ics-url" value="${escapeHtml((cal.ics && cal.ics.url) || '')}" placeholder="https://… / webcal://…" spellcheck="false">
+          <button type="button" class="mini-btn" onclick="saveCalendarIcs(this)">${escapeHtml(t('calendarIcsSave'))}</button>
+          <button type="button" class="mini-btn" id="calendar-ics-refresh"${cal.ics ? '' : ' hidden'} onclick="refreshCalendarIcs(this)">${escapeHtml(t('calendarIcsRefresh'))}</button>
+        </span>
+        <span class="field-hint${cal.ics && cal.ics.error ? ' calendar-error' : ''}" id="calendar-ics-status">${escapeHtml(icsStatus(cal.ics))}</span>
+        <span class="field-hint">${escapeHtml(t('calendarIcsHint'))}</span>
+      </div>
+      <div id="calendar-settings-feed"></div>`;
+}
+
+/** "42 events, read Oct 1", or why the last read failed. */
+function icsStatus(ics) {
+  if (!ics) return '';
+  const read = ics.fetchedAt ? t('calendarIcsStatus', ics.events.length, new Date(ics.fetchedAt).toLocaleDateString(locale())) : '';
+  if (ics.error && (!ics.fetchedAt || ics.failedAt > ics.fetchedAt)) return `${t('calendarIcsFailed')} ${ics.error}${read ? ` (${read})` : ''}`;
+  return read;
 }
 
 /** JSON that's safe inside a <script> element (no "</script>" can end it early). */
@@ -2445,15 +2427,24 @@ function writePage(data, outputPath) {
   .calendar-legend { overflow-wrap: anywhere; }
   .calendar-legend.dim { color: var(--dim); font-style: italic; }
   .calendar-warnings { margin: 4px 0 0; }
+  .calendar-feed-meaning { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .calendar-feed-meanings { margin: 4px 0 12px; }
+  #calendar-settings-view { margin-bottom: 12px; }
+  .calendar-ics-url { flex: 1 1 220px; min-width: 0; }
+  .calendar-day.has-events { position: relative; }
+  .calendar-day.has-events::after {
+    content: ''; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px;
+    border-radius: 2px; background: var(--new);
+  }
+  .calendar-events { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+  .calendar-events li { padding: 1px 4px; margin: 0 -4px; border-radius: 4px; }
+  .calendar-events li.active { background: var(--line); font-weight: 600; }
+  .calendar-day.event-hover { border-color: var(--new); }
   .calendar-pages { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .calendar-pages-title { font-size: 13px; color: var(--dim); margin-bottom: 4px; }
   .calendar-page { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: baseline; font-size: 13px; margin-bottom: 4px; cursor: pointer; }
   .calendar-page-name { overflow-wrap: anywhere; }
   .calendar-page-range { grid-column: 2; color: var(--dim); font-size: 12px; }
-  /* Above "Due soon": no-school and minimum days in the next two weeks. */
-  .coming-up ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
-  .coming-up .dim { color: var(--dim); }
-  .coming-up-noSchool b { color: var(--hot); }
   .item.overdue-item { border-left: 3px solid var(--hot); }
   .overdue-since { color: var(--hot); }
   /* The "hide" button is deliberately unobtrusive: so it isn't hit by
@@ -2668,7 +2659,6 @@ ${filtersPanel(allItems, announcements, now, rawItems)}
 ${emptyBanner}
 ${remindersSection(now)}
 ${overdueSection(overdue, now)}
-${comingUpStrip(now)}
 ${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
 ${section(t('ahead'), later, now, freshIds)}
 ${section(t('newMaterials'), newMaterials, now, freshIds, t('materialsCaption'))}
@@ -2767,9 +2757,12 @@ const WORDS = ${JSON.stringify({
   calendarPrev: t('calendarPrev'),
   calendarNext: t('calendarNext'),
   calendarPages: t('calendarPages'),
+  calendarIcsStatus: t('calendarIcsStatusNow'),
+  calendarIcsFailed: t('calendarIcsFailed'),
+  calendarIcsMeanings: t('calendarIcsMeanings'),
   calendarPageLabel: t('calendarPageLabel'),
   calendarNoLegend: t('calendarNoLegend'),
-  calendarKinds: { noSchool: t('calendarNoSchool'), minimumDay: t('calendarMinimumDay'), ignore: t('calendarIgnore') },
+  calendarKinds: { noSchool: t('calendarNoSchool'), minimumDay: t('calendarMinimumDay'), ignore: t('calendarIgnore'), event: t('calendarEvent'), hide: t('calendarHide') },
   calendarSaveFailed: t('calendarSaveFailed'),
   calendarWarnings: t('calendarWarnings'),
   calendarChanged: t('calendarChanged'),
@@ -3633,6 +3626,7 @@ function importCalendarPdf(button) {
     }
     calendarData = res.calendar;
     calendarMonth = null;
+    calendarIcsIndex = null;
     document.getElementById('calendar-source').textContent = res.calendar.read.file || '';
     calendarRemember('calendarMonth', '');
     button.textContent = WORDS.calendarReadAnother;
@@ -3642,15 +3636,101 @@ function importCalendarPdf(button) {
   });
 }
 
+// The feed: Save fetches it at once (an empty link removes it), Read again
+// fetches it again. Both answer with the whole calendar to draw.
+function calendarFeedAction(action, arg, button) {
+  var original = button.textContent;
+  var status = document.getElementById('calendar-ics-status');
+  button.textContent = WORDS.calendarReading;
+  button.disabled = true;
+  dispatchAction(action, arg, function (res) {
+    button.textContent = original;
+    button.disabled = false;
+    if (!res) return;
+    if (res.calendar) {
+      calendarData = res.calendar;
+      calendarIcsIndex = null;
+      if (calendarMonths().indexOf(calendarMonth) === -1) calendarMonth = null;
+      document.getElementById('calendar-empty').hidden = !!(calendarData.read || (calendarData.ics && calendarData.ics.events.length));
+      renderCalendar();
+    }
+    var ics = res.calendar && res.calendar.ics;
+    status.textContent = !ics ? '' : res.ok
+      ? WORDS.calendarIcsStatus.split('{n}').join(String(ics.events.length))
+      : WORDS.calendarIcsFailed + ' ' + (res.why || '');
+    status.classList.toggle('calendar-error', !res.ok);
+    document.getElementById('calendar-ics-refresh').hidden = !ics;
+  });
+}
+
+function saveCalendarIcs(button) {
+  calendarFeedAction('setCalendarIcs', encodeURIComponent(document.getElementById('calendar-ics-url').value.trim()), button);
+}
+
+function refreshCalendarIcs(button) {
+  calendarFeedAction('refreshCalendarIcs', '', button);
+}
+
+function setCalendarIcsMeaning(group, kind) {
+  calendarData.ics.meanings[group] = kind;
+  if (calendarMonths().indexOf(calendarMonth) === -1) calendarMonth = null;
+  renderCalendar();
+  saveCalendarChoices();
+}
+
 function clearCalendar() {
   if (!confirm(WORDS.calendarConfirmRemove)) return;
   dispatchAction('clearCalendar', '', function () { location.reload(); });
 }
 
-/** What the marks alone make a day: no school beats a minimum day. */
+// The feed's events by day, built once per calendarData (reset to null
+// whenever calendarData is replaced or a feed meaning changes).
+var calendarIcsIndex = null;
+function calendarIcsOn(date) {
+  var ics = calendarData.ics;
+  if (!ics || !ics.events) return [];
+  if (!calendarIcsIndex) {
+    calendarIcsIndex = {};
+    ics.events.forEach(function (e) {
+      var parts = e.start.split('-');
+      var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      for (var n = 0; n < 400 && calendarKey(d) <= e.end; n++) {
+        var key = calendarKey(d);
+        (calendarIcsIndex[key] || (calendarIcsIndex[key] = [])).push(e);
+        d.setDate(d.getDate() + 1);
+      }
+    });
+  }
+  return calendarIcsIndex[date] || [];
+}
+
+function calendarIcsMeaning(e) {
+  return (calendarData.ics.meanings || {})[e.group] || 'event';
+}
+
+/** The feed's events on a day that are just events (not hidden, not a kind of day). */
+function calendarEventsOn(date) {
+  return calendarIcsOn(date).filter(function (e) { return calendarIcsMeaning(e) === 'event'; });
+}
+
+/** Every month with something in it: the PDF's months and the months of the feed's shown events. */
+function calendarMonths() {
+  var months = ((calendarData && calendarData.read && calendarData.read.months) || []).slice();
+  var ics = calendarData && calendarData.ics;
+  if (ics && ics.events) {
+    ics.events.forEach(function (e) {
+      if (calendarIcsMeaning(e) === 'hide') return;
+      [e.start.slice(0, 7), e.end.slice(0, 7)].forEach(function (m) { if (months.indexOf(m) === -1) months.push(m); });
+    });
+  }
+  return months.sort();
+}
+
+/** What the PDF's marks and the feed alone make a day: no school beats a minimum day. */
 function calendarMarkedKind(date) {
-  var marks = calendarData.read.marks[date] || [];
-  var kinds = marks.map(function (m) { return calendarData.read.meanings[m]; });
+  var read = calendarData.read;
+  var kinds = ((read && read.marks[date]) || []).map(function (m) { return read.meanings[m]; });
+  calendarIcsOn(date).forEach(function (e) { kinds.push(calendarIcsMeaning(e)); });
   if (kinds.indexOf('noSchool') !== -1) return 'noSchool';
   if (kinds.indexOf('minimumDay') !== -1) return 'minimumDay';
   return 'normal';
@@ -3667,8 +3747,10 @@ function setCalendarSaveState(text) {
 
 function saveCalendarChoices() {
   setCalendarSaveState(WORDS.saving);
-  var payload = { meanings: calendarData.read.meanings, overrides: calendarData.overrides };
-  if (calendarData.read.pages) payload.pages = calendarData.read.selected;
+  var payload = { overrides: calendarData.overrides };
+  if (calendarData.read) payload.meanings = calendarData.read.meanings;
+  if (calendarData.read && calendarData.read.pages) payload.pages = calendarData.read.selected;
+  if (calendarData.ics) payload.icsMeanings = calendarData.ics.meanings;
   dispatchAction('saveCalendar', toBase64Url(JSON.stringify(payload)), function (res) {
     if (res && res.ok) { setCalendarSaveState(WORDS.saved); return; }
     setCalendarSaveState('');
@@ -3721,7 +3803,7 @@ function setCalendarPage(page, on) {
   read.marks = marks;
   read.legend = legend;
   read.warnings = warnings;
-  if (months.indexOf(calendarMonth) === -1) calendarMonth = null;
+  if (calendarMonths().indexOf(calendarMonth) === -1) calendarMonth = null;
   renderCalendar();
   saveCalendarChoices();
 }
@@ -3766,7 +3848,7 @@ function calendarKey(d) {
 
 /** The month to show first: this one, or the nearest end of the calendar. */
 function calendarStartMonth() {
-  var months = calendarData.read.months || [];
+  var months = calendarMonths();
   var remembered = calendarRemember('calendarMonth');
   if (remembered && months.indexOf(remembered) !== -1) return remembered;
   var now = calendarKey(new Date()).slice(0, 7);
@@ -3775,7 +3857,7 @@ function calendarStartMonth() {
 }
 
 function showCalendarMonth(step) {
-  var months = calendarData.read.months;
+  var months = calendarMonths();
   var i = Math.min(months.length - 1, Math.max(0, months.indexOf(calendarMonth) + step));
   calendarMonth = months[i];
   calendarRemember('calendarMonth', calendarMonth);
@@ -3787,23 +3869,28 @@ function showCalendarMonth(step) {
 function renderCalendar() {
   var view = document.getElementById('calendar-view');
   var setup = document.getElementById('calendar-settings-view');
+  var feed = document.getElementById('calendar-settings-feed');
   if (view) view.innerHTML = '';
   if (setup) setup.innerHTML = '';
-  if (!calendarData || !calendarData.read || !(calendarData.read.months || []).length) return;
+  if (feed) feed.innerHTML = '';
+  if (!calendarData) return;
   var read = calendarData.read;
+  if (setup && read) renderCalendarSetup(setup, read);
+  if (feed && calendarData.ics && calendarData.ics.events && calendarData.ics.events.length) renderCalendarFeedSetup(feed, calendarData.ics);
+  if (!calendarMonths().length) return;
   if (!calendarMonth) calendarMonth = calendarStartMonth();
-  if (view) renderCalendarMonth(view, read);
-  if (setup) renderCalendarSetup(setup, read);
+  if (view) renderCalendarMonth(view);
 }
 
-function renderCalendarMonth(view, read) {
+function renderCalendarMonth(view) {
+  var months = calendarMonths();
   var nav = calendarElement('div', 'calendar-nav');
-  var at = read.months.indexOf(calendarMonth);
+  var at = months.indexOf(calendarMonth);
   var prev = calendarElement('button', 'mini-btn', '‹');
   prev.type = 'button'; prev.title = WORDS.calendarPrev; prev.disabled = at <= 0;
   prev.onclick = function () { showCalendarMonth(-1); };
   var next = calendarElement('button', 'mini-btn', '›');
-  next.type = 'button'; next.title = WORDS.calendarNext; next.disabled = at >= read.months.length - 1;
+  next.type = 'button'; next.title = WORDS.calendarNext; next.disabled = at >= months.length - 1;
   next.onclick = function () { showCalendarMonth(1); };
   nav.appendChild(prev);
   nav.appendChild(calendarElement('span', 'calendar-month-title', calendarMonthTitle(calendarMonth)));
@@ -3824,6 +3911,81 @@ function renderCalendarMonth(view, read) {
   key.appendChild(changed);
   view.appendChild(key);
   view.appendChild(calendarElement('p', 'hint', WORDS.calendarClickHint));
+
+  // This month's events from the feed, each once (a multi-day one as a range).
+  var shown = [];
+  (calendarData.ics && calendarData.ics.events || []).forEach(function (e) {
+    if (calendarIcsMeaning(e) !== 'event') return;
+    if (e.end.slice(0, 7) < calendarMonth || e.start.slice(0, 7) > calendarMonth) return;
+    shown.push(e);
+  });
+  if (shown.length) {
+    var list = calendarElement('ul', 'calendar-events');
+    shown.forEach(function (e) {
+      var item = calendarElement('li');
+      item.setAttribute('data-start', e.start);
+      item.setAttribute('data-end', e.end);
+      item.appendChild(calendarElement('b', '', calendarShortDay(e.start) + (e.end !== e.start ? ' \u2013 ' + calendarShortDay(e.end) : '')));
+      item.appendChild(document.createTextNode(': ' + e.summary));
+      item.onmouseenter = function () { markCalendarEventDays(e.start, e.end, true); };
+      item.onmouseleave = function () { markCalendarEventDays(e.start, e.end, false); };
+      list.appendChild(item);
+    });
+    view.appendChild(list);
+  }
+}
+
+// Hovering a day with events highlights them in the list under the month;
+// hovering an event in the list outlines its days.
+function markCalendarEvents(date, on) {
+  var items = document.querySelectorAll('.calendar-events li');
+  for (var i = 0; i < items.length; i++) {
+    var hit = items[i].getAttribute('data-start') <= date && date <= items[i].getAttribute('data-end');
+    items[i].classList.toggle('active', on && hit);
+  }
+}
+
+function markCalendarEventDays(start, end, on) {
+  var cells = document.querySelectorAll('#calendar-view .calendar-day');
+  for (var i = 0; i < cells.length; i++) {
+    var date = cells[i].getAttribute('data-date');
+    cells[i].classList.toggle('event-hover', on && start <= date && date <= end);
+  }
+}
+
+function calendarShortDay(key) {
+  var parts = key.split('-');
+  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+    .toLocaleDateString(WORDS.calendarLocale, { month: 'short', day: 'numeric' });
+}
+
+// What each kind of event in the feed means, one row per title (every
+// "Banking Day" is one row), the most frequent first.
+function renderCalendarFeedSetup(setup, ics) {
+  var counts = {};
+  ics.events.forEach(function (e) { counts[e.group] = (counts[e.group] || 0) + 1; });
+  var groups = Object.keys(counts).sort(function (a, b) {
+    return counts[b] - counts[a] || (ics.groups[a] || a).localeCompare(ics.groups[b] || b);
+  });
+  var box = calendarElement('div', 'calendar-marks calendar-feed-meanings');
+  box.appendChild(calendarElement('div', 'calendar-pages-title', WORDS.calendarIcsMeanings));
+  groups.forEach(function (group) {
+    var row = calendarElement('label', 'calendar-meaning calendar-feed-meaning');
+    row.appendChild(calendarElement('span', 'calendar-legend', ics.groups[group] || group));
+    row.appendChild(calendarElement('span', 'count', String(counts[group])));
+    var select = calendarElement('select');
+    select.setAttribute('data-group', group);
+    ['noSchool', 'minimumDay', 'event', 'hide'].forEach(function (kind) {
+      var option = calendarElement('option', '', WORDS.calendarKinds[kind]);
+      option.value = kind;
+      if ((ics.meanings || {})[group] === kind) option.selected = true;
+      select.appendChild(option);
+    });
+    select.onchange = function () { setCalendarIcsMeaning(group, select.value); };
+    row.appendChild(select);
+    box.appendChild(row);
+  });
+  setup.appendChild(box);
 }
 
 // Which page (a PDF can hold a calendar per school), and what each mark
@@ -3885,8 +4047,15 @@ function calendarMonthGrid(month) {
       (calendarData.overrides[date] ? ' day-changed' : '') + (date === today ? ' day-today' : ''), String(d));
     cell.type = 'button';
     cell.setAttribute('data-date', date);
-    var marks = calendarData.read.marks[date] || [];
-    cell.title = date + (marks.length ? ' ' + marks.map(function (m) { return CALENDAR_MARK_SYMBOLS[m] || m; }).join(' ') : '');
+    var marks = (calendarData.read && calendarData.read.marks[date]) || [];
+    var events = calendarEventsOn(date);
+    if (events.length) {
+      cell.className += ' has-events';
+      cell.onmouseenter = cell.onfocus = (function (which) { return function () { markCalendarEvents(which, true); }; })(date);
+      cell.onmouseleave = cell.onblur = (function (which) { return function () { markCalendarEvents(which, false); }; })(date);
+    }
+    cell.title = date + (marks.length ? ' ' + marks.map(function (m) { return CALENDAR_MARK_SYMBOLS[m] || m; }).join(' ') : '') +
+      calendarIcsOn(date).filter(function (e) { return calendarIcsMeaning(e) !== 'hide'; }).map(function (e) { return ' \u00b7 ' + e.summary; }).join('');
     cell.onclick = (function (which) { return function () { cycleCalendarDay(which); }; })(date);
     grid.appendChild(cell);
   }

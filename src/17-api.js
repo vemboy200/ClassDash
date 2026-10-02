@@ -315,6 +315,8 @@ function calendarView(now) {
     today: { ...today, schoolDay: schoolCalendar.isSchoolDay(now, cal) },
     nextSchoolDay: schoolCalendar.dayKey(schoolCalendar.nextSchoolDay(now, cal)),
     upcoming: schoolCalendar.upcoming(now, 14, cal),
+    // The feed's events that are just events (Settings → Calendar), next 14 days.
+    events: schoolCalendar.upcomingEvents(now, 14, cal),
   };
 }
 

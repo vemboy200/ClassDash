@@ -207,7 +207,8 @@ const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-
 const { isClassStale, recordActivity } = require('./22-class-activity.js');
 const { record: recordCheckStatus } = require('./25-check-status.js');
 const live = require('./28-live-state.js');
-const { placeholderDue } = require('./33-school-calendar.js');
+const schoolCalendar = require('./33-school-calendar.js');
+const { placeholderDue } = schoolCalendar;
 const BROWSER = SETTINGS.browserPath
   ? { executablePath: path.resolve(PROJECT_ROOT, SETTINGS.browserPath) }
   : ownBrowserInstalled()
@@ -2279,6 +2280,13 @@ if (require.main !== module) return;
   }
   const edpuzzleResult = taskResults.find(r => r.cls.id === 'edpuzzle');
   if (edpuzzleResult) recordCheckStatus('edpuzzle', edpuzzleResult.ok, edpuzzleResult.error);
+
+  // The school calendar's feed, once a day, so a new event (a snow day, a
+  // changed minimum day) shows up without anyone saving the link again.
+  if (schoolCalendar.icsStale(now)) {
+    const feed = await schoolCalendar.refreshFeed();
+    console.log(feed.ok ? `Calendar feed: ${feed.events} events` : `Calendar feed not read: ${feed.why}`);
+  }
 
   // A SOURCE THAT WASN'T READ BEHAVES LIKE A BROKEN ONE: its assignments
   // are pulled from memory and don't count as new.

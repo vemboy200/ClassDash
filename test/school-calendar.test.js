@@ -1,6 +1,6 @@
 // The school calendar: reading a calendar PDF (month grids with drawn
 // marks), what's saved, "by tomorrow" landing on the next school day, the
-// "Coming up" strip, the review in Settings → Calendar, and /api/calendar.
+// month view, Settings → Calendar, and /api/calendar.
 // The PDFs are made up here, drawn with plain PDF operators.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs'), cp = require('child_process');
@@ -152,7 +152,7 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   ok('saveCalendar saves a change on the saved calendar', saved.ok && cal.readCalendar().pdf.meanings.slash === 'noSchool', JSON.stringify(saved));
   const c = cal.readCalendar();
   ok('...and keeps only well-formed day changes', JSON.stringify(c.overrides) === '{"2026-10-07":"normal","2026-10-16":"minimumDay"}');
-  ok('a marked day is what its mark means, with the legend as label', JSON.stringify(cal.dayInfo('2026-09-07', c)) === '{"date":"2026-09-07","kind":"noSchool","label":"State Holiday"}');
+  ok('a marked day is what its mark means, with the legend as label', JSON.stringify(cal.dayInfo('2026-09-07', c)) === '{"date":"2026-09-07","kind":"noSchool","label":"State Holiday","events":[]}');
   ok('a day changed by hand wins over its mark', cal.dayInfo('2026-10-07', c).kind === null && cal.dayInfo('2026-10-16', c).kind === 'minimumDay');
   ok('X is a minimum day, which is still a school day', cal.dayInfo('2026-10-20', c).kind === 'minimumDay' && cal.isSchoolDay('2026-10-20', c));
   ok('weekends and no-school days aren\'t school days', !cal.isSchoolDay('2026-09-06', c) && !cal.isSchoolDay('2026-09-07', c) && cal.isSchoolDay('2026-09-08', c));
@@ -214,7 +214,7 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   await sleep(300);
   const w = dom.window, d = w.document;
   const strip = d.getElementById('coming-up');
-  ok('a no-school day coming up shows above Due soon', strip && /No school/.test(strip.textContent), strip && strip.textContent);
+  ok('no "Coming up" list beside the assignments (the calendar shows those days)', !strip);
   const section = d.getElementById('calendar-section');
   ok('the month has its own section, not inside Settings', section && !section.closest('#settings-panel') &&
     section.parentElement.querySelector('.calendar-section + *, .calendar-section ~ section') !== null);
