@@ -123,6 +123,19 @@ function partsBadge(x) {
     : '';
 }
 
+// Locked Canvas work (see lockState in 05-playwright-draft.js): why it
+// can't be opened yet, or that it closed.
+function lockBadge(x) {
+  const lock = x.locked;
+  if (!lock) return '';
+  const text = lock.why === 'closed' ? t('closedBadge')
+    : lock.why === 'opens' ? t('lockedOpens', lock.at.toLocaleString(locale(),
+        { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))
+    : lock.why === 'module' ? t('lockedModule', lock.module)
+    : t('lockedOther');
+  return `<span class="lock-badge">${escapeHtml(text)}</span>`;
+}
+
 // A card's buttons only show while the card is hovered (or has keyboard
 // focus), so they take no room on every card; on a screen with no hover
 // (touch) they always show. They go in a wrapper beside the card, not
@@ -222,6 +235,7 @@ function itemCard(x, now, isFresh, section) {
           ${due ? `<span class="due">${escapeHtml(due)}</span>` : ''}
           ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
           ${x.removed ? `<span class="removed-badge">${escapeHtml(t('removedBadge'))}</span>` : ''}
+          ${lockBadge(x)}
           ${partsBadge(x)}
         </div>
       </${tag}>`;
@@ -514,6 +528,7 @@ function overdueSection(items, now) {
           <span class="cls">${escapeHtml(x.class)}</span>
           ${teacherSpan(x.class)}
           <span class="overdue-since">${escapeHtml(wasDue)} · ${escapeHtml(t('lateByDays', days))}</span>
+          ${lockBadge(x)}
           ${partsBadge(x)}
         </div>
       </a>`;
@@ -522,7 +537,12 @@ function overdueSection(items, now) {
         ? `<a class="quiet" href="napominalka://unhide/${escapeHtml(x.id)}"
              onclick="restoreOverdueItem(event, this)">${escapeHtml(t('restore'))}</a>`
         : `<a class="quiet quiet-faint" href="napominalka://hide/${escapeHtml(x.id)}"
-             onclick="return hideOverdueItem(event, this)">${escapeHtml(t('hide'))}</a>`))}${linkHereButton(x)}
+             onclick="return hideOverdueItem(event, this)">${escapeHtml(t('hide'))}</a>`) +
+        // Closed work can't ever be turned in, so it can also go for good.
+        (x.locked && x.locked.why === 'closed'
+          ? `<a class="quiet quiet-faint" href="napominalka://deleteAssignment/${escapeHtml(encodeURIComponent(x.id))}"
+             onclick="return deleteClosedItem(event, this)">${escapeHtml(t('deleteForGood'))}</a>`
+          : ''))}${linkHereButton(x)}
       </div>`;
   };
 
@@ -1515,7 +1535,7 @@ function pixelCornerCss() {
   const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
     '.setting-row select, .reminder-add input[type="text"], ' +
     '.reminder-add input[type="datetime-local"], .class-picker';
-  const PILLS = '.count, .plat, .removed-badge, .check-row .count-badge';
+  const PILLS = '.count, .plat, .removed-badge, .lock-badge, .check-row .count-badge';
   const CHECK = 'input[type="checkbox"]:not(.toggle)';
   const SLIDER = '.field-with-value input[type="range"]';
   const TRACK = SLIDER + '::-webkit-slider-runnable-track';
@@ -2483,6 +2503,10 @@ function writePage(data, outputPath) {
     background: var(--line); color: var(--dim); border-radius: 6px;
     padding: 0 6px; font-size: 12px;
   }
+  .lock-badge {
+    background: var(--line); color: var(--dim); border-radius: 6px;
+    padding: 0 6px; font-size: 12px;
+  }
   .row.hidden-row { display: none; }
   .row.hidden-row.shown { display: flex; opacity: .5; }
   .show-hidden-btn {
@@ -2728,6 +2752,8 @@ const WORDS = ${JSON.stringify({
   muted: t('mutedBadge'),
   confirmRemove: t('confirmRemove'),
   confirmRemoveHint: t('confirmRemoveHint'),
+  confirmDelete: t('confirmDelete'),
+  confirmDeleteHint: t('confirmDeleteHint'),
   showHidden: t('showHidden'),
   hideAgain: t('hideAgain'),
   showing: t('filterShowingCount'),
@@ -2943,6 +2969,22 @@ function hideOverdueItem(e, link) {
   link.onclick = function (ev) { return restoreOverdueItem(ev, link); };
 
   refreshSection(row.closest('section'));
+  return sentDirectly;
+}
+
+// Delete closed work for good: asked first, since there's no undo. The
+// card goes at once; the app writes it down and redraws.
+function deleteClosedItem(e, link) {
+  var row = link.closest('.row');
+  var title = row.querySelector('.title').textContent.trim();
+  if (!confirm(WORDS.confirmDelete + '\\n\\n' + title + '\\n\\n' + WORDS.confirmDeleteHint)) {
+    e.preventDefault();
+    return false;
+  }
+  var sentDirectly = sendLinkViaBridge(e, link);
+  var section = row.closest('section');
+  row.remove();
+  refreshSection(section);
   return sentDirectly;
 }
 

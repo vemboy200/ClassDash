@@ -195,6 +195,11 @@ function toPublic(x, now) {
     daysUntilDue: x.due_at ? daysUntil(now, x.due_at) : null,
     // note is stored as a key ("noDueDateNote"), given out as text.
     note: x.note ? t(x.note) : null,
+    // Locked Canvas work: null, or why ('opens', 'module', 'closed' or
+    // 'locked'), with when it opens or closed, and the module to finish.
+    locked: x.locked
+      ? { why: x.locked.why, at: x.locked.at ? x.locked.at.toISOString() : null, module: x.locked.module || null }
+      : null,
     tags,
   };
 }

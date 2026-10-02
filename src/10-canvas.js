@@ -314,6 +314,26 @@ function teacherNames(course) {
   return [...new Set(list.map(t => String((t && t.display_name) || '').trim()).filter(Boolean))].join(', ');
 }
 
+/**
+ * Why a student can't open an assignment yet (or anymore), or null when
+ * they can. Canvas says `locked_for_user`, and lock_info says why: an
+ * "available from" date still ahead, an "available until" date gone by, or
+ * a module whose earlier work isn't done. The dates are kept as they are,
+ * not turned into "opens"/"closed" here: a check can be hours old by the
+ * time it's bucketed, and sortIntoBuckets (05-playwright-draft.js) decides
+ * against its own "now".
+ */
+function lockOf(a) {
+  if (!a.locked_for_user) return null;
+  const info = a.lock_info || {};
+  const module = info.context_module && info.context_module.name;
+  return {
+    unlockAt: info.unlock_at || a.unlock_at || null,
+    lockAt: info.lock_at || a.lock_at || null,
+    module: module ? String(module) : null,
+  };
+}
+
 /** Everything after signing in: the same for both ways, given a function
  *  that asks the API for a path. */
 async function readCanvas(ask) {
@@ -408,6 +428,7 @@ async function readCanvas(ask) {
         // Kept for later: show the description right on the page without
         // opening Canvas. The user's request.
         description: cleanDescription(a.description),
+        lock: lockOf(a),
       });
     }
 
@@ -496,4 +517,4 @@ async function readCanvas(ask) {
   return { items, courses, pending };
 }
 
-module.exports = { collectCanvas, collectCanvasPlanned, SITE };
+module.exports = { collectCanvas, collectCanvasPlanned, lockOf, SITE };

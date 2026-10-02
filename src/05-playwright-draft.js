@@ -178,6 +178,11 @@ const QUIET_FILE = path.join(PROJECT_ROOT, 'не-срочно.txt');
 // here. Removed with a button on the page, with a confirmation.
 // Can be restored from the same place.
 const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
+
+// Ids of closed Canvas assignments deleted from the page for good. Unlike
+// hidden ones they're gone from everywhere, page and API, and there's no
+// restoring them.
+const DELETED_FILE = path.join(PROJECT_ROOT, 'deleted-assignments.txt');
 const { writePage, daysUntil } = require('./08-page.js');
 const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./10-canvas.js');
 const { collectEdpuzzle } = require('./11-edpuzzle.js');
@@ -1618,6 +1623,8 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   }
   // Assignments linked on the page become one item here, before anything is
   // bucketed (see 31-assignment-links.js).
+  const deletedIds = readDeletedIds();
+  if (deletedIds.size) items = items.filter(x => !deletedIds.has(x.id));
   const assignmentLinks = require('./31-assignment-links.js');
   items = assignmentLinks.mergeLinked(items, assignmentLinks.readLinks(), x => deadline(x, now));
 
@@ -1671,6 +1678,24 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
       continue;
     }
 
+    // LOCKED CANVAS WORK (see lockOf in 10-canvas.js). Nothing can be done
+    // with it yet, so it waits in "ahead" whatever its due date says, and
+    // never counts as due soon; once it opens, the next check finds it
+    // unlocked and it's bucketed like anything else. Closed work (its
+    // "available until" date passed) can't be turned in anymore: that's
+    // missed work, so it goes with the overdue, marked closed.
+    const lock = lockState(x, now);
+    if (lock && lock.why === 'closed') {
+      const due = deadline(x, now);
+      past++;
+      overdue.push({ ...x, due_at: due && due < now ? due : lock.at, locked: lock, hidden: hiddenIds.has(x.id) });
+      continue;
+    }
+    if (lock) {
+      later.push({ ...x, due_at: deadline(x, now), locked: lock });
+      continue;
+    }
+
     // Classroom labels the type itself on the first line: Assignment,
     // Quiz assignment, or Material. A material is something to read, an
     // assignment is something to turn in, and their fate in the summary
@@ -1718,7 +1743,10 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   }
 
   burning.sort((a, b) => a.due_at - b.due_at);
-  later.sort((a, b) => a.due_at - b.due_at);
+  // Locked work can have no due date: then it sorts by when it opens, and
+  // after everything dated if it doesn't say.
+  const laterKey = x => +(x.due_at || (x.locked && x.locked.at) || 864e13);
+  later.sort((a, b) => laterKey(a) - laterKey(b));
   // Most recently overdue on top: the more recently something was missed,
   // the more it matters.
   overdue.sort((a, b) => b.due_at - a.due_at);
@@ -1728,6 +1756,32 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   gone.sort((a, b) => String(b.removedAt || '').localeCompare(String(a.removedAt || '')));
 
   return { burning, later, undated, deferred, overdue, gone, done, past };
+}
+
+/**
+ * A Canvas item's lock as of `now`, or null when it can be worked on:
+ *   { why: 'opens', at }    its "available from" date is still ahead
+ *   { why: 'closed', at }   its "available until" date has passed
+ *   { why: 'module', module }  earlier work in a module comes first
+ *   { why: 'locked' }       locked, Canvas didn't say why
+ * An "available from" date that has passed since the check means it's open.
+ */
+function lockState(x, now) {
+  if (!x.lock) return null;
+  const date = v => { const d = v ? new Date(v) : null; return d && !isNaN(d) ? d : null; };
+  const unlockAt = date(x.lock.unlockAt), lockAt = date(x.lock.lockAt);
+  if (unlockAt && unlockAt > now) return { why: 'opens', at: unlockAt };
+  if (lockAt && lockAt <= now) return { why: 'closed', at: lockAt };
+  if (x.lock.module) return { why: 'module', module: x.lock.module };
+  if (unlockAt) return null;
+  return { why: 'locked' };
+}
+
+/** Assignments deleted for good (closed Canvas work), see DELETED_FILE. */
+function readDeletedIds() {
+  if (!fs.existsSync(DELETED_FILE)) return new Set();
+  return new Set(fs.readFileSync(DELETED_FILE, 'utf8').split('\n').map(s => s.trim()).filter(Boolean)
+    .map(s => { try { return decodeURIComponent(s); } catch { return s; } }));
 }
 
 /** Assignments the user removed from the overdue list. */
@@ -2065,7 +2119,7 @@ function assignmentsForProgress(memory, readItems, reported, broken) {
 // word in this whole thing.
 module.exports = {
   parseDue, deadline, detectErrorPage, notify, diffWithPrevious, rememberCollection,
-  sortIntoBuckets, readMutedIds, readHiddenIds, announcementsForProgress, assignmentsForProgress,
+  sortIntoBuckets, readMutedIds, readHiddenIds, readDeletedIds, lockState, DELETED_FILE, announcementsForProgress, assignmentsForProgress,
   LOCK_FILE, PROFILE_DIR, killLeftoverBrowser,
   teacherNamesFromPeoplePage, classesNeedingTeacher, withKnownTeachers, saveClassroomTeachers,
   flippedFromTurnedIn, looksMisread, keepTurnedIn, scrapeClassChecked, TURNED_IN_THRESHOLD, TURNED_IN_LOG,

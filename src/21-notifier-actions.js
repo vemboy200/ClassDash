@@ -26,6 +26,7 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 
 const QUIET_FILE = path.join(PROJECT_ROOT, 'не-срочно.txt');
 const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
+const DELETED_FILE = path.join(PROJECT_ROOT, 'deleted-assignments.txt');
 const API_LOG = path.join(PROJECT_ROOT, 'api-log.txt');
 const API_LOG_OLD = path.join(PROJECT_ROOT, 'api-log.old.txt');
 const ACTION_LOG = path.join(PROJECT_ROOT, 'notifier-log.txt');
@@ -474,6 +475,14 @@ function main(action, arg) {
       redraw();
       return { ok: true, action };
     case 'unhide':
+      removeLine(HIDDEN_FILE, arg);
+      redraw();
+      return { ok: true, action };
+    // Closed Canvas work, deleted from the page for good: it's left out of
+    // everything from now on, and there's no undo (the page asks first).
+    case 'deleteAssignment':
+      if (!arg) return { ok: false, action, why: 'no assignment id' };
+      appendLine(DELETED_FILE, arg);
       removeLine(HIDDEN_FILE, arg);
       redraw();
       return { ok: true, action };

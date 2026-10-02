@@ -107,6 +107,13 @@ const DICTIONARIES = {
     openInClassroom: 'открыть в Classroom',
     confirmRemove: 'Убрать из списка просроченных?',
     confirmRemoveHint: 'Вернуть можно кнопкой внизу этого раздела.',
+    lockedOpens: d => `заблокировано · откроется ${d}`,
+    lockedModule: m => `заблокировано · сначала модуль «${m}»`,
+    lockedOther: 'заблокировано',
+    closedBadge: 'закрыто · сдать уже нельзя',
+    deleteForGood: 'удалить',
+    confirmDelete: 'Удалить насовсем?',
+    confirmDeleteHint: 'Вернуть не получится, даже через «показать скрытые».',
 
     // Filters
     filterClass: 'Класс',
@@ -412,6 +419,13 @@ const DICTIONARIES = {
     openInClassroom: 'open in Classroom',
     confirmRemove: 'Remove from the overdue list?',
     confirmRemoveHint: 'You can restore it with the button at the bottom of this section.',
+    lockedOpens: d => `locked · opens ${d}`,
+    lockedModule: m => `locked · finish “${m}” first`,
+    lockedOther: 'locked',
+    closedBadge: "closed · can't be turned in anymore",
+    deleteForGood: 'delete',
+    confirmDelete: 'Delete this for good?',
+    confirmDeleteHint: "It can't be brought back, not even with \"show hidden\".",
 
     filterClass: 'Class',
     filterType: 'Type',
