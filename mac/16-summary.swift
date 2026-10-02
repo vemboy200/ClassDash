@@ -1122,6 +1122,30 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
             attemptLogin()
             deliver(requestId: requestId, resultJSON: "{\"ok\":true}")
             return true
+        case "pickCalendarPdf":
+            // Settings → Calendar: pick a school calendar PDF, then have
+            // 32-calendar-pdf.js read it. The page gets the read back to
+            // check; nothing is saved here. Cancelled answers
+            // {ok: false, cancelled: true}, which the page just ignores.
+            let panel = NSOpenPanel()
+            panel.title = "Choose the school calendar PDF"
+            panel.prompt = "Read"
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [.pdf]
+            panel.begin { [weak self] response in
+                guard let self = self else { return }
+                guard response == .OK, let chosen = panel.url?.path else {
+                    self.deliver(requestId: requestId, resultJSON: "{\"ok\":false,\"cancelled\":true}")
+                    return
+                }
+                let arg = chosen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? chosen
+                self.runAction("importCalendarPdf", arg) { resultJSON in
+                    self.deliver(requestId: requestId, resultJSON: resultJSON)
+                }
+            }
+            return true
         default:
             return false
         }

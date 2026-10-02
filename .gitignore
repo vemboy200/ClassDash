@@ -40,3 +40,4 @@ ClassDash.app
 window-log.txt
 electron/dist/
 .DS_Store
+school-calendar.json

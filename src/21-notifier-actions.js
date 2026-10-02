@@ -408,6 +408,38 @@ function main(action, arg) {
       if (result.ok) redraw();
       return { ...result, action };
     }
+    // The page's Calendar section. importCalendarPdf reads a PDF (the path
+    // the app's file picker chose) and saves it as the calendar right away;
+    // saveCalendar carries each change made on the page afterwards, as
+    // base64url JSON the way virtualCreate does. The read is the one action
+    // that answers later, so main() returns a promise for it (the CLI entry
+    // below waits for it; nothing else calls it).
+    case 'importCalendarPdf': {
+      const file = safeDecode(arg);
+      return require('./32-calendar-pdf.js').readCalendarPdf(file).then(read => {
+        if (!read.ok) { logAction(`  calendar PDF not read: ${read.why}`); return { ...read, action }; }
+        const saved = require('./33-school-calendar.js').importRead(read, file);
+        redraw();
+        return { ok: true, action, calendar: { read: saved.pdf, overrides: saved.overrides } };
+      });
+    }
+    case 'saveCalendar': {
+      let choices;
+      try {
+        const normal = String(arg).replace(/-/g, '+').replace(/_/g, '/');
+        choices = JSON.parse(Buffer.from(normal, 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      const result = require('./33-school-calendar.js').saveChoices(choices);
+      if (result.ok) redraw();
+      return { ...result, action };
+    }
+    case 'clearCalendar': {
+      const result = require('./33-school-calendar.js').clearCalendar();
+      redraw();
+      return { ...result, action };
+    }
     case 'hide':
       appendLine(HIDDEN_FILE, arg);
       redraw();
@@ -598,5 +630,10 @@ if (require.main === module) {
   // Printed as the LAST line of stdout, always. 16-summary.swift's
   // bridge and 07-notifier.applescript's dispatch both read this
   // program's own answer instead of guessing from a bare exit code.
-  console.log(JSON.stringify(result));
+  // (importCalendarPdf answers with a promise; everything else at once.)
+  Promise.resolve(result).catch(e => {
+    logAction(`  CRASHED: ${e.message}`);
+    process.exitCode = 1;
+    return { ok: false, action, why: e.message };
+  }).then(answer => console.log(JSON.stringify(answer)));
 }

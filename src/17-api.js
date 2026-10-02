@@ -75,6 +75,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // edpuzzle-classes.json a second, possibly-inconsistent way.
 const { daysUntil, allKnownClasses, knownClassStatus, classTeachers } = require('./08-page.js');
 const classLinks = require('./29-class-links.js');
+const schoolCalendar = require('./33-school-calendar.js');
 const { readCollection } = require('./28-live-state.js');
 const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
@@ -306,6 +307,17 @@ function classRoster(d) {
   return roster.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 }
 
+function calendarView(now) {
+  const cal = schoolCalendar.readCalendar();
+  const today = schoolCalendar.dayInfo(now, cal);
+  return {
+    available: schoolCalendar.hasCalendar(cal),
+    today: { ...today, schoolDay: schoolCalendar.isSchoolDay(now, cal) },
+    nextSchoolDay: schoolCalendar.dayKey(schoolCalendar.nextSchoolDay(now, cal)),
+    upcoming: schoolCalendar.upcoming(now, 14, cal),
+  };
+}
+
 const HANDLERS = {
   '/api/status': (d) => ({
     collectedAt: d.collectedAt ? d.collectedAt.toISOString() : null,
@@ -335,7 +347,14 @@ const HANDLERS = {
     // died sends no last word, and a push-only client would otherwise keep
     // believing it's running.
     collecting: readCollection(PROJECT_ROOT).running,
+    // Whether today is a school day, by the school calendar (Settings →
+    // Calendar). Without one saved, null: not known, rather than a guess.
+    schoolToday: schoolCalendar.hasCalendar() ? schoolCalendar.isSchoolDay(d.now) : null,
   }),
+
+  // The school calendar: today, the next school day, and the no-school and
+  // minimum days in the next two weeks. See 33-school-calendar.js.
+  '/api/calendar': (d) => calendarView(d.now),
 
   // The check that's running right now, if any: {running, done, total,
   // percent, updatedAt} — see readCollection() in 28-live-state.js.

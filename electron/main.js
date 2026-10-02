@@ -402,12 +402,26 @@ ipcMain.on('classdash-action', async (_event, body) => {
 //                   button), answered at once. The page's "sign in again"
 //                   banner (signIn) gets the same flow; the notifier's own
 //                   signIn has no Done button, so it's only for a plain tab.
-const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn', 'signIn'];
+//   pickCalendarPdf Settings → Calendar: pick a school calendar PDF and have
+//                   32-calendar-pdf.js read it. Answers with the read for the
+//                   page to check (nothing is saved here), or
+//                   {ok: false, cancelled: true}.
+const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn', 'signIn', 'pickCalendarPdf'];
 
 async function runNativeSetupAction(action) {
   if (action === 'setupSignIn' || action === 'signIn') {
     attemptLogin();
     return { ok: true, action };
+  }
+  if (action === 'pickCalendarPdf') {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose the school calendar PDF',
+      buttonLabel: 'Read',
+      properties: ['openFile'],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { ok: false, action, cancelled: true };
+    return runAction('importCalendarPdf', encodeURIComponent(result.filePaths[0]));
   }
   // While the page is the one asking, the chosen path goes back to it
   // instead of into settings.json (see browserPathSink).

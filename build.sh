@@ -149,6 +149,16 @@ if command -v swiftc >/dev/null; then
   cp package.json "$TEMPLATE_DIR/"
   cp src/settings.example.json src/refresh-icon.png src/freshcheck-icon.png src/settings-icon.png src/loading-icon.png src/loading-icon-light.png src/stop-icon.png "$TEMPLATE_DIR/"
   cp -R node_modules "$TEMPLATE_DIR/node_modules"
+  # PDF.js (Settings → Calendar, 32-calendar-pdf.js) only needs its legacy
+  # build's two minified files and the cmaps; the rest of the package is
+  # other builds, source maps and viewer code, about 35MB. @napi-rs/canvas
+  # is its optional page renderer, never used here (the reader takes text
+  # and shapes, it never draws a page). electron/package.json leaves out the
+  # same files.
+  PDFJS="$TEMPLATE_DIR/node_modules/pdfjs-dist"
+  rm -rf "$PDFJS/build" "$PDFJS/web" "$PDFJS/image_decoders" "$PDFJS/types" "$PDFJS/standard_fonts" \
+         "$PDFJS/legacy/web" "$PDFJS/legacy/image_decoders" "$TEMPLATE_DIR/node_modules/@napi-rs"
+  find "$PDFJS/legacy/build" -type f ! -name pdf.min.mjs ! -name pdf.worker.min.mjs -delete
   echo "  project template bundled ($(du -sh "$TEMPLATE_DIR" | cut -f1))"
 
   cat > "$APP_NAME.app/Contents/Info.plist" <<PLIST

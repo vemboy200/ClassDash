@@ -207,7 +207,7 @@ function bucketed(now, treatUndatedAsUrgent) {
   const overdue = [];
   const undated = [];
   const done = [];
-  const tomorrow = new Date(now.getTime() + 864e5);
+  const tomorrow = require('./33-school-calendar.js').placeholderDue(now);
 
   for (const v of readAll()) {
     const item = {

@@ -207,6 +207,7 @@ const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-
 const { isClassStale, recordActivity } = require('./22-class-activity.js');
 const { record: recordCheckStatus } = require('./25-check-status.js');
 const live = require('./28-live-state.js');
+const { placeholderDue } = require('./33-school-calendar.js');
 const BROWSER = SETTINGS.browserPath
   ? { executablePath: path.resolve(PROJECT_ROOT, SETTINGS.browserPath) }
   : ownBrowserInstalled()
@@ -1578,13 +1579,13 @@ function deadline(item, now = new Date()) {
   if (item.due_iso) {
     const at = new Date(item.due_iso);
     if (isNaN(at)) return null;
-    if (at - now > 365 * 864e5) return new Date(now.getTime() + 864e5);
+    if (at - now > 365 * 864e5) return placeholderDue(now);
     return at;
   }
 
   const { at, placeholder } = parseDue(item.due, now);
   if (!at) return null;
-  if (placeholder) return new Date(now.getTime() + 864e5); // "by tomorrow"
+  if (placeholder) return placeholderDue(now); // "by tomorrow" (the next school day)
   return at;
 }
 
@@ -1634,7 +1635,8 @@ function sortIntoBuckets(items, now, mutedIds = new Set(), hiddenIds = new Set()
   const overdue = [];
   const gone = [];   // removed by the teacher
   let past = 0;
-  const tomorrow = new Date(now.getTime() + 864e5);
+  // "By tomorrow" means the next school day once a school calendar is saved.
+  const tomorrow = placeholderDue(now);
 
   for (const x of items) {
     // Removed by the teacher — into its own bucket and nowhere else.
