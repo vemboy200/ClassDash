@@ -4,6 +4,9 @@
 // The PDFs are made up here, drawn with plain PDF operators.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs'), cp = require('child_process');
+// Loaded before the PDF reader: on Node 20, PDF.js adds a stand-in Iterator
+// global, and a jsdom loaded after that tries to copy it into each page and fails.
+const { JSDOM, VirtualConsole } = T.jsdom();
 const ok = (n, c, x = '') => { console.log(c ? 'PASS' : 'FAIL', n, c ? '' : x); if (!c) process.exitCode = 1; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -198,7 +201,6 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   ok('/api/status says whether today is a school day', status.schoolToday === false);
 
   // ── the page ──
-  const { JSDOM, VirtualConsole } = T.jsdom();
   const errors = [], sent = [];
   cp.spawnSync('node', ['05-playwright-draft.js', '--redraw'], { cwd: proj });
   const vc = new VirtualConsole(); vc.on('jsdomError', e => { if (!/navigation/i.test(e.message)) errors.push(String(e.message)); });
