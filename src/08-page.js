@@ -1490,6 +1490,11 @@ function pixelSprite(size, edge, fill) {
 const PIXEL_DOT = [1, 0, 0];
 const PIXEL_DOT_CELLS = PIXEL_DOT.length * 2;
 
+/** A calendar day's event dot: a 3-cell (6px) plus, the smallest pixel circle. */
+function pixelEventDot(colour) {
+  return rasterSprite(3, (x, y) => x === 1 || y === 1, colour, colour);
+}
+
 /** A status light: the same outlined-cell drawing as the frames, but a
  *  fixed 12x12 rounded square instead of a stretchable box. */
 function pixelDot(edge, fill) {
@@ -1570,7 +1575,24 @@ function pixelCornerCss() {
   .status-dot.status-ok { background-image: ${pixelDot(t.ink, t.new)}; }
   .status-dot.status-fallback { background-image: ${pixelDot(t.ink, t.amber)}; }
   .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
-  .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }`;
+  .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }
+  ${calendarSprites(t)}
+  .calendar-day.has-events::after { background-image: ${pixelEventDot(t.new)}; }
+  .calendar-events li.active { ${src('pill', 'line', 'line')} }`;
+  };
+
+  // Calendar days and the key's swatches: a frame per kind of day (no
+  // school, minimum day, or plain) and per state. The border shows on
+  // hover, and in the accent colour for a day changed by hand or one whose
+  // event is hovered below the month; otherwise it's the fill colour.
+  const calendarSprites = (t) => {
+    const amber = PIXEL_THEME.light.amber;
+    return [['', 'none'], ['.day-noSchool', t.hot], ['.day-minimumDay', amber]].map(([kind, fill]) => `
+  .calendar-day${kind} { border-image-source: ${pixelSprite('pill', fill, fill)}; }
+  .calendar-day${kind}:hover { border-image-source: ${pixelSprite('pill', t.ink, fill)}; }
+  .calendar-day${kind}.day-changed, .calendar-day${kind}.event-hover { border-image-source: ${pixelSprite('pill', t.new, fill)}; }
+  .calendar-swatch${kind} { border-image-source: ${pixelSprite('mini', t.line, fill)}; }
+  .calendar-swatch${kind}.day-changed { border-image-source: ${pixelSprite('mini', t.new, fill)}; }`).join('');
   };
 
   // The frame IS the background now (the sprite paints the fill), so the
@@ -1599,6 +1621,12 @@ function pixelCornerCss() {
   ${each(BUTTONS, ':active')} { transform: translateY(2px); filter: drop-shadow(2px 0 0 var(--shadow)); }
   ${FIELDS} { ${geometry('medium')} }
   ${PILLS}, .badge { ${geometry('pill')} }
+  .calendar-day, .calendar-events li.active { ${geometry('pill')} }
+  .calendar-swatch { ${geometry('mini')} }
+  .calendar-day.has-events::after {
+    width: 6px; height: 6px; margin-left: -3px; bottom: 0; border-radius: 0;
+    background-color: transparent; background-repeat: no-repeat; background-size: 6px 6px;
+  }
   ${CHECK}, ${TOGGLE} { ${geometry('mini')} }
   /* No "fill" on the track's slice: only its frame comes from the sprite,
      so the progress gradient behind it stays visible. The 4px notch sits
@@ -2457,7 +2485,7 @@ function writePage(data, outputPath) {
     border-radius: 2px; background: var(--new);
   }
   .calendar-events { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
-  .calendar-events li { padding: 1px 4px; margin: 0 -4px; border-radius: 4px; }
+  .calendar-events li { padding: 0 2px; margin: -1px -4px; border: 2px solid transparent; }
   .calendar-events li.active { background: var(--line); font-weight: 600; }
   .calendar-day.event-hover { border-color: var(--new); }
   .calendar-pages { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
