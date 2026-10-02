@@ -200,13 +200,6 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   // ── the page ──
   const { JSDOM, VirtualConsole } = T.jsdom();
   const errors = [], sent = [];
-  // The page is drawn "today", so the strip is checked with a calendar
-  // around today, then the review with the made-up one.
-  const today = new Date();
-  const inDays = n => cal.dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + n));
-  let soon = 1; while ([0, 6].includes(new Date(today.getFullYear(), today.getMonth(), today.getDate() + soon).getDay())) soon++;
-  const saveFile = JSON.parse(fs.readFileSync(cal.FILE, 'utf8'));
-  fs.writeFileSync(cal.FILE, JSON.stringify({ ...saveFile, overrides: { ...saveFile.overrides, [inDays(soon)]: 'noSchool' } }));
   cp.spawnSync('node', ['05-playwright-draft.js', '--redraw'], { cwd: proj });
   const vc = new VirtualConsole(); vc.on('jsdomError', e => { if (!/navigation/i.test(e.message)) errors.push(String(e.message)); });
   const dom = await JSDOM.fromFile(path.join(proj, 'summary.html'), { runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
