@@ -15,6 +15,9 @@
  * token, and nothing about the student: the computer's name is already
  * announced by the system itself.
  *
+ * Only addresses another device could reach (see reachable()): a VPN's
+ * address would send Home Assistant somewhere it can't connect.
+ *
  * The addresses are its own name (classdash-<computer>.local), not the
  * system's: the system's own mDNS answers for its name, and two answerers
  * for one name could disagree. A record holds the addresses from when it
@@ -41,10 +44,22 @@ function hostFor(name = computerName()) {
   return `classdash-${label || 'computer'}.local`;
 }
 
+/**
+ * Whether another device on the home network could reach this address.
+ * Not 100.64.0.0/10: the address a VPN like Cloudflare WARP or Tailscale
+ * gives the computer, which only works through that VPN (a home server
+ * picking it would never connect). Not 169.254.x.x either: what a computer
+ * gives itself when the network handed it nothing.
+ */
+function reachable(address) {
+  const [a, b] = address.split('.').map(Number);
+  return !(a === 100 && b >= 64 && b <= 127) && !(a === 169 && b === 254);
+}
+
 /** The IPv4 addresses other devices could reach, as one comparable string. */
 function addressKey() {
   return Object.values(os.networkInterfaces()).flat()
-    .filter(i => i && i.family === 'IPv4' && !i.internal)
+    .filter(i => i && i.family === 'IPv4' && !i.internal && reachable(i.address))
     .map(i => i.address).sort().join(',');
 }
 
@@ -75,9 +90,14 @@ function advertise({ port, fingerprint, log = () => {} }, deps = {}) {
     try {
       bonjour = new Bonjour({}, (e) => log(`network announcement error: ${e.message}`));
       const service = bonjour.publish({
-        name, host, port, type: SERVICE_TYPE, protocol: 'tcp', disableIPv6: true,
+        name, host, port, type: SERVICE_TYPE, protocol: 'tcp', disableIPv6: true, probe: true,
         txt: { api: '1', ...(fingerprint ? { fp: fingerprint } : {}) },
       });
+      // The library announces every address the computer has; keep only the
+      // reachable ones. Swapped in before the first announcement, which waits
+      // for the name check (probe) to finish first.
+      const records = service.records.bind(service);
+      service.records = () => records().filter(r => r.type !== 'A' || reachable(r.data));
       service.on('error', e => log(`network announcement error: ${e.message}`));
       log(`announced on the network as "${name}" (_${SERVICE_TYPE}._tcp, ${host}:${port})`);
     } catch (e) {
@@ -114,4 +134,4 @@ function advertise({ port, fingerprint, log = () => {} }, deps = {}) {
   };
 }
 
-module.exports = { SERVICE_TYPE, advertise, computerName, hostFor, addressKey };
+module.exports = { SERVICE_TYPE, advertise, computerName, hostFor, addressKey, reachable };

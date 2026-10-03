@@ -14,9 +14,17 @@ const discovery = require(path.join(proj, '36-api-discovery.js'));
 
 // A Bonjour that records what it was asked to do.
 const events = [];
+let lastService = null;
 class FakeBonjour {
   constructor() { events.push('new'); }
-  publish(opts) { events.push({ publish: opts }); return { on() {} }; }
+  publish(opts) {
+    events.push({ publish: opts });
+    // What the real library's service announces: an A record per address.
+    const addrs = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal);
+    const service = { on() {}, records: () => [{ type: 'PTR', data: 'x' }, ...addrs.map(i => ({ type: 'A', data: i.address }))] };
+    lastService = service;
+    return service;
+  }
   unpublishAll(cb) { events.push('unpublish'); setImmediate(cb); }
   destroy() { events.push('destroy'); }
 }
@@ -58,6 +66,21 @@ const published = () => events.filter(e => e.publish).map(e => e.publish);
   await sleep(150);
   ok('...and nothing is announced after', published().length === 0);
   os.networkInterfaces = realIfaces;
+
+  // ── addresses a VPN or a missing network gives ──
+  ok('home addresses count', discovery.reachable('192.168.1.147') && discovery.reachable('10.0.0.7') && discovery.reachable('100.63.255.1') && discovery.reachable('100.128.0.1'));
+  ok('a VPN\'s (WARP, Tailscale: 100.64.0.0/10) and a self-given 169.254 don\'t', !discovery.reachable('100.96.0.1') && !discovery.reachable('100.64.0.1') && !discovery.reachable('100.127.255.254') && !discovery.reachable('169.254.3.4'));
+  {
+    const real = os.networkInterfaces;
+    os.networkInterfaces = () => ({ wifi: [{ family: 'IPv4', internal: false, address: '192.168.1.147' }], warp: [{ family: 'IPv4', internal: false, address: '100.96.0.1' }] });
+    const v = discovery.advertise({ port: 1 }, { Bonjour: FakeBonjour });
+    const a4 = lastService.records().filter(r => r.type === 'A').map(r => r.data);
+    ok('with WARP on, only the home address is announced', JSON.stringify(a4) === '["192.168.1.147"]', JSON.stringify(a4));
+    ok('...and other records are left as they are', lastService.records().some(r => r.type === 'PTR'));
+    ok('...and turning the VPN on or off isn\'t an address change', (() => { const k = discovery.addressKey(); os.networkInterfaces = () => ({ wifi: [{ family: 'IPv4', internal: false, address: '192.168.1.147' }] }); return discovery.addressKey() === k; })());
+    v.stop();
+    os.networkInterfaces = real;
+  }
 
   // ── stuck goodbye, broken library ──
   class Silent extends FakeBonjour { unpublishAll() {} }
