@@ -97,6 +97,7 @@ const notifierActions = require('./21-notifier-actions.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
 const { readUpdateStatus } = require('./26-update-check.js');
+const discovery = require('./36-api-discovery.js');
 
 const STATE_FILE = path.join(PROJECT_ROOT, 'last-collection.json');
 const STREAM_FILE = path.join(PROJECT_ROOT, 'messages.json');
@@ -939,6 +940,7 @@ function start() {
   const port = portIndex !== -1 && args[portIndex + 1]
     ? Number(args[portIndex + 1]) : DEFAULT_PORT;
   const host = onNetwork ? '0.0.0.0' : '127.0.0.1';
+  let announcement = null;
 
   // Idempotent — 21-notifier-actions.js already generates these before
   // ever spawning this process, but `node 17-api.js` run by hand
@@ -1096,6 +1098,8 @@ function start() {
         .map(iface => iface.address);
       console.log(`VISIBLE TO THE WHOLE NETWORK. Addresses: ${addresses.join(', ') || 'none found'}`);
       console.log('Encrypted and token-gated, but still only open this to a network you trust.');
+      // So Home Assistant finds it on its own (see 36-api-discovery.js).
+      announcement = discovery.advertise({ port, fingerprint: certFingerprint(), log: line => console.log(line) });
     } else {
       console.log('This computer only. For the home network: --network');
     }
@@ -1113,8 +1117,14 @@ function start() {
   // behind, which would make isServerRunning() think a dead process is
   // still the API right up until something happens to check its pid and
   // find it gone. Cleaning up here means that never has a chance to lie.
+  // The network announcement says goodbye first, so Home Assistant doesn't
+  // keep a server that's gone.
   for (const sig of ['SIGTERM', 'SIGINT']) {
-    process.on(sig, () => { clearPid(); process.exit(0); });
+    process.on(sig, () => {
+      clearPid();
+      if (!announcement) process.exit(0);
+      announcement.stop(() => process.exit(0));
+    });
   }
 }
 
