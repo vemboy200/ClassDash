@@ -452,6 +452,12 @@ function main(action, arg) {
       // School days changed, so A/B days may have too.
       return { ...result, action, schedule: require('./35-school-schedule.js').schedulePayload() };
     }
+    // The × on a schedule heads-up in the page's banner: 'flip:2026-10-14'.
+    case 'dismissHeadsUp': {
+      const result = require('./35-school-schedule.js').dismissHeadsUp(safeDecode(arg));
+      if (result.ok) redraw();
+      return { ...result, action };
+    }
     // Settings → Schedule: every change, as base64url JSON (see saveSchedule
     // in 35-school-schedule.js). Answers with the schedule as the page shows it.
     case 'saveSchedule': {

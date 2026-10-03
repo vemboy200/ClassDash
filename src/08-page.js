@@ -1896,10 +1896,13 @@ function writePage(data, outputPath) {
 
   // Schedule heads-ups (Settings → Schedule) for today and the next school
   // day: a flipped day, or with odd/even the same day twice in a row.
-  const headsUps = schoolSchedule.headsUps(now);
+  // Each can be dismissed (×), and then stays gone.
+  const headsUps = schoolSchedule.headsUps(now).filter(h => !h.dismissed);
   const scheduleBanner = headsUps.length
     ? `  <div class="warn schedule-banner" id="schedule-banner">
-${headsUps.map(h => `       <span><b>${escapeHtml(t('headsUpBanner'))}</b> ${escapeHtml(headsUpText(h))}</span>`).join('\n')}
+${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml(t('headsUpBanner'))}</b> ${escapeHtml(headsUpText(h))}</span>
+         <button type="button" class="update-dismiss" data-key="${escapeHtml(`${h.kind}:${h.date}`)}" onclick="dismissHeadsUp(this)"
+                 title="${escapeHtml(t('updateDismiss'))}">&times;</button></div>`).join('\n')}
      </div>`
     : '';
   // Which classes meet on the next school day, for the pill on their cards.
@@ -2564,7 +2567,9 @@ ${headsUps.map(h => `       <span><b>${escapeHtml(t('headsUpBanner'))}</b> ${esc
   .schedule-class select { min-width: 0; }
   .schedule-flip, .schedule-flip-add { display: flex; gap: 8px; align-items: center; font-size: 13px; }
   .schedule-flip-add input { width: auto; color-scheme: light dark; }
-  .schedule-banner { display: flex; flex-direction: column; gap: 2px; }
+  .schedule-banner { display: flex; flex-direction: column; gap: 4px; }
+  .schedule-banner[hidden] { display: none; }
+  .schedule-heads-up { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .calendar-day.has-events { position: relative; }
   .calendar-day.has-events::after {
     content: ''; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px;
@@ -3585,6 +3590,14 @@ function toggleCheckStatusDetail() {
 // update pattern as hiding an overdue card. Worst case (the write
 // somehow fails) the banner just comes back on the next real redraw,
 // no worse than not dismissing it at all.
+// A schedule heads-up: gone at once, and the app remembers it.
+function dismissHeadsUp(btn) {
+  dispatchAction('dismissHeadsUp', btn.getAttribute('data-key'));
+  var banner = document.getElementById('schedule-banner');
+  btn.closest('.schedule-heads-up').remove();
+  if (banner && !banner.querySelector('.schedule-heads-up')) banner.hidden = true;
+}
+
 function dismissUpdateBanner(btn) {
   var version = btn.getAttribute('data-version');
   dispatchAction('dismissUpdate', version);

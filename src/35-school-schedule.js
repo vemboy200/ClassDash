@@ -11,7 +11,8 @@
 //     ab: { anchor: 'YYYY-MM-DD', anchorDay: 'A' | 'B', flipMode: 'day' | 'shift' },
 //     flips: ['YYYY-MM-DD', …],
 //     classes: [{ class, period, days: 'all' | 'A' | 'B' }],
-//     notified: { 'flip:YYYY-MM-DD' | 'repeat:YYYY-MM-DD': iso } }
+//     notified: { 'flip:YYYY-MM-DD' | 'repeat:YYYY-MM-DD': iso },
+//     dismissed: { same keys: iso } }   heads-ups dismissed from the page's banner
 //
 // Odd/even uses the same A/B inside: A is odd, B is even.
 //
@@ -48,7 +49,7 @@ const other = day => (day === 'A' ? 'B' : 'A');
 const asDate = date => (typeof date === 'string' ? fromKey(date) : new Date(date.getFullYear(), date.getMonth(), date.getDate()));
 
 function emptySchedule() {
-  return { type: 'none', ab: { anchor: null, anchorDay: 'A', flipMode: 'day' }, flips: [], classes: [], notified: {} };
+  return { type: 'none', ab: { anchor: null, anchorDay: 'A', flipMode: 'day' }, flips: [], classes: [], notified: {}, dismissed: {} };
 }
 
 function readSchedule() {
@@ -215,15 +216,17 @@ function headsUps(now = new Date(), sched = readSchedule(), cal = calendar.readC
   if (isSchoolDay(now, cal)) targets.push(asDate(now));
   targets.push(nextSchoolDay(now, cal));
   const out = [];
+  const dismissed = sched.dismissed || {};
+  const push = h => out.push({ ...h, dismissed: !!dismissed[`${h.kind}:${h.date}`] });
   for (const target of targets) {
     const type = dayType(target, sched, cal);
     if (!type) continue;
     const date = dayKey(target);
-    if (type.flipped) out.push({ kind: 'flip', date, day: type.day });
+    if (type.flipped) push({ kind: 'flip', date, day: type.day });
     if (sched.type === 'oddEven') {
       const before = previousSchoolDay(target, cal);
       const was = before && dayType(before, sched, cal);
-      if (was && was.day === type.day) out.push({ kind: 'repeat', date, day: type.day, previous: dayKey(before) });
+      if (was && was.day === type.day) push({ kind: 'repeat', date, day: type.day, previous: dayKey(before) });
     }
   }
   return out;
@@ -242,7 +245,21 @@ function dueNotifications(now = new Date(), sched = readSchedule(), cal = calend
     if (now < opens) return [];
   }
   const notified = sched.notified || {};
-  return headsUps(now, sched, cal).filter(h => h.date === dayKey(next) && !notified[`${h.kind}:${h.date}`]);
+  return headsUps(now, sched, cal).filter(h => h.date === dayKey(next) && !h.dismissed && !notified[`${h.kind}:${h.date}`]);
+}
+
+/** Dismisses a heads-up ('flip:YYYY-MM-DD' or 'repeat:YYYY-MM-DD') from the
+ *  banner: it isn't shown again, nor notified if that hasn't happened yet. */
+function dismissHeadsUp(key, now = new Date()) {
+  if (!/^(flip|repeat):\d{4}-\d{2}-\d{2}$/.test(String(key))) return { ok: false, why: 'not a heads-up' };
+  const sched = readSchedule();
+  const cutoff = dayKey(addDays(now, -60));
+  const keep = {};
+  for (const [k, v] of Object.entries(sched.dismissed || {})) if (k.split(':')[1] >= cutoff) keep[k] = v;
+  keep[key] = now.toISOString();
+  sched.dismissed = keep;
+  writeSchedule(sched);
+  return { ok: true };
 }
 
 /** Records heads-ups as notified, so each one goes out once. Old entries
@@ -285,11 +302,11 @@ function scheduleView(now = new Date(), sched = readSchedule(), cal = calendar.r
 function schedulePayload(now = new Date()) {
   const sched = readSchedule();
   const cal = calendar.readCalendar();
-  const { notified, ...saved } = sched;
+  const { notified, dismissed, ...saved } = sched;
   return { saved, days: dayTypes(addDays(now, -200), addDays(now, 400), sched, cal), view: scheduleView(now, sched, cal) };
 }
 
 module.exports = {
   FILE, TYPES, readSchedule, saveSchedule, periodFromName, dayTypes, dayType, classesOn, previousSchoolDay,
-  headsUps, dueNotifications, markNotified, scheduleView, schedulePayload,
+  headsUps, dueNotifications, markNotified, dismissHeadsUp, scheduleView, schedulePayload,
 };

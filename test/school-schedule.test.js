@@ -122,6 +122,18 @@ ok('/api/status gives today\'s label', api.HANDLERS['/api/status']({ ...api.gath
   ok('a heads-up banner for the flipped day', banner && /Heads-up:.*is flipped: (even instead of odd|odd instead of even)\./.test(banner.textContent.replace(/\s+/g, ' ')),
     banner && banner.textContent.replace(/\s+/g, ' '));
   const line = d.getElementById('schedule-line');
+  const flipLine = [...banner.querySelectorAll('.schedule-heads-up')].find(l => /is flipped/.test(l.textContent));
+  const others = banner.querySelectorAll('.schedule-heads-up').length - 1;
+  flipLine.querySelector('button').click();
+  const dismissal = sent.find(m => m.action === 'dismissHeadsUp');
+  ok('the heads-up can be dismissed: gone at once, and the app is told which', dismissal && dismissal.arg === `flip:${nextKey}` && !/is flipped/.test(banner.textContent) &&
+    banner.querySelectorAll('.schedule-heads-up').length === others && banner.hidden === (others === 0),
+    JSON.stringify(dismissal));
+  ok('...and remembered: no banner, no notification, the API says so', actions.main('dismissHeadsUp', dismissal.arg).ok &&
+    schedule.headsUps(today).find(h => h.kind === 'flip').dismissed === true &&
+    !schedule.dueNotifications(new Date(next.getFullYear(), next.getMonth(), next.getDate() - 1, 23)).some(h => h.kind === 'flip') &&
+    !/class="schedule-heads-up"><span><b>Heads-up:<\/b> [^<]*is flipped/.test(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8')));
+  ok('...and only real heads-ups can be', actions.main('dismissHeadsUp', 'flip:soon').ok === false);
   ok('the next school day\'s classes above the month, marked flipped', line && !line.hidden && /\(flipped\)/.test(line.textContent) && /Made-up Biology/.test(line.textContent), line && line.textContent);
   const pill = d.querySelector('.row[data-id="b1"] .class-next-badge');
   ok('"class tomorrow" (or the day) on a card whose class meets next', pill && /^class /.test(pill.textContent), pill && pill.textContent);
