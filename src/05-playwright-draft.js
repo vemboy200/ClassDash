@@ -183,7 +183,7 @@ const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
 // hidden ones they're gone from everywhere, page and API, and there's no
 // restoring them.
 const DELETED_FILE = path.join(PROJECT_ROOT, 'deleted-assignments.txt');
-const { writePage, daysUntil } = require('./08-page.js');
+const { writePage, daysUntil, headsUpText } = require('./08-page.js');
 const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./10-canvas.js');
 const { collectEdpuzzle } = require('./11-edpuzzle.js');
 const { collectFeed, setFeedEmail } = require('./12-feed.js');
@@ -2635,6 +2635,23 @@ if (require.main !== module) return;
     console.log(isDigestTime || !DIGEST_HOURS.length
       ? '\nNot showing a popup: nothing new.'
       : `\nNot showing a popup: nothing new, and the full summary is at ${DIGEST_HOURS.join(':00 and ')}:00.`);
+  }
+
+  // SCHEDULE HEADS-UPS (Settings → Schedule): a flipped day, or with
+  // odd/even a day that's the same as the one before it. Their own popup,
+  // once each, from 3 PM the school day before (see dueNotifications in
+  // 35-school-schedule.js). Not tied to anything being new.
+  try {
+    const schedule = require('./35-school-schedule.js');
+    const due = schedule.dueNotifications(new Date());
+    for (const h of due) {
+      const text = headsUpText(h);
+      notify(t('schoolLabel'), t('headsUpTitle'), text);
+      console.log(`\nShowed a schedule heads-up: ${text}`);
+    }
+    schedule.markNotified(due);
+  } catch (e) {
+    console.warn('schedule heads-up failed:', e.message);
   }
 
   // THE LOG GETS MARKED REGARDLESS OF WHETHER A POPUP WAS SHOWN.

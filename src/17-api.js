@@ -76,6 +76,7 @@ const { t, currentLanguage } = require('./18-language.js');
 const { daysUntil, allKnownClasses, knownClassStatus, classTeachers } = require('./08-page.js');
 const classLinks = require('./29-class-links.js');
 const schoolCalendar = require('./33-school-calendar.js');
+const schoolSchedule = require('./35-school-schedule.js');
 const { readCollection } = require('./28-live-state.js');
 const { isClassStale } = require('./22-class-activity.js');
 // Cert/token generation, the running-process pid file, and the auth
@@ -325,6 +326,21 @@ function calendarView(now) {
   };
 }
 
+/** GET /api/schedule: the class schedule (Settings → Schedule) for today and
+ *  the next school day, and its heads-ups. `day` is A or B (with odd/even,
+ *  A is odd), `label` is how the page says it. */
+function scheduleApiView(now) {
+  const view = schoolSchedule.scheduleView(now);
+  const label = day => (!day ? null : view.type === 'oddEven' ? t(day === 'A' ? 'scheduleOdd' : 'scheduleEven') : day);
+  const day = v => ({ ...v, label: label(v.day) });
+  return {
+    type: view.type,
+    today: day(view.today),
+    nextSchoolDay: day(view.next),
+    headsUps: view.headsUps.map(h => ({ ...h, label: label(h.day) })),
+  };
+}
+
 const HANDLERS = {
   '/api/status': (d) => ({
     collectedAt: d.collectedAt ? d.collectedAt.toISOString() : null,
@@ -357,11 +373,15 @@ const HANDLERS = {
     // Whether today is a school day, by the school calendar (Settings →
     // Calendar). Without one saved, null: not known, rather than a guess.
     schoolToday: schoolCalendar.hasCalendar() ? schoolCalendar.isSchoolDay(d.now) : null,
+    // Today's A/B (or odd/even) label, null when the schedule doesn't rotate
+    // or it isn't a school day.
+    scheduleToday: scheduleApiView(d.now).today.label,
   }),
 
   // The school calendar: today, the next school day, and the no-school and
   // minimum days in the next two weeks. See 33-school-calendar.js.
   '/api/calendar': (d) => calendarView(d.now),
+  '/api/schedule': (d) => scheduleApiView(d.now),
 
   // The check that's running right now, if any: {running, done, total,
   // percent, updatedAt} — see readCollection() in 28-live-state.js.

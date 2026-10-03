@@ -22,12 +22,13 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 // comment on why it exists separately from 17-api.js.
 const { currentToken, certFingerprint, isServerRunning } = require('./23-api-security.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
-const { isClassStale } = require('./22-class-activity.js');
+const { isClassStale, classLastActivity } = require('./22-class-activity.js');
 const { checkStatus } = require('./25-check-status.js');
 const { publishPageVersion } = require('./28-live-state.js');
 const { readUpdateStatus } = require('./26-update-check.js');
 const classLinks = require('./29-class-links.js');
 const schoolCalendar = require('./33-school-calendar.js');
+const schoolSchedule = require('./35-school-schedule.js');
 
 // THE HEADER ICONS ARE PIXEL ART, NOT TEXT CHARACTERS.
 //
@@ -121,6 +122,20 @@ function partsBadge(x) {
   return x.partsTotal > 1 && x.partsDone > 0 && x.partsDone < x.partsTotal
     ? `<span class="plat parts-badge">${escapeHtml(t('partsDone', x.partsDone, x.partsTotal))}</span>`
     : '';
+}
+
+// Classes meeting on the next school day (Settings → Schedule), set by
+// writePage for itemCard's "class tomorrow" pill.
+let nextClasses = { names: new Set(), label: '' };
+
+/** A schedule heads-up in words, for the banner and the notification. */
+function headsUpText(h) {
+  const type = schoolSchedule.readSchedule().type;
+  const word = day => (type === 'oddEven' ? t(day === 'A' ? 'scheduleOddWord' : 'scheduleEvenWord') : day);
+  const date = key => new Date(key + 'T12:00:00').toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' });
+  return h.kind === 'flip'
+    ? t('headsUpFlip', date(h.date), word(h.day), word(h.day === 'A' ? 'B' : 'A'))
+    : t('headsUpRepeat', date(h.date), word(h.day), date(h.previous));
 }
 
 // Locked Canvas work (see lockState in 05-playwright-draft.js): why it
@@ -236,6 +251,7 @@ function itemCard(x, now, isFresh, section) {
           ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
           ${x.removed ? `<span class="removed-badge">${escapeHtml(t('removedBadge'))}</span>` : ''}
           ${lockBadge(x)}
+          ${nextClasses.names.has(x.class) && !x.removed ? `<span class="class-next-badge">${escapeHtml(nextClasses.label)}</span>` : ''}
           ${partsBadge(x)}
         </div>
       </${tag}>`;
@@ -766,17 +782,47 @@ ${rows}
  * calendar, which rides along here as JSON, and saves every change as it's
  * made (renderCalendar).
  */
-function calendarSection() {
+function calendarSection(now) {
   const cal = schoolCalendar.readCalendar();
   const pdf = cal.pdf;
   const saved = { read: pdf || null, ics: cal.ics || null, overrides: cal.overrides || {} };
+  // The class schedule rides along: today's and the next school day's
+  // classes go above the month, and each day's A/B in its corner.
+  const schedule = { ...schoolSchedule.schedulePayload(now), classes: scheduleClassChoices() };
   return `    <section class="calendar-section" id="calendar-section">
       <h2>${escapeHtml(t('calendarTitle'))}</h2>
+      <div class="schedule-line" id="schedule-line" hidden></div>
+      <script type="application/json" id="schedule-saved">${jsonForScript(schedule)}</script>
       <p class="hint" id="calendar-empty"${schoolCalendar.hasCalendar(cal) ? ' hidden' : ''}>${escapeHtml(t('calendarEmpty'))}</p>
       <div id="calendar-view"></div>
       <span class="hint calendar-save-state"></span>
       <script type="application/json" id="calendar-saved">${jsonForScript(saved)}</script>
     </section>`;
+}
+
+/**
+ * The classes Settings → Schedule offers, by linked name, each with the
+ * period its name gives away (periodFromName): only classes a platform
+ * still lists, not excluded, and not gone quiet for longer than the
+ * staleness setting's months (whether or not skipping stale classes is on:
+ * last year's classes shouldn't be offered for this year's schedule). Any
+ * other name can be typed in, for a class with nothing online.
+ */
+function scheduleClassChoices() {
+  const settings = readSettings();
+  const excluded = new Set(appliedFetchSettings(settings).exclusions);
+  const staleBefore = Date.now() - (settings.staleMonths || 6) * 30 * 864e5;
+  const links = classLinks.linkMap();
+  const out = new Map();
+  for (const [name, status] of knownClassStatus()) {
+    if (status !== 'known' || excluded.has(name)) continue;
+    const last = classLastActivity(name);
+    if (last !== null && last < staleBefore) continue;
+    const shown = classLinks.linkedName(name, links);
+    const period = schoolSchedule.periodFromName(shown) ?? schoolSchedule.periodFromName(name);
+    if (!out.has(shown) || (out.get(shown) === null && period !== null)) out.set(shown, period);
+  }
+  return [...out].sort((a, b) => a[0].localeCompare(b[0])).map(([name, period]) => ({ name, period }));
 }
 
 /**
@@ -1091,6 +1137,10 @@ ${classLinksField(s.classLinks)}
         <span class="field-hint">${escapeHtml(t('settingsAssignmentLinksSameClassHint'))}</span>
       </label>` },
     { id: 'calendar', label: t('settingsSectionCalendar'), body: calendarSettings() },
+    { id: 'schedule', label: t('settingsSectionSchedule'), body: `
+      <p class="hint">${escapeHtml(t('scheduleIntro'))}</p>
+      <div id="schedule-settings"></div>
+      <span class="hint schedule-save-state"></span>` },
     { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
@@ -1543,9 +1593,9 @@ function pixelCornerCss() {
     '.settings-actions button, .show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
   const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
-    '.setting-row select, .reminder-add input[type="text"], ' +
+    '.setting-row select, #schedule-settings select, #schedule-settings input, .reminder-add input[type="text"], ' +
     '.reminder-add input[type="datetime-local"], .class-picker';
-  const PILLS = '.count, .plat, .removed-badge, .lock-badge, .check-row .count-badge';
+  const PILLS = '.count, .plat, .removed-badge, .lock-badge, .class-next-badge, .check-row .count-badge';
   const CHECK = 'input[type="checkbox"]:not(.toggle)';
   const SLIDER = '.field-with-value input[type="range"]';
   const TRACK = SLIDER + '::-webkit-slider-runnable-track';
@@ -1843,6 +1893,23 @@ function writePage(data, outputPath) {
        <a href="#" id="pending-banner-link" onclick="startPendingCheck(this); return false;">${escapeHtml(t('pendingFetchNow'))}</a>
      </div>`
     : '';
+
+  // Schedule heads-ups (Settings → Schedule) for today and the next school
+  // day: a flipped day, or with odd/even the same day twice in a row.
+  const headsUps = schoolSchedule.headsUps(now);
+  const scheduleBanner = headsUps.length
+    ? `  <div class="warn schedule-banner" id="schedule-banner">
+${headsUps.map(h => `       <span><b>${escapeHtml(t('headsUpBanner'))}</b> ${escapeHtml(headsUpText(h))}</span>`).join('\n')}
+     </div>`
+    : '';
+  // Which classes meet on the next school day, for the pill on their cards.
+  const nextView = schoolSchedule.scheduleView(now).next;
+  const tomorrowKey = schoolCalendar.dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+  nextClasses = {
+    names: new Set(nextView.classes.map(c => c.class)),
+    label: nextView.date === tomorrowKey ? t('classTomorrow')
+      : t('classNextOn', new Date(nextView.date + 'T12:00:00').toLocaleDateString(locale(), { weekday: 'short' })),
+  };
 
   const html = `<!doctype html>
 <html lang="ru">
@@ -2308,7 +2375,8 @@ function writePage(data, outputPath) {
      stretched to the full row width, leaving no room for its label. First
      it collapsed to zero width (names vanished entirely), then to one
      word per line. The cause wasn't the label — it was its neighbor. */
-  .setting-row input[type="text"], .setting-row input[type="password"], .setting-row select {
+  .setting-row input[type="text"], .setting-row input[type="password"], .setting-row select,
+  #schedule-settings select, #schedule-settings input {
     font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 7px;
     border: 2px solid var(--ink); background: var(--bg); color: var(--text);
     width: 100%;
@@ -2484,6 +2552,19 @@ function writePage(data, outputPath) {
   .calendar-feed-meanings { margin: 4px 0 12px; }
   #calendar-settings-view { margin-bottom: 12px; }
   .calendar-ics-url { flex: 1 1 220px; min-width: 0; }
+  .calendar-day { position: relative; }
+  .calendar-day-type { position: absolute; top: 1px; left: calc(50% + 9px); font-size: 9px; line-height: 1.2; color: var(--dim); }
+  .day-noSchool .calendar-day-type, .day-minimumDay .calendar-day-type { color: inherit; opacity: .75; }
+  .calendar-day.day-flipped .calendar-day-type { color: var(--new); font-weight: 700; opacity: 1; }
+  .schedule-line { display: flex; flex-direction: column; gap: 2px; font-size: 13px; margin: 0 0 10px; }
+  .schedule-day.flipped b { color: var(--new); }
+  .schedule-classes, .schedule-flips { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .schedule-class { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; align-self: stretch; }
+  .schedule-class .schedule-period, .schedule-class .schedule-class-name { width: 100%; box-sizing: border-box; min-width: 0; }
+  .schedule-class select { min-width: 0; }
+  .schedule-flip, .schedule-flip-add { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  .schedule-flip-add input { width: auto; color-scheme: light dark; }
+  .schedule-banner { display: flex; flex-direction: column; gap: 2px; }
   .calendar-day.has-events { position: relative; }
   .calendar-day.has-events::after {
     content: ''; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px; margin-left: -2px;
@@ -2536,10 +2617,11 @@ function writePage(data, outputPath) {
     background: var(--line); color: var(--dim); border-radius: 6px;
     padding: 0 6px; font-size: 12px;
   }
-  .lock-badge {
+  .lock-badge, .class-next-badge {
     background: var(--line); color: var(--dim); border-radius: 6px;
     padding: 0 6px; font-size: 12px;
   }
+  .class-next-badge { color: var(--text); }
   .row.hidden-row { display: none; }
   .row.hidden-row.shown { display: flex; opacity: .5; }
   .show-hidden-btn {
@@ -2707,6 +2789,7 @@ ${signInBanner}
     <button type="button" class="mini-btn" onclick="cancelLink()">${escapeHtml(t('linkCancel'))}</button>
   </div>
 ${pendingBanner}
+${scheduleBanner}
 ${updateBanner}
 ${warning}
   <div class="columns">
@@ -2723,7 +2806,7 @@ ${section(t('mutedSection'), deferred, now, freshIds, t('mutedCaption'))}
 ${section(t('removed'), gone, now, freshIds, t('removedCaption'))}
   </div>
   <div>
-${calendarSection()}
+${calendarSection(now)}
 ${announcementsSection(announcements, freshAnnouncementIds)}
     <section>
       <h2>${escapeHtml(t('transcripts'))}</h2>
@@ -2828,6 +2911,18 @@ const WORDS = ${JSON.stringify({
   calendarWeekdays: t('calendarWeekdays'),
   calendarWeekStart: t('calendarWeekStart'),
   calendarLocale: locale(),
+  scheduleTypes: { none: t('scheduleTypeNone'), daily: t('scheduleTypeDaily'), ab: t('scheduleTypeAb'), oddEven: t('scheduleTypeOddEven') },
+  scheduleType: t('scheduleType'), scheduleTypeHint: t('scheduleTypeHint'),
+  scheduleTodayIs: t('scheduleTodayIs'), scheduleDayIs: t('scheduleDayIs'), scheduleTodayIsHint: t('scheduleTodayIsHint'),
+  scheduleFlipMode: t('scheduleFlipMode'), scheduleFlipModeHint: t('scheduleFlipModeHint'),
+  scheduleFlipModes: { day: t('scheduleFlipModeDay'), shift: t('scheduleFlipModeShift') },
+  scheduleClasses: t('scheduleClasses'), schedulePeriod: t('schedulePeriod'), scheduleEveryDay: t('scheduleEveryDay'),
+  scheduleAddClass: t('scheduleAddClass'), scheduleRemove: t('scheduleRemove'),
+  scheduleFlips: t('scheduleFlips'), scheduleFlipsHint: t('scheduleFlipsHint'), scheduleAddFlip: t('scheduleAddFlip'),
+  scheduleOdd: t('scheduleOdd'), scheduleEven: t('scheduleEven'), scheduleOddShort: t('scheduleOddShort'), scheduleEvenShort: t('scheduleEvenShort'),
+  scheduleToday: t('scheduleToday'), scheduleFlipped: t('scheduleFlipped'), scheduleNothing: t('scheduleNothing'),
+  scheduleNotSchoolDay: t('scheduleNotSchoolDay'),
+  scheduleClassName: t('scheduleClassName'), scheduleNewClass: t('scheduleNewClass'), scheduleAddFromNames: t('scheduleAddFromNames'),
   signInFailed: t('signInFailed'),
   saving: t('settingsSaving'),
   saveFailed: t('settingsSaveFailed'),
@@ -3827,6 +3922,8 @@ function saveCalendarChoices() {
   if (calendarData.read && calendarData.read.pages) payload.pages = calendarData.read.selected;
   if (calendarData.ics) payload.icsMeanings = calendarData.ics.meanings;
   dispatchAction('saveCalendar', toBase64Url(JSON.stringify(payload)), function (res) {
+    // School days changed, so A/B days may have: the answer carries them.
+    if (res && res.schedule && scheduleData) { scheduleData.days = res.schedule.days; scheduleData.view = res.schedule.view; renderScheduleLine(); renderCalendar(); }
     if (res && res.ok) { setCalendarSaveState(WORDS.saved); return; }
     setCalendarSaveState('');
     showCalendarError(WORDS.calendarSaveFailed + (res && res.why ? ': ' + res.why : ''));
@@ -4131,6 +4228,11 @@ function calendarMonthGrid(month) {
     }
     cell.title = date + (marks.length ? ' ' + marks.map(function (m) { return CALENDAR_MARK_SYMBOLS[m] || m; }).join(' ') : '') +
       calendarIcsOn(date).filter(function (e) { return calendarIcsMeaning(e) !== 'hide'; }).map(function (e) { return ' \u00b7 ' + e.summary; }).join('');
+    var dayType = scheduleData && scheduleData.days && scheduleData.days[date];
+    if (dayType) {
+      cell.appendChild(calendarElement('span', 'calendar-day-type', scheduleLabel(dayType.day, true)));
+      if (dayType.flipped) { cell.className += ' day-flipped'; cell.title += ' \u00b7 ' + WORDS.scheduleFlipped; }
+    }
     cell.onclick = (function (which) { return function () { cycleCalendarDay(which); }; })(date);
     grid.appendChild(cell);
   }
@@ -4138,6 +4240,263 @@ function calendarMonthGrid(month) {
 }
 
 renderCalendar();
+
+// ── Class schedule (Settings → Schedule) ──
+//
+// What kind of schedule, which classes meet when, and flipped days. Every
+// change is saved at once (saveSchedule) and answered with the schedule as
+// 35-school-schedule.js works it out: each day's A/B, today's and the next
+// school day's classes, so nothing is worked out twice.
+var scheduleData = JSON.parse((document.getElementById('schedule-saved') || {}).textContent || 'null');
+
+function scheduleRotates() {
+  return scheduleData && (scheduleData.saved.type === 'ab' || scheduleData.saved.type === 'oddEven');
+}
+
+function scheduleLabel(day, short) {
+  if (!day) return '';
+  if (scheduleData.saved.type !== 'oddEven') return day;
+  if (short) return day === 'A' ? WORDS.scheduleOddShort : WORDS.scheduleEvenShort;
+  return day === 'A' ? WORDS.scheduleOdd : WORDS.scheduleEven;
+}
+
+function scheduleDateLabel(key) {
+  return new Date(key + 'T12:00:00').toLocaleDateString(WORDS.calendarLocale, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function setScheduleSaveState(text) {
+  var states = document.querySelectorAll('.schedule-save-state');
+  for (var i = 0; i < states.length; i++) states[i].textContent = text;
+}
+
+function saveSchedule(choices) {
+  setScheduleSaveState(WORDS.saving);
+  dispatchAction('saveSchedule', toBase64Url(JSON.stringify(choices)), function (res) {
+    if (res && res.schedule) scheduleData.days = res.schedule.days, scheduleData.view = res.schedule.view, scheduleData.saved = res.schedule.saved;
+    setScheduleSaveState(res && res.ok ? WORDS.saved : WORDS.saveFailed + (res && res.why ? ': ' + res.why : ''));
+    renderSchedule();
+  });
+}
+
+// "Today: Odd · 1 Biology, 3 Math" and the same for the next school day,
+// above the month.
+function scheduleDayLine(title, view) {
+  var line = calendarElement('div', 'schedule-day');
+  line.appendChild(calendarElement('b', '', title + ':'));
+  var bits = [];
+  if (view.day) bits.push(scheduleLabel(view.day) + (view.flipped ? ' (' + WORDS.scheduleFlipped + ')' : ''));
+  var classes = view.classes.map(function (c) { return (c.period !== null && c.period !== undefined ? c.period + ' ' : '') + c.class; }).join(', ');
+  if (classes) bits.push(classes);
+  line.appendChild(document.createTextNode(' ' + (bits.join(' · ') || WORDS.scheduleNothing)));
+  if (view.flipped) line.className += ' flipped';
+  return line;
+}
+
+function renderScheduleLine() {
+  var box = document.getElementById('schedule-line');
+  if (!box) return;
+  box.innerHTML = '';
+  var view = scheduleData && scheduleData.view;
+  if (!view || scheduleData.saved.type === 'none') { box.hidden = true; return; }
+  if (view.today.schoolDay) box.appendChild(scheduleDayLine(WORDS.scheduleToday, view.today));
+  box.appendChild(scheduleDayLine(scheduleDateLabel(view.next.date), view.next));
+  box.hidden = false;
+}
+
+function scheduleSelect(options, value, onchange) {
+  var select = document.createElement('select');
+  options.forEach(function (o) {
+    var opt = document.createElement('option');
+    opt.value = o[0]; opt.textContent = o[1];
+    if (o[0] === value) opt.selected = true;
+    select.appendChild(opt);
+  });
+  select.onchange = function () { onchange(select.value); };
+  return select;
+}
+
+function scheduleRow(label, control, hint) {
+  var row = calendarElement('div', 'setting-row schedule-row');
+  row.appendChild(calendarElement('span', 'field-name', label));
+  row.appendChild(control);
+  if (hint) row.appendChild(calendarElement('span', 'field-hint', hint));
+  return row;
+}
+
+// With odd/even, an odd period meets on odd days and an even one on even
+// days, unless changed; otherwise every day.
+function scheduleDefaultDays(period) {
+  if (scheduleData.saved.type !== 'oddEven' || period === null || period === undefined || isNaN(period)) return 'all';
+  return period % 2 === 1 ? 'A' : 'B';
+}
+
+function scheduleKnownPeriod(name) {
+  var hit = scheduleData.classes.filter(function (c) { return c.name === name; })[0];
+  return hit ? hit.period : null;
+}
+
+function scheduleClassList() {
+  var rows = document.querySelectorAll('#schedule-settings .schedule-class');
+  var list = [];
+  for (var i = 0; i < rows.length; i++) {
+    var period = rows[i].querySelector('.schedule-period').value.trim();
+    list.push({
+      class: rows[i].querySelector('.schedule-class-name').value.trim(),
+      period: period === '' ? null : Math.max(0, Math.min(20, parseInt(period, 10) || 0)),
+      days: rows[i].querySelector('.schedule-days') ? rows[i].querySelector('.schedule-days').value : 'all',
+    });
+  }
+  return list;
+}
+
+function renderScheduleSettings() {
+  var box = document.getElementById('schedule-settings');
+  if (!box || !scheduleData) return;
+  box.innerHTML = '';
+  var saved = scheduleData.saved, view = scheduleData.view;
+  var types = ['none', 'daily', 'ab', 'oddEven'].map(function (k) { return [k, WORDS.scheduleTypes[k]]; });
+  box.appendChild(scheduleRow(WORDS.scheduleType, scheduleSelect(types, saved.type, function (v) { saveSchedule({ type: v }); }), WORDS.scheduleTypeHint));
+
+  if (saved.type === 'ab') {
+    // "Today is" (or the next school day, on a day off): sets where the
+    // alternation is counted from.
+    var day = view.today.schoolDay ? view.today : view.next;
+    var title = view.today.schoolDay ? WORDS.scheduleTodayIs : WORDS.scheduleDayIs.split('{date}').join(scheduleDateLabel(day.date));
+    var options = [['', '—'], ['A', 'A'], ['B', 'B']];
+    box.appendChild(scheduleRow(title, scheduleSelect(options, day.day || '', function (v) {
+      if (!v) return;
+      var today = calendarKey(new Date());
+      // On a school day the anchor is today; on a day off, today still works:
+      // the first school day after it gets the chosen letter.
+      saveSchedule({ ab: { anchor: today, anchorDay: day.flipped && saved.ab.flipMode === 'day' ? (v === 'A' ? 'B' : 'A') : v } });
+    }), WORDS.scheduleTodayIsHint));
+    var modes = [['day', WORDS.scheduleFlipModes.day], ['shift', WORDS.scheduleFlipModes.shift]];
+    box.appendChild(scheduleRow(WORDS.scheduleFlipMode, scheduleSelect(modes, saved.ab.flipMode, function (v) { saveSchedule({ ab: { flipMode: v } }); }), WORDS.scheduleFlipModeHint));
+  }
+  if (saved.type === 'none') return;
+
+  // Classes: one row each, period and the days it meets. The name can be
+  // picked from the known classes or typed in, for a class with nothing
+  // online. With odd/even an odd period defaults to odd days and an even
+  // one to even, and a period in the class name ("Per 2") fills itself in.
+  var classes = calendarElement('div', 'schedule-classes');
+  classes.appendChild(calendarElement('div', 'calendar-pages-title', WORDS.scheduleClasses));
+  var options = document.createElement('datalist');
+  options.id = 'schedule-class-options';
+  scheduleData.classes.forEach(function (c) { var o = document.createElement('option'); o.value = c.name; options.appendChild(o); });
+  classes.appendChild(options);
+  var dayOptions = saved.type === 'oddEven'
+    ? [['all', WORDS.scheduleEveryDay], ['A', WORDS.scheduleOdd], ['B', WORDS.scheduleEven]]
+    : [['all', WORDS.scheduleEveryDay], ['A', 'A'], ['B', 'B']];
+  var saveRows = function () { saveSchedule({ classes: scheduleClassList() }); };
+  // Listed by period, 1 up, any without a period last (saved that way too).
+  var order = function (c) { return c.period === null || c.period === undefined ? 99 : c.period; };
+  saved.classes.slice().sort(function (a, b) { return order(a) - order(b); }).forEach(function (c, index) {
+    var row = calendarElement('div', 'schedule-class');
+    var period = document.createElement('input');
+    period.type = 'number'; period.min = '0'; period.max = '20'; period.className = 'schedule-period';
+    period.placeholder = WORDS.schedulePeriod; period.title = WORDS.schedulePeriod;
+    period.value = c.period === null || c.period === undefined ? '' : String(c.period);
+    var name = document.createElement('input');
+    name.type = 'text'; name.className = 'schedule-class-name'; name.value = c.class;
+    name.setAttribute('list', 'schedule-class-options');
+    name.placeholder = WORDS.scheduleClassName;
+    var days = null;
+    if (saved.type !== 'daily') {
+      days = scheduleSelect(dayOptions, c.days, saveRows);
+      days.className = 'schedule-days';
+    }
+    period.onchange = function () {
+      // A day choice that was just the old period's default follows the new period.
+      var was = c.period === null || c.period === undefined ? null : c.period;
+      var now = period.value.trim() === '' ? null : parseInt(period.value, 10);
+      if (days && days.value === scheduleDefaultDays(was)) days.value = scheduleDefaultDays(now);
+      saveRows();
+    };
+    name.onchange = function () {
+      if (!name.value.trim()) { name.value = c.class; return; }
+      var known = scheduleKnownPeriod(name.value);
+      if (period.value.trim() === '' && known !== null) {
+        period.value = String(known);
+        if (days && days.value === 'all') days.value = scheduleDefaultDays(known);
+      }
+      saveRows();
+    };
+    row.appendChild(period);
+    row.appendChild(name);
+    if (days) row.appendChild(days);
+    var remove = calendarElement('button', 'mini-btn', WORDS.scheduleRemove);
+    remove.type = 'button';
+    remove.onclick = function () { var list = scheduleClassList(); list.splice(index, 1); saveSchedule({ classes: list }); };
+    row.appendChild(remove);
+    classes.appendChild(row);
+  });
+  var buttons = calendarElement('div', 'calendar-buttons schedule-class-buttons');
+  var add = calendarElement('button', 'mini-btn', WORDS.scheduleAddClass);
+  add.type = 'button';
+  add.onclick = function () {
+    var list = scheduleClassList();
+    var used = list.map(function (c) { return c.class; });
+    var next = scheduleData.classes.filter(function (c) { return used.indexOf(c.name) === -1; })[0];
+    var last = list.reduce(function (m, c) { return c.period !== null && c.period > m ? c.period : m; }, 0);
+    var periodNow = next && next.period !== null ? next.period : last + 1;
+    list.push({ class: next ? next.name : WORDS.scheduleNewClass, period: periodNow, days: scheduleDefaultDays(periodNow) });
+    saveSchedule({ classes: list });
+  };
+  buttons.appendChild(add);
+  // Every known class whose name says its period, added in one go.
+  var fromNames = scheduleData.classes.filter(function (c) {
+    return c.period !== null && !saved.classes.some(function (s) { return s.class === c.name; });
+  });
+  if (fromNames.length) {
+    var auto = calendarElement('button', 'mini-btn', WORDS.scheduleAddFromNames.split('{n}').join(String(fromNames.length)));
+    auto.type = 'button';
+    auto.onclick = function () {
+      var list = scheduleClassList();
+      fromNames.forEach(function (c) { list.push({ class: c.name, period: c.period, days: scheduleDefaultDays(c.period) }); });
+      saveSchedule({ classes: list });
+    };
+    buttons.appendChild(auto);
+  }
+  classes.appendChild(buttons);
+  box.appendChild(classes);
+  if (!scheduleRotates()) return;
+
+  // Flipped days: added by date, upcoming ones listed with Remove.
+  var flips = calendarElement('div', 'schedule-flips');
+  flips.appendChild(calendarElement('div', 'calendar-pages-title', WORDS.scheduleFlips));
+  flips.appendChild(calendarElement('span', 'field-hint', WORDS.scheduleFlipsHint));
+  var today = calendarKey(new Date());
+  saved.flips.filter(function (f) { return f >= today; }).forEach(function (f) {
+    var row = calendarElement('div', 'schedule-flip');
+    var type = scheduleData.days[f];
+    row.appendChild(calendarElement('span', '', scheduleDateLabel(f) + (type ? ' · ' + scheduleLabel(type.day) : ' · ' + WORDS.scheduleNotSchoolDay)));
+    var remove = calendarElement('button', 'mini-btn', WORDS.scheduleRemove);
+    remove.type = 'button';
+    remove.onclick = function () { saveSchedule({ flips: saved.flips.filter(function (x) { return x !== f; }) }); };
+    row.appendChild(remove);
+    flips.appendChild(row);
+  });
+  var adder = calendarElement('div', 'schedule-flip-add');
+  var date = document.createElement('input');
+  date.type = 'date'; date.min = today; date.className = 'schedule-flip-date';
+  var addFlip = calendarElement('button', 'mini-btn', WORDS.scheduleAddFlip);
+  addFlip.type = 'button';
+  addFlip.onclick = function () { if (date.value) saveSchedule({ flips: saved.flips.concat([date.value]) }); };
+  adder.appendChild(date);
+  adder.appendChild(addFlip);
+  flips.appendChild(adder);
+  box.appendChild(flips);
+}
+
+function renderSchedule() {
+  renderScheduleLine();
+  renderScheduleSettings();
+  renderCalendar();
+}
+
+// The month above was drawn before scheduleData was read: once more, with it.
+renderSchedule();
 
 // Opens the sign-in browser window. The sources ticked in the panel may not
 // be saved yet, and sign-in reads them from disk (whether there's a Canvas
@@ -5059,4 +5418,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, headsUpText };

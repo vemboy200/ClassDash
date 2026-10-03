@@ -449,7 +449,22 @@ function main(action, arg) {
       }
       const result = require('./33-school-calendar.js').saveChoices(choices);
       if (result.ok) redraw();
-      return { ...result, action };
+      // School days changed, so A/B days may have too.
+      return { ...result, action, schedule: require('./35-school-schedule.js').schedulePayload() };
+    }
+    // Settings → Schedule: every change, as base64url JSON (see saveSchedule
+    // in 35-school-schedule.js). Answers with the schedule as the page shows it.
+    case 'saveSchedule': {
+      let choices;
+      try {
+        choices = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      const schedule = require('./35-school-schedule.js');
+      const result = schedule.saveSchedule(choices);
+      if (result.ok) redraw();
+      return { ...result, action, schedule: schedule.schedulePayload() };
     }
     // The calendar feed (ICS): setCalendarIcs saves its link and fetches it
     // at once (an empty link removes the feed), refreshCalendarIcs fetches it
