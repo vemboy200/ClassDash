@@ -251,7 +251,7 @@ function sleepSync(ms) {
 function stopApiServer() {
   const security = require('./23-api-security.js');
   if (!security.isServerRunning()) return;
-  const pid = parseInt(fs.readFileSync(security.PID_FILE, 'utf8'), 10);
+  const pid = security.readPid();
   try {
     process.kill(pid, 'SIGTERM');
   } catch {
@@ -501,7 +501,13 @@ function main(action, arg) {
     // full check" option 'check' already gives it for a real full one.
     // Same "started, not finished" contract as 'check': this returns
     // immediately, the pass runs detached.
+    // The app runs this when it opens: a restart of the computer ends the
+    // home API server, and nothing else would start it before the next
+    // full check.
+    case 'ensureApi':
+      return { ok: true, action, started: ensureApiServer() };
     case 'reload':
+      ensureApiServer();
       quickCheck();
       return { ok: true, action };
     case 'signIn':

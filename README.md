@@ -69,11 +69,11 @@ Windows doesn't have an equivalent permission step — nothing extra to grant th
 
 ### 3. Keep it running automatically
 
-Right now, ClassDash checks on its own schedule only while it's open.
+Right now, ClassDash checks on its own schedule only while it's open. To have it open itself after a restart, turn on **Open at login** in Settings → Checking (off unless you turn it on). On Windows it then starts minimized when you sign in; on a Mac it needs macOS 13 or later. Either way, opening the app also starts the home API again if it's switched on, so Home Assistant reconnects without waiting for a check.
 
 **On macOS**, the alternative is `launchd` (the built-in scheduler) to run a check periodically even while the app's closed. There's no ready-made schedule file in this repo — it needs your own computer's absolute file paths baked in, so this part's covered in [CONTRIBUTING.md](CONTRIBUTING.md) rather than here.
 
-**On Windows**, there's no equivalent built yet — leaving the app open is the only option for now.
+**On Windows**, there's no scheduler for when the app is closed yet: Open at login plus leaving it open is the way for now.
 
 Either way, opening the app and clicking the reload button (or holding it down for a full check) works fine on its own in the meantime.
 
@@ -173,7 +173,7 @@ Most of it is read-only — the same data this window shows. A few handles chang
 
 **A full check or a save is stuck / did nothing (macOS).** The first one after install may be waiting on the App Management permission prompt — check System Settings → Privacy & Security.
 
-**On Windows, the home API shows as enabled but doesn't seem to be running** — most likely after reinstalling the app or letting it self-update. Toggle **Enable home API** off, Save, back on, Save again — that forces a fresh restart of the server process. A real fix for this is planned but not built yet.
+**On Windows, the home API shows as enabled but doesn't seem to be running** — most likely after reinstalling the app or letting it self-update. Reopening ClassDash starts it again. If it still isn't running, toggle **Enable home API** off, Save, back on, Save again — that forces a fresh restart of the server process.
 
 **Something in the code itself is misbehaving**, or you want to understand *why* something works the way it does — that detail lives in [CONTRIBUTING.md](CONTRIBUTING.md), not here.
 

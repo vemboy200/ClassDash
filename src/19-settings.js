@@ -112,6 +112,12 @@ const DEFAULTS = {
   // hints: the shortcuts themselves work either way.
   showKeyHints: true,
 
+  // Start the app when this person signs in to the computer (the app sets
+  // its own login item from this, see electron/main.js and
+  // 16-summary.swift). Off unless they turn it on: an app opening itself
+  // at every sign-in is something to choose, not to find.
+  openAtLogin: false,
+
   // Off by default — this is the actual opt-in for 17-api.js. Even
   // read-only, it's real personal data (school, teachers, assignment
   // text) reachable over the network, so it shouldn't start just because
@@ -292,7 +298,7 @@ const TYPES = {
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean', classroomEnabled: 'boolean',
-  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean',
+  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean', openAtLogin: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',

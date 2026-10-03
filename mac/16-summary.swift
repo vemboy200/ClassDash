@@ -26,6 +26,7 @@ import Cocoa
 import WebKit
 import UserNotifications
 import IOKit.ps
+import ServiceManagement
 
 // THE PROJECT PATH ISN'T HARDCODED.
 //
@@ -762,6 +763,10 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String, !version.isEmpty {
             runNodeScriptSync("21-notifier-actions.js", args: ["noteVersion", version], in: projectDir)
         }
+        // A restart of the Mac ends the home API server; start it again now
+        // rather than at the next full check.
+        runAction("ensureApi", "") { _ in }
+        applyOpenAtLogin()
 
         buildMainMenu()
 
@@ -1074,7 +1079,31 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         if handleNativeSetupAction(action, requestId: requestId) { return }
 
         runAction(action, arg) { [weak self] resultJSON in
+            if action == "config" { DispatchQueue.main.async { self?.applyOpenAtLogin() } }
             self?.deliver(requestId: requestId, resultJSON: resultJSON)
+        }
+    }
+
+    // Settings → Checking → Open at login (settings.openAtLogin, off unless
+    // turned on): makes the app's login item match it, at launch and after
+    // every settings save. SMAppService is macOS 13 and later; on older
+    // systems the setting does nothing.
+    func applyOpenAtLogin() {
+        guard #available(macOS 13.0, *) else { return }
+        var on = false
+        if let data = FileManager.default.contents(atPath: projectDir + "/settings.json"),
+           let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            on = (settings["openAtLogin"] as? Bool) == true
+        }
+        let service = SMAppService.mainApp
+        do {
+            if on && service.status != .enabled {
+                try service.register()
+            } else if !on && (service.status == .enabled || service.status == .requiresApproval) {
+                try service.unregister()
+            }
+        } catch {
+            logWindow("open at login: couldn't \(on ? "turn on" : "turn off"): \(error.localizedDescription)")
         }
     }
 

@@ -5,9 +5,11 @@ const PROJ = T.makeProject(); process.chdir(PROJ);
 let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; console.log('FAIL', m); } };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const PID = path.join(PROJ, 'api-server.pid');
+// {pid, boot} since the restart check; a bare number before it.
+const readPidFile = () => { const t = fs.readFileSync(PID, 'utf8'); try { const j = JSON.parse(t); return parseInt(typeof j === 'object' ? j.pid : j, 10); } catch { return parseInt(t, 10); } };
 const action = () => JSON.parse(cp.spawnSync('node', ['21-notifier-actions.js', 'restartApi'], { cwd: PROJ, encoding: 'utf8' }).stdout.trim().split('\n').pop());
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
-const cleanup = () => { try { const p = parseInt(fs.readFileSync(PID, 'utf8'), 10); if (p) process.kill(p, 'SIGKILL'); } catch {} for (const f of ['api-server.pid', 'settings.json']) try { fs.unlinkSync(f); } catch {} };
+const cleanup = () => { try { const p = readPidFile(); if (p) process.kill(p, 'SIGKILL'); } catch {} for (const f of ['api-server.pid', 'settings.json']) try { fs.unlinkSync(f); } catch {} };
 cleanup();
 (async () => {
   // 1. nothing running -> nothing started (a refresh must not switch the API on)
@@ -23,7 +25,7 @@ cleanup();
   await sleep(300);
   ok(!alive(old.pid), '2 the old process is gone');
   let fresh = 0;
-  for (let i = 0; i < 40 && !fresh; i++) { await sleep(150); try { fresh = parseInt(fs.readFileSync(PID, 'utf8'), 10); } catch {} if (fresh === old.pid) fresh = 0; }
+  for (let i = 0; i < 40 && !fresh; i++) { await sleep(150); try { fresh = readPidFile(); } catch {} if (fresh === old.pid) fresh = 0; }
   ok(fresh && fresh !== old.pid && alive(fresh), '2 a NEW server is running (pid ' + fresh + ', not ' + old.pid + ')');
   cleanup();
 

@@ -27,6 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const selfsigned = require('selfsigned');
 const { PROJECT_ROOT } = require('./00-project-root.js');
 
@@ -111,14 +112,44 @@ function isAuthorized(req) {
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
+/** When this computer last started, to the second or so: now minus how long
+ *  it's been up. */
+function bootTime() {
+  return Date.now() - os.uptime() * 1000;
+}
+
+/** The server's pid, or null when there's no pid file, or it was written
+ *  before this computer last restarted. A restart ends the server without
+ *  it clearing its pid file, and the system then hands its old pid to
+ *  whatever starts next (on Windows, often within seconds of booting), so
+ *  a pid from before the restart is never the server, even when something
+ *  answers to it. Trusting it used to keep the server from being started
+ *  again after a reboot, and stopping it would have signalled an unrelated
+ *  program. A pid file from before this check existed is a bare number,
+ *  taken as it is. */
+function readPid() {
+  let text;
+  try { text = fs.readFileSync(PID_FILE, 'utf8'); } catch { return null; }
+  let pid, boot = null;
+  try {
+    const saved = JSON.parse(text);
+    if (saved && typeof saved === 'object') { pid = saved.pid; boot = saved.boot; } else pid = saved;
+  } catch { pid = parseInt(text, 10); }
+  pid = parseInt(pid, 10);
+  if (!pid) return null;
+  // Uptime drifts a little against the wall clock (sleep, clock changes),
+  // so only a gap of more than a few minutes means a restart.
+  if (typeof boot === 'number' && Math.abs(boot - bootTime()) > 5 * 60 * 1000) return null;
+  return pid;
+}
+
 /** Whether the server process this pid file points at is actually still
  *  alive — same "signal 0" check 05-playwright-draft.js's own
  *  acquireLock() uses for its collection lock, same reason: a crashed
  *  process leaves the file behind, and trusting its mere existence
  *  would make the toggle think the API is running when it isn't. */
 function isServerRunning() {
-  if (!fs.existsSync(PID_FILE)) return false;
-  const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'), 10);
+  const pid = readPid();
   if (!pid) return false;
   try {
     process.kill(pid, 0);
@@ -128,9 +159,10 @@ function isServerRunning() {
   }
 }
 
-/** Called by 17-api.js itself, once listening. */
+/** Called by 17-api.js itself, once listening: its pid, and when this
+ *  computer started (see readPid). */
 function writePid() {
-  fs.writeFileSync(PID_FILE, String(process.pid));
+  fs.writeFileSync(PID_FILE, JSON.stringify({ pid: process.pid, boot: Math.round(bootTime()) }));
 }
 
 function clearPid() {
@@ -140,5 +172,5 @@ function clearPid() {
 module.exports = {
   CERT_FILE, KEY_FILE, TOKEN_FILE, PID_FILE,
   ensureCert, certFingerprint, ensureToken, currentToken, rollToken,
-  isAuthorized, isServerRunning, writePid, clearPid,
+  isAuthorized, isServerRunning, readPid, writePid, clearPid,
 };

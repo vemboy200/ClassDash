@@ -8,9 +8,11 @@ const ok = (n, c, x = '') => { console.log(c ? 'PASS' : 'FAIL', n, c ? '' : x); 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const PORT = 18997;
 const PID = path.join(PROJ, 'api-server.pid');
+// {pid, boot} since the restart check; a bare number before it.
+const readPidFile = () => { const t = fs.readFileSync(PID, 'utf8'); try { const j = JSON.parse(t); return parseInt(typeof j === 'object' ? j.pid : j, 10); } catch { return parseInt(t, 10); } };
 const LOG = path.join(PROJ, 'api-log.txt');
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
-const pid = () => { try { return parseInt(fs.readFileSync(PID, 'utf8'), 10) || 0; } catch { return 0; } };
+const pid = () => { try { return readPidFile() || 0; } catch { return 0; } };
 const ensure = () => JSON.parse(cp.spawnSync('node', ['-e', "console.log(JSON.stringify(require('./21-notifier-actions.js').ensureApiServer()))"], { cwd: PROJ, encoding: 'utf8' }).stdout.trim().split('\n').pop());
 const waitFor = async (f, ms = 8000) => { for (let t = 0; t < ms; t += 100) { if (f()) return true; await sleep(100); } return false; };
 const get = (p) => new Promise((resolve) => {

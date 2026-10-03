@@ -387,6 +387,7 @@ ipcMain.on('classdash-action', async (_event, body) => {
     return;
   }
   const result = await runAction(action, arg);
+  if (action === 'config' && result && result.ok) applyOpenAtLogin();
   deliverResult(id, result);
 });
 
@@ -496,10 +497,30 @@ function loadSummary() {
   win.loadFile(path.join(projectDir, 'summary.html'));
 }
 
+// ── Open at login (settings.openAtLogin, off unless turned on) ──
+//
+// Windows starts the app with this argument when it opens it at sign-in,
+// so the window can start minimized instead of popping up over everything.
+const AT_LOGIN_ARG = '--at-login';
+const openedAtLogin = process.argv.includes(AT_LOGIN_ARG);
+
+// Makes the system's login item match the setting: at launch, and after
+// every settings save. Only for the installed app: a development run would
+// register the bare Electron binary instead.
+function applyOpenAtLogin() {
+  if (!app.isPackaged || !projectDir) return;
+  let on = false;
+  try { on = JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8')).openAtLogin === true; } catch { /* no settings yet: off */ }
+  // The same args both ways: Windows finds the entry to remove by them.
+  const options = { openAtLogin: on, args: [AT_LOGIN_ARG] };
+  if (app.getLoginItemSettings({ args: [AT_LOGIN_ARG] }).openAtLogin !== on) app.setLoginItemSettings(options);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1100,
     height: 800,
+    show: !openedAtLogin,
     title: 'ClassDash',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -518,6 +539,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  if (openedAtLogin) win.once('ready-to-show', () => { win.showInactive(); win.minimize(); });
   loadSummary();
 
   win.webContents.on('did-finish-load', pushLiveState);
@@ -1594,6 +1616,10 @@ if (!gotLock) {
     // copy of the scripts must match this app's (see 30-template-sync.js).
     syncProjectScripts();
     noteRunningVersion();
+    // A restart of the computer (or an update's installer) ends the home
+    // API server; start it again now rather than at the next full check.
+    runAction('ensureApi', '');
+    applyOpenAtLogin();
     buildMenu();
     createWindow();
     setupAutoFreshCheck();

@@ -1133,6 +1133,11 @@ ${classLinksField(s.classLinks)}
         </label>
       </div>` },
     { id: 'fetching', label: t('settingsSectionFetching'), body: `
+      <label class="setting-row" data-native-only>
+        <span class="field-name">${escapeHtml(t('settingsOpenAtLogin'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="openAtLogin"${s.openAtLogin ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsOpenAtLoginHint'))}</span>
+      </label>
 ${field('freshCheckAwakeMinutes', t('settingsFreshCheckAwake'), String(s.freshCheckAwakeMinutes), t('settingsFreshCheckAwakeHint'))}
 ${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.freshCheckAsleepMinutes), t('settingsFreshCheckAsleepHint'))}
       <label class="setting-row">
