@@ -47,6 +47,13 @@ try { fs.unlinkSync(LOCK); } catch {}
     r.end();
   });
 
+  // The token is written before the server listens, so under load (the
+  // full suite) the first request could come too early: wait until it
+  // answers at all.
+  let up = false;
+  for (let i = 0; i < 80 && !up; i++) { up = !(await request('OPTIONS')).error; if (!up) await sleep(100); }
+  ok('server is listening', up);
+
   const noToken = await request('POST', { auth: false });
   ok('no token -> 401, not 200 (this changes something)', noToken.status === 401, JSON.stringify(noToken));
 
