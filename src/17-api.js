@@ -73,7 +73,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // panel's exclusions checklist uses — classRoster() below reuses it
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
-const { daysUntil, allKnownClasses, knownClassStatus, classTeachers } = require('./08-page.js');
+const { daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms } = require('./08-page.js');
 const classLinks = require('./29-class-links.js');
 const schoolCalendar = require('./33-school-calendar.js');
 const schoolSchedule = require('./35-school-schedule.js');
@@ -264,6 +264,14 @@ function classRoster(d) {
   const map = classLinks.linkMap(links);
   const classStatus = classLinks.linkedStatus(knownClassStatus(), map);
   const statusFor = (name) => classStatus.get(name) || 'known';
+  // The platform its real classes are on: one string, as on assignments;
+  // a list when a link (or a name two platforms share) spans more than one;
+  // null when nothing says.
+  const platformsByClass = classPlatforms();
+  const platformOf = (members) => {
+    const all = [...new Set(members.flatMap(m => platformsByClass.get(m) || []))];
+    return all.length > 1 ? all : all[0] || null;
+  };
   const entry = (name, counts) => ({
     name,
     dueSoon: counts ? dueSoonByClass.get(name) || 0 : 0,
@@ -273,6 +281,7 @@ function classRoster(d) {
     teacher: teacherOf(name),
     // The real platform classes behind this one: a link's members, or itself.
     classes: classLinks.membersOf(name, links),
+    platform: platformOf(classLinks.membersOf(name, links)),
   });
   const roster = [...present].map(name => entry(name, true));
 

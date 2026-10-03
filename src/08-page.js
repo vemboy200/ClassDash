@@ -677,6 +677,41 @@ function classTeachers() {
   return teachers;
 }
 
+/**
+ * Each class's platform, by class name: { name -> ["Canvas"] }, with the same
+ * strings assignments carry ("Google Classroom", "Canvas", "Edpuzzle"). From
+ * each platform's own class file first, then, for a class no file lists any
+ * more, from its leftover items (where knownClassStatus finds it). A list,
+ * since two platforms can have a class with the same name. Same
+ * edpuzzleEnabled carve-out as knownClassStatus().
+ */
+function classPlatforms() {
+  const settings = readSettings();
+  const out = new Map();
+  const add = (name, platform) => {
+    if (!name) return;
+    if (!out.has(name)) out.set(name, []);
+    if (!out.get(name).includes(platform)) out.get(name).push(platform);
+  };
+  const files = [['classes.json', 'Google Classroom'], ['canvas-classes.json', 'Canvas'],
+    ...(settings.edpuzzleEnabled ? [['edpuzzle-classes.json', 'Edpuzzle']] : [])];
+  for (const [file, platform] of files) {
+    try {
+      for (const c of JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, file), 'utf8'))) add(c && c.name, platform);
+    } catch { /* not written yet, or unreadable: nothing from this file */ }
+  }
+  // Items without a platform are Classroom's; the API says the same.
+  const listed = new Set(out.keys());
+  try {
+    for (const x of JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'last-collection.json'), 'utf8'))) {
+      if (!x || !x.class || listed.has(x.class)) continue;
+      if (x.platform === 'Edpuzzle' && !settings.edpuzzleEnabled) continue;
+      add(x.class, x.platform || 'Google Classroom');
+    }
+  } catch { /* not written yet, or unreadable */ }
+  return out;
+}
+
 function knownClassStatus() {
   const readNames = (file) => {
     try {
@@ -5431,4 +5466,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, headsUpText };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText };
