@@ -13,7 +13,7 @@ Four different sites, each with its own idea of what "your assignments" means. C
 
 ## What it does
 
-- **No AI at runtime.** Once set up, it's an ordinary program. No tokens, no API keys, no cost per run.
+- **No AI unless you want it.** Collecting your assignments is an ordinary program: no tokens, no API keys, no cost per run. AI is an optional extra, off until you pick one in Settings → AI, and it can run entirely on your own computer.
 - **Runs itself** on a schedule, every 10 minutes during the school day.
 - **Speaks up only when it matters** — a new assignment, a new teacher post, or a twice-daily reminder of what's still burning.
 - **A real desktop notification** that opens a real window, not a browser tab.
