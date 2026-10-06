@@ -1020,6 +1020,102 @@ function browserLabelFor(browserPath) {
   return ownBraveInstalled() ? t('browserOwnBrave') : t('browserSystemChrome');
 }
 
+/**
+ * Settings → AI (37-ai.js). One picker, local ones first and recommended;
+ * under it only the rows the picked one uses (data-ai-for, kept true by
+ * updateAiRows in the page's script). A cloud provider shows what it gets
+ * and its own age rule, with a box that has to be ticked before anything
+ * is sent to it (aiAgreed). Every provider's rows are on the page, hidden
+ * or not, so switching back and forth doesn't lose a key.
+ */
+function aiSettings(s, field) {
+  const ai = require('./37-ai.js');
+  const P = ai.PROVIDERS;
+  const chosen = ai.PROVIDER_IDS.includes(s.aiProvider) && !(P[s.aiProvider].mac && process.platform !== 'darwin') ? s.aiProvider : 'none';
+  const label = id => id === 'apple' ? t('aiApple') : id === 'codex' ? t('aiCodex') : P[id].label;
+  const option = id => `<option value="${id}" data-label="${escapeHtml(label(id))}"${P[id].model ? ` data-default-model="${escapeHtml(P[id].model)}"` : ''}${P[id].url ? ` data-default-url="${escapeHtml(P[id].url)}"` : ''}` +
+    `${P[id].local ? '' : ' data-cloud'}${chosen === id ? ' selected' : ''}>${escapeHtml(label(id))}</option>`;
+  const localIds = ai.PROVIDER_IDS.filter(id => P[id].local && !(P[id].mac && process.platform !== 'darwin'));
+  const cloudIds = ai.PROVIDER_IDS.filter(id => !P[id].local);
+  const shown = ids => chosen && ids.split(' ').includes(chosen) ? '' : ' hidden';
+  const row = (ids, html) => `      <div data-ai-for="${ids}"${shown(ids)}>\n${html}\n      </div>`;
+  const note = (ids, text, cls = 'field-hint') => row(ids, `        <p class="${cls}">${text}</p>`);
+  const link = (href, text) => `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+  const agreed = Array.isArray(s.aiAgreed) ? s.aiAgreed : [];
+  const KEY_WHERE = { openai: 'platform.openai.com/api-keys', anthropic: 'console.anthropic.com', gemini: 'aistudio.google.com/apikey' };
+
+  const cloud = cloudIds.map(id => {
+    const p = P[id];
+    const age = p.minAge === 13 ? t('aiAge13', p.company) : id === 'anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
+    const agree = p.minAge === 13 ? t('aiAgree13', p.company) : t('aiAgree18', p.company);
+    return row(id, `        <div class="warn ai-notice">
+          <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
+${p.freeTierTraining ? `          <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n` : ''}          <p>${escapeHtml(age)} ${link(p.terms, t('aiTerms'))} · ${link(p.privacy, t('aiPrivacy'))}</p>
+          <p>${escapeHtml(t('aiForSomeoneElse'))}</p>
+          <label class="check-row ai-agree"><input type="checkbox" data-key="aiAgreed" value="${id}"${agreed.includes(id) ? ' checked' : ''}><span class="label-text">${escapeHtml(agree)}</span></label>
+        </div>`);
+  }).join('\n');
+
+  const modelHint = id => id === 'ollama' || id === 'lmstudio' ? t('aiModelFirst')
+    : id === 'codex' ? t('aiModelCodex') : t('aiModelDefault', P[id].model);
+  const modelHints = ai.PROVIDER_IDS.filter(id => id !== 'apple')
+    .map(id => `<span data-ai-for="${id}"${shown(id)}>${escapeHtml(modelHint(id))}</span>`).join('');
+  const addressHints = ['ollama', 'lmstudio']
+    .map(id => `<span data-ai-for="${id}"${shown(id)}>${escapeHtml(t('aiAddressHint', P[id].url))}</span>`).join('');
+
+  return `
+      <p class="hint">${escapeHtml(t('aiIntro'))}</p>
+      <details class="ai-why">
+        <summary>${escapeHtml(t('aiGuideTitle'))}</summary>
+        <p>${escapeHtml(t('aiGuidePick'))}</p>
+        <p>${escapeHtml(t('aiGuideCloud'))}</p>
+        <ul>
+          <li>${escapeHtml(t('aiGuideAge13'))}</li>
+          <li>${escapeHtml(t('aiGuideAge18'))}</li>
+        </ul>
+        <p>${escapeHtml(t('aiGuideNoPlans'))}</p>
+      </details>
+      <label class="setting-row wide">
+        <span class="field-name">${escapeHtml(t('aiProvider'))}</span>
+        <span class="ai-select"><select data-key="aiProvider" data-saved="${chosen}" onchange="updateAiRows()">
+          <option value="none"${chosen === 'none' ? ' selected' : ''}>${escapeHtml(t('aiOff'))}</option>
+          <optgroup label="${escapeHtml(t('aiGroupLocal'))}">${localIds.map(option).join('')}</optgroup>
+          <optgroup label="${escapeHtml(t('aiGroupCloud'))}">${cloudIds.map(option).join('')}</optgroup>
+        </select></span>
+        <span class="field-hint" id="ai-found"></span>
+      </label>
+${note(localIds.join(' '), escapeHtml(t('aiLocalNote')), 'field-hint ai-local-note')}
+${note('apple', `${escapeHtml(t('aiAppleHint'))} <span id="ai-apple-status"></span>`)}
+${note('ollama', escapeHtml(t('aiOllamaHint')))}
+${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
+${note('codex', escapeHtml(t('aiCodexHint')))}
+${cloud}
+${row('ollama lmstudio', `      <label class="setting-row wide">
+        <span class="field-name">${escapeHtml(t('aiAddress'))}</span>
+        <span class="field-with-value">
+          <input type="text" data-key="aiLocalUrl" data-saved-url="${escapeHtml(s.aiLocalUrl || '')}" value="${escapeHtml(s.aiLocalUrl || '')}" spellcheck="false">
+          <button type="button" class="mini-btn" id="ai-find" onclick="findAi(this)">${escapeHtml(t('aiFind'))}</button>
+        </span>
+        <span class="field-hint">${addressHints} <span id="ai-find-status"></span></span>
+      </label>`)}
+${['openai', 'anthropic', 'gemini'].map(id => row(id, field(P[id].key, t('aiKey'), s[P[id].key] || '', t('aiKeyHint', KEY_WHERE[id]), true))).join('\n')}
+${row(ai.PROVIDER_IDS.filter(id => id !== 'apple').join(' '), `      <label class="setting-row wide">
+        <span class="field-name">${escapeHtml(t('aiModel'))}</span>
+        <span class="field-with-value">
+          <span class="ai-select" id="ai-model-wrap" hidden><select id="ai-model-select" onchange="aiModelPicked(this)"></select></span>
+          <input type="text" data-key="aiModel" data-saved-model="${escapeHtml(s.aiModel || '')}" value="${escapeHtml(s.aiModel || '')}" spellcheck="false">
+        </span>
+        <span class="field-hint">${modelHints}</span>
+      </label>`)}
+      <div class="setting-row" id="ai-test-row"${chosen === 'none' ? ' hidden' : ''}>
+        <span class="field-name"></span>
+        <span class="field-with-value">
+          <button type="button" class="mini-btn" id="ai-test" onclick="testAi(this)">${escapeHtml(t('aiTest'))}</button>
+        </span>
+        <span class="field-hint" id="ai-test-status"></span>
+      </div>`;
+}
+
 function settingsPanel() {
   const s = readSettings();
   const apiToken = currentToken();
@@ -1176,6 +1272,7 @@ ${classLinksField(s.classLinks)}
       <p class="hint">${escapeHtml(t('scheduleIntro'))}</p>
       <div id="schedule-settings"></div>
       <span class="hint schedule-save-state"></span>` },
+    { id: 'ai', label: t('settingsSectionAi'), body: aiSettings(s, field) },
     { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
@@ -2555,6 +2652,27 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .class-link > .mini-btn { grid-column: 2; grid-row: 1; }
   /* This tab has the whole column to itself: the label goes on top. */
   .setting-row.stacked { grid-template-columns: minmax(0, 1fr); }
+  /* Settings → AI: what a cloud provider gets, and its age rule. */
+  .warn.ai-notice { margin: 4px 0 12px; font-size: 13px; line-height: 1.45; }
+  .ai-notice p { margin: 0 0 8px; }
+  .ai-notice a { color: inherit; text-decoration: underline; }
+  .ai-notice .ai-agree { align-items: flex-start; margin-top: 4px; }
+  .ai-notice .ai-agree input { margin-top: 3px; }
+  .ai-notice .ai-agree .label-text { overflow: visible; white-space: normal; text-overflow: clip; max-width: none; flex: 1; line-height: 1.4; }
+  [data-section="ai"] .field-hint { overflow-wrap: anywhere; }
+  /* The pixel border hides a select's own arrow, so the AI dropdowns get one. */
+  .ai-select { position: relative; display: block; min-width: 0; flex: 1 1 auto; }
+  .ai-select[hidden] { display: none; }
+  .ai-select select { width: 100%; min-width: 0; padding-right: 28px; -webkit-appearance: none; appearance: none; }
+  .ai-select::after { content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--dim); }
+  [data-section="ai"] .setting-row.wide .field-with-value { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  [data-section="ai"] .setting-row.wide .field-with-value input { flex: 1 1 auto; min-width: 0; }
+  #ai-test-row[hidden] { display: none; }
+  .ai-why { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: var(--dim); }
+  .ai-why summary { cursor: pointer; color: var(--text); font-weight: 600; }
+  .ai-why p { margin: 8px 0 0; }
+  .ai-why ul { margin: 6px 0 0; padding-left: 20px; }
+  p.field-hint { margin: 0 0 10px; }
   .setting-row.stacked .field-hint { grid-column: 1; margin-top: 4px; }
   .setting-row .class-link input.class-link-name { width: 100%; min-width: 0; box-sizing: border-box; }
   .link-summary { color: var(--text); overflow-wrap: anywhere; }
@@ -2931,6 +3049,24 @@ const WORDS = ${JSON.stringify({
   classLinkNone: t('classLinkNone'),
   signInOpening: t('signInOpening'),
   calendarReading: t('calendarReading'),
+  aiTest: t('aiTest'),
+  aiTesting: t('aiTesting'),
+  aiTestOk: t('aiTestOk', '{s}'),
+  aiTestFailed: t('aiTestFailed'),
+  aiTestNeedsApp: t('aiTestNeedsApp'),
+  aiAgreeFirst: t('aiAgreeFirst'),
+  aiLooking: t('aiLooking'),
+  aiFound: t('aiFound'),
+  aiFoundNone: t('aiFoundNone'),
+  aiModelsCount: t('aiModelsCount', '{n}'),
+  aiModelOne: t('aiModelOne'),
+  aiModelDefaultOption: t('aiModelDefaultOption', '{m}'),
+  aiModelMissing: t('aiModelMissing'),
+  aiUnavailable: t('aiUnavailable'),
+  aiFind: t('aiFind'),
+  aiFinding: t('aiFinding'),
+  aiNotFoundHere: t('aiNotFoundHere', '{name}', '{url}'),
+  aiFoundAt: t('aiFoundAt', '{name}', '{url}'),
   calendarErrors: { noText: t('calendarErrorNoText'), noMonths: t('calendarErrorNoMonths'), unreadable: t('calendarErrorUnreadable') },
   calendarConfirmRemove: t('calendarConfirmRemove'),
   calendarReadAnother: t('calendarReadAnother'),
@@ -3671,6 +3807,7 @@ function showSettingsSection(name, btn) {
   var buttons = document.querySelectorAll('.settings-nav-btn');
   for (var j = 0; j < buttons.length; j++) buttons[j].classList.remove('active');
   if (btn) btn.classList.add('active');
+  if (name === 'ai') detectAi();
 }
 
 // Reveals a masked field (email, Canvas address) the same way a password
@@ -3856,6 +3993,201 @@ function importCalendarPdf(button) {
 
 // The feed: Save fetches it at once (an empty link removes it), Read again
 // fetches it again. Both answer with the whole calendar to draw.
+// Settings → AI fills itself in: what aiDetect found (Ollama and LM Studio
+// with their models, Apple Intelligence, Codex, the saved cloud provider's
+// models) marks the picker with ✓ and turns the model field into a
+// dropdown. Asked once, the first time the AI section is shown.
+var aiModels = {};
+var aiDetected = null;
+var aiDetecting = false;
+
+function detectAi(then) {
+  if (aiDetected || aiDetecting || !hasNativeBridge()) return;
+  aiDetecting = true;
+  var found = document.getElementById('ai-found');
+  found.textContent = WORDS.aiLooking;
+  dispatchAction('aiDetect', '', function (r) {
+    aiDetecting = false;
+    if (typeof then === 'function') then(r);
+    if (!r || !r.ok) { found.textContent = ''; return; }
+    aiDetected = r;
+    if (r.ollama) aiModels.ollama = r.ollama.models;
+    if (r.lmstudio) aiModels.lmstudio = r.lmstudio.models;
+    if (r.cloud && r.cloud.models) aiModels[r.cloud.provider] = r.cloud.models;
+    markAiFound();
+    showAiModels();
+  });
+}
+
+function markAiFound() {
+  var r = aiDetected;
+  var select = document.querySelector('[data-key="aiProvider"]');
+  var found = {};
+  if (r.apple && r.apple.ok) found.apple = '';
+  var count = function (n) { return n === 1 ? WORDS.aiModelOne : WORDS.aiModelsCount.split('{n}').join(String(n)); };
+  if (r.ollama) found.ollama = count(r.ollama.models.length);
+  if (r.lmstudio) found.lmstudio = count(r.lmstudio.models.length);
+  if (r.codex) found.codex = '';
+  var names = [];
+  for (var i = 0; i < select.options.length; i++) {
+    var o = select.options[i];
+    var base = o.getAttribute('data-label');
+    if (!base) continue;
+    var is = Object.prototype.hasOwnProperty.call(found, o.value);
+    o.textContent = base + (is ? ' ✓' : '');
+    if (is) names.push(base + (found[o.value] ? ' (' + found[o.value] + ')' : ''));
+  }
+  document.getElementById('ai-found').textContent = names.length ? WORDS.aiFound + ' ' + names.join(', ') : WORDS.aiFoundNone;
+  var apple = document.getElementById('ai-apple-status');
+  if (apple) apple.textContent = r.apple && !r.apple.ok ? WORDS.aiUnavailable + ' ' + r.apple.why + '.' : '';
+}
+
+// The model as a dropdown wherever there's a list; a text field otherwise
+// (Codex, or before anything is known). A local server's model is filled
+// in with the first one downloaded; a cloud one starts on its default.
+function showAiModels() {
+  var select = document.querySelector('[data-key="aiProvider"]');
+  var id = select.value;
+  var input = document.querySelector('[data-key="aiModel"]');
+  var list = document.getElementById('ai-model-select');
+  var wrap = document.getElementById('ai-model-wrap');
+  var models = aiModels[id];
+  fillAiAddress(false);
+  if (!models || !models.length || id === 'codex' || id === 'apple' || id === 'none') {
+    wrap.hidden = true;
+    input.hidden = false;
+    return;
+  }
+  var local = id === 'ollama' || id === 'lmstudio';
+  var current = input.value;
+  if (local && !current) current = models[0];
+  input.value = current;
+  list.innerHTML = '';
+  var add = function (value, text) {
+    var o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    list.appendChild(o);
+  };
+  if (!local) add('', WORDS.aiModelDefaultOption.split('{m}').join(select.options[select.selectedIndex].getAttribute('data-default-model') || ''));
+  if (current && models.indexOf(current) === -1) add(current, current + ' ' + WORDS.aiModelMissing);
+  for (var i = 0; i < models.length; i++) add(models[i], models[i]);
+  list.value = current;
+  wrap.hidden = false;
+  input.hidden = true;
+}
+
+// Ollama's or LM Studio's address, filled in from what was found when the
+// field is empty (or always, from the Find button).
+function fillAiAddress(always) {
+  var id = document.querySelector('[data-key="aiProvider"]').value;
+  var server = aiDetected && aiDetected[id];
+  var address = document.querySelector('[data-key="aiLocalUrl"]');
+  if (server && server.url && (always || !address.value)) address.value = server.url;
+  return server;
+}
+
+// The Find button: looks again (a server started since, say) and fills in
+// the address and the models for the provider picked.
+function findAi(button) {
+  var select = document.querySelector('[data-key="aiProvider"]');
+  var status = document.getElementById('ai-find-status');
+  var name = select.options[select.selectedIndex].getAttribute('data-label');
+  if (!hasNativeBridge()) { status.textContent = WORDS.aiTestNeedsApp; return; }
+  aiDetected = null;
+  aiDetecting = false;
+  button.textContent = WORDS.aiFinding;
+  button.disabled = true;
+  status.textContent = '';
+  detectAi(function (r) {
+    button.textContent = WORDS.aiFind;
+    button.disabled = false;
+    var server = r && r.ok && r[select.value];
+    if (server) {
+      aiDetected = r;
+      fillAiAddress(true);
+      status.textContent = WORDS.aiFoundAt.split('{name}').join(name).split('{url}').join(server.url);
+    } else {
+      var address = document.querySelector('[data-key="aiLocalUrl"]').value;
+      var usual = select.options[select.selectedIndex].getAttribute('data-default-url') || '';
+      status.textContent = WORDS.aiNotFoundHere.split('{name}').join(name).split('{url}').join(address || usual);
+    }
+  });
+}
+
+function aiModelPicked(list) {
+  document.querySelector('[data-key="aiModel"]').value = list.value;
+}
+
+// Settings → AI: only the rows the picked provider uses. A model and an
+// address belong to their provider, so switching starts the new one on its
+// own saved ones (or empty, filled in from what was found).
+function updateAiRows() {
+  var select = document.querySelector('[data-key="aiProvider"]');
+  if (!select) return;
+  var id = select.value;
+  var input = document.querySelector('[data-key="aiModel"]');
+  var same = id === select.getAttribute('data-saved');
+  input.value = same ? input.getAttribute('data-saved-model') : '';
+  var address = document.querySelector('[data-key="aiLocalUrl"]');
+  address.value = same ? address.getAttribute('data-saved-url') : '';
+  var rows = document.querySelectorAll('[data-ai-for]');
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].hidden = rows[i].getAttribute('data-ai-for').split(' ').indexOf(id) === -1;
+  }
+  document.getElementById('ai-test-row').hidden = id === 'none';
+  var status = document.getElementById('ai-test-status');
+  status.textContent = '';
+  status.classList.remove('calendar-error');
+  document.getElementById('ai-find-status').textContent = '';
+  showAiModels();
+  detectAi();
+}
+
+// The Test button. It saves first and then tests what was saved, so the
+// key never travels in the test's own message (the apps log those), and
+// the test is of exactly what will be used.
+function testAi(button) {
+  var status = document.getElementById('ai-test-status');
+  var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
+  if (!hasNativeBridge()) { show(WORDS.aiTestNeedsApp, true); return; }
+  var select = document.querySelector('[data-key="aiProvider"]');
+  var picked = select.options[select.selectedIndex];
+  if (picked && picked.hasAttribute('data-cloud')) {
+    var box = document.querySelector('[data-key="aiAgreed"][value="' + select.value + '"]');
+    if (!box || !box.checked) { show(WORDS.aiAgreeFirst, true); return; }
+  }
+  var done = function () { button.textContent = WORDS.aiTest; button.disabled = false; };
+  button.textContent = WORDS.aiTesting;
+  button.disabled = true;
+  show('', false);
+  var sent = JSON.stringify(collectSettings());
+  dispatchAction('config', toBase64Url(sent), function (res) {
+    if (!res || !res.ok || (res.rejected && res.rejected.length)) {
+      done();
+      var why = res && (res.why || (res.rejected && res.rejected.join('; ')));
+      show(WORDS.saveFailed + (why ? ': ' + why : ''), true);
+      return;
+    }
+    settingsBaseline = sent;
+    var tested = select.value;
+    select.setAttribute('data-saved', tested);
+    var input = document.querySelector('[data-key="aiModel"]');
+    input.setAttribute('data-saved-model', input.value);
+    var address = document.querySelector('[data-key="aiLocalUrl"]');
+    address.setAttribute('data-saved-url', address.value);
+    dispatchAction('aiTest', '', function (r) {
+      done();
+      if (r && r.models) {
+        aiModels[tested] = r.models;
+        if (select.value === tested) showAiModels();
+      }
+      if (r && r.ok) show(WORDS.aiTestOk.split('{s}').join((r.ms / 1000).toFixed(1)) + (r.model ? ' (' + r.model + ')' : ''), false);
+      else show(WORDS.aiTestFailed + ' ' + ((r && r.why) || ''), true);
+    });
+  });
+}
+
 function calendarFeedAction(action, arg, button) {
   var original = button.textContent;
   var status = document.getElementById('calendar-ics-status');

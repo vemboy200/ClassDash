@@ -486,6 +486,22 @@ function main(action, arg) {
       }
       return refreshIcs(url).then(result => ({ ...result, action, calendar: calendarPayload(store) }));
     }
+    // Settings → AI's Test button, for the provider as saved (the page saves
+    // first, so no key ever travels in this action's argument, which the
+    // apps write to their logs). Logs only whether it worked: the answer
+    // and the models aren't the log's business.
+    case 'aiTest': {
+      return require('./37-ai.js').test(require('./19-settings.js').read()).then(result => {
+        logAction(result.ok ? `  AI test: ok (${result.ms} ms)` : `  AI test failed: ${result.why}`);
+        return { ...result, action };
+      });
+    }
+    // Settings → AI opening: what's on this computer (and the saved cloud
+    // provider's models) so the panel can fill itself in. Logs nothing but
+    // that it ran.
+    case 'aiDetect': {
+      return require('./37-ai.js').detect().then(result => ({ ok: true, action, ...result }));
+    }
     case 'clearCalendar': {
       const result = require('./33-school-calendar.js').clearCalendar();
       redraw();

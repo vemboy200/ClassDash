@@ -603,6 +603,15 @@ const WRITE_HANDLERS = {
         body: { error: 'apiEnabled and apiNetwork can\'t be changed through the API — use the settings panel in the app' },
       };
     }
+    // Ticking an AI provider's box says the person read that company's age
+    // rule and agrees to send it class text: theirs to say, on the panel,
+    // not something a client on the network can say for them.
+    if ('aiAgreed' in body) {
+      return {
+        status: 400,
+        body: { error: 'aiAgreed can\'t be changed through the API — tick the box in the settings panel in the app' },
+      };
+    }
     const result = notifierActions.main('config', toConfigChunk(body));
     return { status: result.ok ? 200 : 400, body: result };
   },

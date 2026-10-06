@@ -286,6 +286,21 @@ const DEFAULTS = {
   // Assignment links (31-assignment-links.js) only between assignments in
   // the same class — the class as shown, so class links count.
   assignmentLinksSameClass: true,
+
+  // AI (37-ai.js): off until a provider is picked. The local ones (apple,
+  // ollama, lmstudio) keep class text on this computer; the cloud ones
+  // (codex, openai, anthropic, gemini) work only once their id is in
+  // aiAgreed, the box on the panel stating that provider's age rule and
+  // that class text goes to them. aiModel empty means the provider's
+  // default; aiLocalUrl empty means Ollama's or LM Studio's usual address.
+  // The keys are credentials, like canvasToken.
+  aiProvider: 'none',
+  aiModel: '',
+  aiLocalUrl: '',
+  aiOpenaiKey: '',
+  aiAnthropicKey: '',
+  aiGeminiKey: '',
+  aiAgreed: [],
 };
 
 const TYPES = {
@@ -303,6 +318,8 @@ const TYPES = {
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
+  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiAgreed: 'aiAgreed',
+  aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
 };
 
 function read() {
@@ -415,6 +432,33 @@ function validate(key, raw) {
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) return { ok: false, why: 'needs to be a number' };
     return { ok: true, value: n };
+  }
+  if (kind === 'aiProvider') {
+    const id = String(raw).trim();
+    if (id !== 'none' && !require('./37-ai.js').PROVIDER_IDS.includes(id)) return { ok: false, why: `no such AI provider: ${id}` };
+    return { ok: true, value: id };
+  }
+  if (kind === 'aiAgreed') {
+    // Which cloud providers' boxes are ticked. Only known ids, each once.
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(',');
+    const ids = require('./37-ai.js').PROVIDER_IDS;
+    const out = [...new Set(list.map(x => String(x).trim()).filter(Boolean))];
+    if (out.some(x => !ids.includes(x))) return { ok: false, why: 'unknown AI provider in the agreed list' };
+    return { ok: true, value: out };
+  }
+  if (kind === 'aiModel') {
+    const m = String(raw).trim();
+    if (m.length > 200 || /[\s"'`]/.test(m)) return { ok: false, why: 'a model name has no spaces or quotes' };
+    return { ok: true, value: m };
+  }
+  if (kind === 'aiLocalUrl') {
+    // Empty is the provider's usual address. Otherwise it has to be on
+    // this computer or the home network, or "local" wouldn't be true.
+    const u = String(raw).trim();
+    if (u && !require('./37-ai.js').localAddress(u)) {
+      return { ok: false, why: 'the AI server address has to be on this computer or your home network (like http://localhost:11434/v1)' };
+    }
+    return { ok: true, value: u };
   }
   if (kind === 'token') {
     // Trimmed like every string, and refused if anything is left inside

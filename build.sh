@@ -199,7 +199,15 @@ PLIST
   # MACOSX_DEPLOYMENT_TARGET alone did not override this; -target does.
   # 11.0 covers everything this app actually uses (NSWindow, WKWebView).
   # $(uname -m) keeps this working on both Apple Silicon and Intel.
-  swiftc -O -target "$(uname -m)-apple-macos11" -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" mac/16-summary.swift
+  # Apple Intelligence (--ai-respond, for 37-ai.js) comes from
+  # FoundationModels, which only macOS 26+ has. Linked weakly, so the app
+  # still opens on older macOS (where it just answers "needs macOS 26");
+  # an SDK without it builds the app without that mode (#if canImport).
+  WEAK_FM=()
+  if [ -d "$(xcrun --show-sdk-path 2>/dev/null)/System/Library/Frameworks/FoundationModels.framework" ]; then
+    WEAK_FM=(-Xlinker -weak_framework -Xlinker FoundationModels)
+  fi
+  swiftc -O -target "$(uname -m)-apple-macos11" "${WEAK_FM[@]}" -o "$APP_NAME.app/Contents/MacOS/$APP_NAME" mac/16-summary.swift
   codesign --force -s "$CODESIGN_ID" "$APP_NAME.app" 2>/dev/null
   echo "  built, path baked into Info.plist"
 

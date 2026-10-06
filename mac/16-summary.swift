@@ -27,6 +27,9 @@ import WebKit
 import UserNotifications
 import IOKit.ps
 import ServiceManagement
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 // THE PROJECT PATH ISN'T HARDCODED.
 //
@@ -215,6 +218,65 @@ func runNotifyMode() -> Never {
     exit(0) // unreachable in practice; satisfies the Never return type
 }
 
+// The --ai-respond entry point: Apple's on-device model for 37-ai.js,
+// which can't load Apple's framework from Node. Reads {instructions,
+// prompt} (or {check: true}) as JSON on stdin and prints one JSON line,
+// {ok, text} or {ok: false, why}, then exits. Window-less like --notify. Nothing it reads or
+// answers is logged: it's class text.
+//
+// Built only with an SDK that has FoundationModels (Xcode 26+); otherwise,
+// and before macOS 26, it says so instead. build.sh links the framework
+// weakly, so the app still opens on older macOS.
+func runAIMode() -> Never {
+    func answer(_ object: [String: Any]) -> Never {
+        let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{\"ok\":false}".utf8)
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+        exit(0)
+    }
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    let request = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
+    let instructions = request["instructions"] as? String ?? ""
+    // {"check": true} only asks whether the model can be used (Settings →
+    // AI shows it as found), without asking it anything.
+    let checkOnly = request["check"] as? Bool ?? false
+    let prompt = request["prompt"] as? String ?? ""
+    if !checkOnly && prompt.isEmpty { answer(["ok": false, "why": "nothing to ask"]) }
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, *) {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            break
+        case .unavailable(.deviceNotEligible):
+            answer(["ok": false, "why": "this Mac can't run Apple Intelligence"])
+        case .unavailable(.appleIntelligenceNotEnabled):
+            answer(["ok": false, "why": "Apple Intelligence is off (turn it on in System Settings)"])
+        case .unavailable(.modelNotReady):
+            answer(["ok": false, "why": "Apple Intelligence is still downloading, try again later"])
+        case .unavailable:
+            answer(["ok": false, "why": "Apple Intelligence isn't available"])
+        }
+        if checkOnly { answer(["ok": true]) }
+        Task {
+            do {
+                let session = instructions.isEmpty
+                    ? LanguageModelSession()
+                    : LanguageModelSession(instructions: instructions)
+                let response = try await session.respond(to: prompt)
+                answer(["ok": true, "text": response.content])
+            } catch {
+                answer(["ok": false, "why": "Apple Intelligence: \(error.localizedDescription)"])
+            }
+        }
+        RunLoop.current.run()
+        exit(0)
+    }
+    answer(["ok": false, "why": "Apple Intelligence needs macOS 26 or later"])
+    #else
+    answer(["ok": false, "why": "this ClassDash was built without Apple Intelligence"])
+    #endif
+}
+
 // Asked for ONLY when resolveProjectDir() found nothing on its own --
 // see that function's own comment for the release-build case this
 // exists to cover. NEVER called from runNotifyMode(): a background
@@ -387,6 +449,8 @@ func runNodeScriptSync(_ script: String, args: [String], in dir: String) {
     var env = ProcessInfo.processInfo.environment
     let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+    // Where Node finds this app to ask Apple Intelligence (37-ai.js).
+    env["CLASSDASH_APP_BINARY"] = Bundle.main.executablePath ?? ""
     process.environment = env
     try? process.run()
     process.waitUntilExit()
@@ -401,6 +465,8 @@ func runNodeScriptCapture(_ script: String, args: [String], in dir: String) -> S
     var env = ProcessInfo.processInfo.environment
     let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+    // Where Node finds this app to ask Apple Intelligence (37-ai.js).
+    env["CLASSDASH_APP_BINARY"] = Bundle.main.executablePath ?? ""
     process.environment = env
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -469,6 +535,8 @@ func runNodeScriptDetached(_ script: String, args: [String], in dir: String,
     var env = ProcessInfo.processInfo.environment
     let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+    // Where Node finds this app to ask Apple Intelligence (37-ai.js).
+    env["CLASSDASH_APP_BINARY"] = Bundle.main.executablePath ?? ""
     process.environment = env
 
     // NOT process.isRunning, checked after the fact — found live testing
@@ -1200,6 +1268,8 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         var env = ProcessInfo.processInfo.environment
         let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + existingPath
+        // Where Node finds this app to ask Apple Intelligence (37-ai.js).
+        env["CLASSDASH_APP_BINARY"] = Bundle.main.executablePath ?? ""
         process.environment = env
 
         let stdoutPipe = Pipe()
@@ -2470,6 +2540,10 @@ let application = NSApplication.shared
 // it's what keeps this invocation out of the Dock and Cmd-Tab. A normal
 // double-click launch never passes --notify, so it always falls through
 // to the ordinary .regular / windowed path below, unchanged.
+if CommandLine.arguments.contains("--ai-respond") {
+    application.setActivationPolicy(.prohibited)
+    runAIMode()
+}
 if CommandLine.arguments.contains("--notify") {
     application.setActivationPolicy(.accessory)
     runNotifyMode()
