@@ -3194,6 +3194,7 @@ const WORDS = ${JSON.stringify({
 // 21-notifier-actions.js on the other end either way.
 var bridgeCallbacks = {};
 var bridgeRequestCounter = 0;
+var bridgePageToken = Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
 
 function hasNativeBridge() {
   return !!(window.webkit && window.webkit.messageHandlers &&
@@ -3222,7 +3223,10 @@ window.classdashBridgeResult = function (id, result) {
 // there, unchanged.
 function dispatchAction(action, arg, onResult) {
   if (hasNativeBridge()) {
-    var id = 'r' + (++bridgeRequestCounter);
+    // Unique across reloads, not just within this page: an answer can
+    // arrive after the page reloaded (a slow AI scan does), and a counter
+    // that restarted at 1 would hand it to a different request's callback.
+    var id = 'r' + bridgePageToken + '-' + (++bridgeRequestCounter);
     if (onResult) bridgeCallbacks[id] = onResult;
     window.webkit.messageHandlers.classdash.postMessage({ id: id, action: action, arg: arg || '' });
   } else {
@@ -5809,6 +5813,9 @@ function reloadWhenQuiet() {
   if (now - lastInteraction < QUIET_BEFORE_RELOAD_MS) return;
   var panel = document.getElementById('settings-panel');
   if (panel && !panel.hidden) return;
+  // Still waiting on an answer (an AI scan can take a minute): a reload now
+  // would drop what it says.
+  for (var waiting in bridgeCallbacks) { if (Object.prototype.hasOwnProperty.call(bridgeCallbacks, waiting)) return; }
   var a = document.activeElement;
   var typingTypes = ['text', 'password', 'search', 'number', 'url', 'email', 'datetime-local'];
   if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' ||
