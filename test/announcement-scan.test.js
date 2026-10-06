@@ -53,7 +53,7 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('...and different work isn\'t', !sc.similar('Problem Set 7', 'Lab report'));
   const day = new Date(2026, 9, 8, 23, 59);
   ok('a conflict: same class and a similar title', sc.conflict({ class: 'Math', title: 'Problem set 7', due: null }, [{ class: 'Math', title: 'Problem Set 7', due: null }]) === 'same title');
-  ok('...or the same due day', sc.conflict({ class: 'Math', title: 'Worksheet', due: day }, [{ class: 'Math', title: 'Lab', due: new Date(2026, 9, 8, 9) }]) === 'same due day');
+  ok('...but not different work due the same day', sc.conflict({ class: 'Math', title: 'Worksheet', due: day }, [{ class: 'Math', title: 'Lab', due: new Date(2026, 9, 8, 9) }]) === null);
   ok('...never across classes', sc.conflict({ class: 'Math', title: 'Problem set 7', due: day }, [{ class: 'History', title: 'Problem set 7', due: day }]) === null);
 
   {

@@ -15,8 +15,7 @@
  *      own class (as shown, so class links count); the due date has to be
  *      a real date near the posting day, or there's none.
  *   3. Conflict check: dropped if the same work is already there, an
- *      assignment or reminder in the same class with a similar title or
- *      due the same day.
+ *      assignment or reminder in the same class with a similar title.
  *   4. AI again, for the same work worded differently: each draft that's
  *      left is compared with that class's list one title at a time ("are
  *      these the same work?"); a yes drops it.
@@ -269,12 +268,14 @@ function existing() {
   return out;
 }
 
-/** The reason a draft is already there, or null. */
+/**
+ * The reason a draft is already there, or null. A similar title only: two
+ * different pieces of work can be due the same day.
+ */
 function conflict(draft, others) {
   for (const o of others) {
     if (!o.class || o.class !== draft.class) continue;
     if (similar(o.title, draft.title)) return 'same title';
-    if (draft.due && o.due && !isNaN(o.due) && dayKey(o.due) === dayKey(draft.due)) return 'same due day';
   }
   return null;
 }
