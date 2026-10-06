@@ -45,6 +45,20 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('no date in the words: none', when('soon') === null && when('') === null && when(null) === null);
   ok('the words win over the model\'s date', p('{"items":[{"title":"Quiz","when":"Friday","due":"2026-10-16"}]}')[0].due.getDate() === 9);
 
+  // ── no date given: the night before the class next meets ──
+  {
+    const schedule = require(path.join(proj, '35-school-schedule.js'));
+    const cal = require(path.join(proj, '33-school-calendar.js')).readCalendar();
+    const oddEven = { type: 'oddEven', classes: [{ class: 'Made-up Math', period: 1, days: 'A' }, { class: 'Made-up Art', period: 2, days: 'B' }], flips: [] };
+    const daily = { type: 'daily', classes: [{ class: 'Made-up Math', period: 1, days: 'all' }], flips: [] };
+    const next = (names, from, sched) => { const d = sc.nextMeetingDue(names, from, { schedule, sched, cal }); return d ? `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${d.getMinutes()}` : null; };
+    ok('odd/even: posted Mon the 5th, odd-day class next meets Wed the 7th, so due Tue night', next(['Made-up Math'], posted, oddEven) === '10/6 23:59');
+    ok('...an even-day class meets Tue the 6th, so due the night it was posted', next(['Made-up Art'], posted, oddEven) === '10/5 23:59');
+    ok('every day: posted on a Friday, due Sunday night before Monday\'s class', next(['Made-up Math'], new Date(FRI), daily) === '10/4 23:59');
+    ok('...by its shown name or its own', next(['Made-up Bio', 'Made-up Math'], posted, daily) === '10/5 23:59');
+    ok('a class not in the schedule, or no schedule: no date', next(['Made-up History'], posted, daily) === null && next(['Made-up Math'], posted, { type: 'none', classes: [] }) === null);
+  }
+
   // ── invented work, and work that's already there ──
   ok('work the announcement mentions is kept', sc.grounded('Finish the cell worksheet', 'Please finish the cell worksheet by Thursday'));
   ok('work it doesn\'t mention is dropped', !sc.grounded('Study for the test', 'Great job on the field trip! Grades are posted.') && !sc.grounded('nothing', 'Grades are posted.'));
@@ -135,6 +149,13 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('...asked one pair at a time, its own class only', compared.includes('New: Bring your safety glasses\nOn the list: Lab goggles') && !compared.some(q => /cell worksheet|quiz/.test(q)));
   sameAs = [];
 
+  // ── the schedule fills in a missing date ──
+  write('messages.json', [...JSON.parse(fs.readFileSync(path.join(proj, 'messages.json'), 'utf8')), ann('n6', 'Made-up Math', 'Bring a protractor.', MON)]);
+  r = await sc.scan({ ids: ['n6'] }, { sched: { type: 'daily', classes: [{ class: 'Made-up Math', period: 1, days: 'all' }], flips: [] },
+    complete: fake([{ ok: true, text: '{"items":[{"title":"Bring a protractor","when":null}]}' }]) });
+  const protractor = virtual.readAll().find(v => v.title === 'Bring a protractor');
+  ok('homework with no date is due the night before the next class', r.kept.length === 1 && protractor && new Date(protractor.due).getDate() === 5 && new Date(protractor.due).getHours() === 23, JSON.stringify(r));
+
   // ── failures ──
   write('messages.json', [...JSON.parse(fs.readFileSync(path.join(proj, 'messages.json'), 'utf8')), ann('n4', 'Made-up Math', 'Bring your textbook Monday.')]);
   r = await sc.scan({ newOnly: true }, { now: MON + 3600e3, complete: fake([{ ok: false, why: 'couldn\'t connect: is its server running?' }]) });
@@ -197,7 +218,7 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     ok('a reminder from an announcement links to it', from.length >= 2 && from[0].getAttribute('href').startsWith('https://classroom.example/'));
     ok('the footer says AI reads announcements while it\'s on', /AI only reads announcements/.test(d.querySelector('footer').textContent));
     const rows = [...d.querySelectorAll('#ai-scan-list .ai-scan-row')];
-    ok('Settings → AI lists every announcement, newest first, with what its scan found', rows.length === 6 &&
+    ok('Settings → AI lists every announcement, newest first, with what its scan found', rows.length === 7 &&
       /· 2 added|· 1 added/.test(d.getElementById('ai-scan-list').textContent) && /nothing found/.test(d.getElementById('ai-scan-list').textContent) && /couldn't be read/.test(d.getElementById('ai-scan-list').textContent));
     ok('...under the class as shown', /Made-up Bio/.test(rows.map(r => r.textContent).join()) && !/Biology Period 2/.test(rows.map(r => r.textContent).join()));
     const button = d.querySelector('#ai-scan .mini-btn');

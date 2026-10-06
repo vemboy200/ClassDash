@@ -13,7 +13,9 @@
  *      only reads a little at a time.
  *   2. Plain logic from here on. The reminder's class is the announcement's
  *      own class (as shown, so class links count); the due date has to be
- *      a real date near the posting day, or there's none.
+ *      a real date near the posting day. With none in the announcement,
+ *      it's the night before the class next meets (Settings → Schedule),
+ *      or there's none.
  *   3. Conflict check: dropped if the same work is already there, an
  *      assignment or reminder in the same class with a similar title.
  *   4. AI again, for the same work worded differently: each draft that's
@@ -175,6 +177,26 @@ function parseItems(text, posted) {
     out.push({ title, due });
   }
   return out;
+}
+
+/**
+ * No date in the announcement: due the night before the class next meets
+ * (Settings → Schedule), at 23:59, looking up to three weeks past the
+ * posting day. null without a schedule, or when the class isn't in it.
+ * The class matches by its shown name (class links) or its own.
+ */
+function nextMeetingDue(names, posted, deps = {}) {
+  const schedule = deps.schedule || require('./35-school-schedule.js');
+  const sched = deps.sched || schedule.readSchedule();
+  if (!sched || sched.type === 'none' || !(sched.classes || []).some(c => names.includes(c.class))) return null;
+  const cal = deps.cal || require('./33-school-calendar.js').readCalendar();
+  for (let i = 1; i <= 21; i++) {
+    const day = new Date(posted.getFullYear(), posted.getMonth(), posted.getDate() + i);
+    if (schedule.classesOn(day, sched, cal).some(c => names.includes(c.class))) {
+      return new Date(day.getFullYear(), day.getMonth(), day.getDate() - 1, 23, 59);
+    }
+  }
+  return null;
 }
 
 /**
@@ -357,7 +379,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
         record.found = items.length;
         for (const it of items) {
           if (!grounded(it.title, text)) { result.dropped++; continue; }
-          const draft = { title: it.title, class: className, due: it.due };
+          const draft = { title: it.title, class: className, due: it.due || nextMeetingDue([className, a.class], postedAt(a), deps) };
           if (conflict(draft, others)) { result.dropped++; continue; }
           if (await sameWork(draft, others, postedAt(a), complete)) { result.dropped++; continue; }
           const made = virtual.create({ title: draft.title, class: draft.class, due: draft.due ? draft.due.toISOString() : null,
@@ -391,7 +413,7 @@ function listForPage() {
       scanned: state.scanned[a.id] || null }));
 }
 
-module.exports = { SYSTEM, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, grounded, similar, conflict, scan, listForPage, STATE_FILE };
+module.exports = { SYSTEM, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, listForPage, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.
