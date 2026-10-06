@@ -17,7 +17,10 @@
  *   3. Conflict check: dropped if the same work is already there, an
  *      assignment or reminder in the same class with a similar title or
  *      due the same day.
- *   4. Kept: a reminder marked as from that announcement, linking to it.
+ *   4. AI again, for the same work worded differently: each draft that's
+ *      left is compared with that class's list one title at a time ("are
+ *      these the same work?"); a yes drops it.
+ *   5. Kept: a reminder marked as from that announcement, linking to it.
  *
  * ── Which announcements ──
  *
@@ -51,6 +54,13 @@ const SYSTEM = [
   'An empty list when it asks for nothing: news, a grade posted, a reminder of an event with nothing to prepare, a greeting.',
   'Never invent work that is not in the announcement.',
 ].join('\n');
+
+// The same work worded differently ("Lab goggles" and "bring your safety
+// glasses"): plain logic can't tell, and a small model asked to skip
+// what's on a whole list doesn't either (Apple's skipped the wrong ones).
+// Asked about one pair at a time, it answered right every time.
+const SAME_SYSTEM = 'A student has a to-do list. Say whether two to-dos are the same piece of work, worded differently. Different chapters, pages or numbers are different work. Answer only "yes" or "no".';
+const MAX_COMPARE = 10;
 
 const MAX_ITEMS = 5;
 const MAX_TEXT = 4000;
@@ -102,6 +112,32 @@ function promptFor(a, className) {
   }
   const text = [a.title, a.text].filter(Boolean).join('\n').slice(0, MAX_TEXT);
   return `Class: ${className}\nPosted: ${weekday(posted)} ${dayKey(posted)}\nThe days after: ${days.join(', ')}\nAnnouncement:\n${text}`;
+}
+
+/**
+ * What a draft gets compared with: the same class's work, due nearest the
+ * draft's due day (or the posting day) first, undated ones after, at most
+ * MAX_COMPARE.
+ */
+function compareList(draft, others, posted) {
+  const around = (draft.due && !isNaN(draft.due) ? draft.due : posted).getTime();
+  const dated = o => o.due && !isNaN(o.due);
+  const mine = others.filter(o => o.class === draft.class && o.title);
+  return [...mine.filter(dated).sort((x, y) => Math.abs(x.due - around) - Math.abs(y.due - around)), ...mine.filter(o => !dated(o))].slice(0, MAX_COMPARE);
+}
+
+/**
+ * The item on the list the model says is the same work as the draft, or
+ * null. A failed or unclear answer counts as no: at worst a duplicate,
+ * never homework left out.
+ */
+async function sameWork(draft, others, posted, complete) {
+  for (const o of compareList(draft, others, posted)) {
+    const clean = t => String(t).replace(/\s+/g, ' ').slice(0, 120);
+    const answer = await complete({ system: SAME_SYSTEM, prompt: `New: ${clean(draft.title)}\nOn the list: ${clean(o.title)}`, maxTokens: 5 });
+    if (answer.ok && /^\W*yes\b/i.test(answer.text)) return o;
+  }
+  return null;
 }
 
 /**
@@ -304,6 +340,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
           if (!grounded(it.title, text)) { result.dropped++; continue; }
           const draft = { title: it.title, class: className, due: it.due };
           if (conflict(draft, others)) { result.dropped++; continue; }
+          if (await sameWork(draft, others, postedAt(a), complete)) { result.dropped++; continue; }
           const made = virtual.create({ title: draft.title, class: draft.class, due: draft.due ? draft.due.toISOString() : null,
             from: { announcement: a.id, link: a.link || null } });
           if (!made.ok) continue;
@@ -335,7 +372,7 @@ function listForPage() {
       scanned: state.scanned[a.id] || null }));
 }
 
-module.exports = { SYSTEM, readState, seedKnown, pendingNew, promptFor, parseItems, resolveWhen, grounded, similar, conflict, scan, listForPage, STATE_FILE };
+module.exports = { SYSTEM, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, grounded, similar, conflict, scan, listForPage, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.

@@ -56,10 +56,34 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('...or the same due day', sc.conflict({ class: 'Math', title: 'Worksheet', due: day }, [{ class: 'Math', title: 'Lab', due: new Date(2026, 9, 8, 9) }]) === 'same due day');
   ok('...never across classes', sc.conflict({ class: 'Math', title: 'Problem set 7', due: day }, [{ class: 'History', title: 'Problem set 7', due: day }]) === null);
 
+  {
+    const at = (m, d) => new Date(2026, m, d, 23, 59);
+    const others = [{ class: 'Math', title: 'Far', due: at(10, 20) }, { class: 'Math', title: 'Undated', due: null }, { class: 'Math', title: 'Near', due: at(9, 9) },
+      { class: 'History', title: 'Other class', due: at(9, 9) }, ...Array.from({ length: 12 }, (_, i) => ({ class: 'Math', title: `Soon ${i}`, due: at(9, 12) }))];
+    const list = sc.compareList({ class: 'Math', title: 'x', due: at(9, 8) }, others, posted).map(o => o.title);
+    ok('a draft is compared with its class\'s work, due nearest it first, at most 10', list.length === 10 && list[0] === 'Near' && !list.includes('Other class') && !list.includes('Far'));
+    ok('...undated ones after the dated ones', JSON.stringify(sc.compareList({ class: 'Math', title: 'x', due: null }, others.slice(0, 3), posted).map(o => o.title)) === '["Near","Far","Undated"]');
+    const pairs = [];
+    const says = text => async ({ system, prompt }) => { pairs.push(prompt); return system === sc.SAME_SYSTEM ? { ok: true, text } : { ok: false }; };
+    const draft = { class: 'Math', title: 'Bring your safety glasses', due: at(9, 6) };
+    const goggles = { class: 'Math', title: 'Lab goggles', due: null };
+    ok('the model says it\'s the same work: that one', await sc.sameWork(draft, [goggles], posted, says('Yes.')) === goggles && pairs[0] === 'New: Bring your safety glasses\nOn the list: Lab goggles');
+    ok('...no, or an answer that isn\'t yes: none', await sc.sameWork(draft, [goggles], posted, says('No')) === null && await sc.sameWork(draft, [goggles], posted, says('yesterday')) === null);
+    ok('...the model unreachable: none, so nothing is left out', await sc.sameWork(draft, [goggles], posted, async () => ({ ok: false, why: 'x' })) === null);
+  }
+
   // ── the automatic scan: new ones only, each once ──
   const asked = [];
-  const fake = answers => async ({ system, prompt }) => { asked.push(prompt); return answers.shift() || { ok: true, text: '{"items":[]}' }; };
-
+  const compared = [];
+  let sameAs = [];  // [new title, title on the list] pairs the stand-in calls the same work
+  const fake = answers => async ({ system, prompt }) => {
+    if (system === sc.SAME_SYSTEM) {
+      compared.push(prompt);
+      const [, a, b] = prompt.match(/^New: (.*)\nOn the list: (.*)$/);
+      return { ok: true, text: sameAs.some(([x, y]) => x === a && y === b) ? 'yes' : 'no' };
+    }
+    asked.push(prompt); return answers.shift() || { ok: true, text: '{"items":[]}' };
+  };
   let r = await sc.scan({ newOnly: true }, { complete: fake([]) });
   ok('AI turned on before this existed: what\'s there is the backlog, nothing read', r.ok && r.scanned === 0 && asked.length === 0 && sc.readState().known.includes('old1'));
 
@@ -75,6 +99,7 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ]) });
   ok('three new ones read, the backlog left alone', r.ok && r.scanned === 3 && asked.length === 3 && !asked.some(q => /chapter 2/.test(q)), JSON.stringify(r));
   ok('the model gets the class, the posting day and the days after, and the text', /Class: Made-up Bio\n/.test(asked[0]) && /Posted: Monday 2026-10-05/.test(asked[0]) && /Thursday 2026-10-08/.test(asked[0]) && /cell worksheet/.test(asked[0]));
+  ok('each draft left is compared with its own class\'s list only', compared.includes('New: Study for the quiz\nOn the list: Finish the cell worksheet') && !compared.some(q => /Problem Set 7/.test(q) && /Bio|cell|quiz/.test(q)));
   const made = virtual.readAll();
   const titles = made.map(v => v.title).sort();
   ok('kept: the worksheet, the quiz and the calculator', JSON.stringify(titles) === '["Bring a calculator","Finish the cell worksheet","Study for the quiz"]', JSON.stringify(titles));
@@ -98,6 +123,17 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('picked ones are read, backlog or already scanned', r.scanned === 2 && asked.length === 2);
   ok('...a deleted reminder comes back only because it was asked for, and one still there isn\'t doubled', r.kept.length === 2 && r.dropped === 1 &&
     virtual.readAll().filter(v => v.title === 'Study for the quiz').length === 1, JSON.stringify(r));
+
+  // ── the same work worded differently ──
+  virtual.create({ title: 'Lab goggles', class: 'Made-up Math', due: null });
+  write('messages.json', [...JSON.parse(fs.readFileSync(path.join(proj, 'messages.json'), 'utf8')), ann('n5', 'Made-up Math', 'Bring your safety glasses Wednesday, and do the chapter 3 problems.', MON)]);
+  sameAs = [['Bring your safety glasses', 'Lab goggles']];
+  compared.length = 0;
+  r = await sc.scan({ ids: ['n5'] }, { complete: fake([{ ok: true, text: '{"items":[{"title":"Bring your safety glasses","when":"Wednesday"},{"title":"Chapter 3 problems","when":null}]}' }]) });
+  ok('a reminder already there in other words isn\'t doubled; the new work is kept', r.dropped === 1 && JSON.stringify(r.kept.map(k => k.title)) === '["Chapter 3 problems"]' &&
+    virtual.readAll().filter(v => /goggles|glasses/i.test(v.title)).length === 1, JSON.stringify(r));
+  ok('...asked one pair at a time, its own class only', compared.includes('New: Bring your safety glasses\nOn the list: Lab goggles') && !compared.some(q => /cell worksheet|quiz/.test(q)));
+  sameAs = [];
 
   // ── failures ──
   write('messages.json', [...JSON.parse(fs.readFileSync(path.join(proj, 'messages.json'), 'utf8')), ann('n4', 'Made-up Math', 'Bring your textbook Monday.')]);
@@ -139,7 +175,7 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     ok('a reminder from an announcement links to it', from.length >= 2 && from[0].getAttribute('href').startsWith('https://classroom.example/'));
     ok('the footer says AI reads announcements while it\'s on', /AI only reads announcements/.test(d.querySelector('footer').textContent));
     const rows = [...d.querySelectorAll('#ai-scan-list .ai-scan-row')];
-    ok('Settings → AI lists every announcement, newest first, with what its scan found', rows.length === 5 &&
+    ok('Settings → AI lists every announcement, newest first, with what its scan found', rows.length === 6 &&
       /· 2 added|· 1 added/.test(d.getElementById('ai-scan-list').textContent) && /nothing found/.test(d.getElementById('ai-scan-list').textContent) && /couldn't be read/.test(d.getElementById('ai-scan-list').textContent));
     ok('...under the class as shown', /Made-up Bio/.test(rows.map(r => r.textContent).join()) && !/Biology Period 2/.test(rows.map(r => r.textContent).join()));
     const button = d.querySelector('#ai-scan .mini-btn');
