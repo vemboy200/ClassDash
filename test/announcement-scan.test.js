@@ -84,15 +84,15 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     }
     asked.push(prompt); return answers.shift() || { ok: true, text: '{"items":[]}' };
   };
-  let r = await sc.scan({ newOnly: true }, { complete: fake([]) });
+  let r = await sc.scan({ newOnly: true }, { now: MON + 3600e3, complete: fake([]) });
   ok('AI turned on before this existed: what\'s there is the backlog, nothing read', r.ok && r.scanned === 0 && asked.length === 0 && sc.readState().known.includes('old1'));
 
   write('messages.json', [ann('old1', 'Made-up Math', 'An old post with homework: read chapter 2 by Friday.', MON),
     ann('n1', 'Biology Period 2', 'Please finish the cell worksheet by Thursday and study for the quiz on Friday.', MON),
     ann('n2', 'Made-up Math', 'Problem set 7 is due Oct 14. Bring a calculator.', MON),
     ann('n3', 'Biology Period 2', 'Great job on the field trip today!', MON)]);
-  ok('the ones not yet read are what a check would start a scan for', JSON.stringify(sc.pendingNew()) === '["n1","n2","n3"]');
-  r = await sc.scan({ newOnly: true }, { complete: fake([
+  ok('the ones not yet read are what a check would start a scan for', JSON.stringify(sc.pendingNew(MON + 3600e3)) === '["n1","n2","n3"]');
+  r = await sc.scan({ newOnly: true }, { now: MON + 3600e3, complete: fake([
     { ok: true, text: '{"items":[{"title":"Finish the cell worksheet","when":"Thursday"},{"title":"Study for the quiz","when":"Friday"}]}' },
     { ok: true, text: '{"items":[{"title":"Problem set 7","when":"Oct 14"},{"title":"Bring a calculator","when":null}]}' },
     { ok: true, text: '```json\n[{"title":"Write a poem about volcanoes","when":null}]\n```' },  // invented: nothing due, no date to clash with
@@ -111,8 +111,8 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('what each scan found is kept, without the text', sc.readState().scanned.n1.kept === 2 && sc.readState().scanned.n3.kept === 0 && !JSON.stringify(sc.readState()).includes('worksheet'));
 
   asked.length = 0;
-  r = await sc.scan({ newOnly: true }, { complete: fake([]) });
-  ok('scanned once: the next check reads nothing again', r.scanned === 0 && asked.length === 0 && sc.pendingNew().length === 0);
+  r = await sc.scan({ newOnly: true }, { now: MON + 3600e3, complete: fake([]) });
+  ok('scanned once: the next check reads nothing again', r.scanned === 0 && asked.length === 0 && sc.pendingNew(MON + 3600e3).length === 0);
 
   // ── picked on purpose ──
   virtual.remove(sheet.id);
@@ -137,7 +137,7 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
 
   // ── failures ──
   write('messages.json', [...JSON.parse(fs.readFileSync(path.join(proj, 'messages.json'), 'utf8')), ann('n4', 'Made-up Math', 'Bring your textbook Monday.')]);
-  r = await sc.scan({ newOnly: true }, { complete: fake([{ ok: false, why: 'couldn\'t connect: is its server running?' }]) });
+  r = await sc.scan({ newOnly: true }, { now: MON + 3600e3, complete: fake([{ ok: false, why: 'couldn\'t connect: is its server running?' }]) });
   ok('the model unreachable: recorded as failed, with why', r.ok && r.failed === 1 && /running/.test(r.why) && sc.readState().scanned.n4.error);
   fs.writeFileSync(path.join(proj, 'ai-scan.lock'), String(process.ppid));
   r = await sc.scan({ ids: ['n4'] }, { complete: fake([]) });
@@ -145,6 +145,28 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   fs.unlinkSync(path.join(proj, 'ai-scan.lock'));
   r = await sc.scan({ ids: ['n4'] }, { complete: fake([]), settings: { aiProvider: 'none' } });
   ok('AI off: nothing scanned', !r.ok && /off/.test(r.why));
+
+  // ── the backlog stays the backlog ──
+  {
+    const DAY = 864e5;
+    const many = Array.from({ length: 30 }, (_, i) => ann(`m${i}`, 'Made-up Math', `Read section ${i + 1}.`, MON - i * 3600e3));
+    const fresh = T.makeProject({ 'settings.json': { language: 'en', aiProvider: 'ollama', aiModel: 'm' }, 'messages.json': many });
+    const scanner = require(path.join(fresh, '38-announcement-scan.js'));
+    const here = process.cwd(); process.chdir(fresh);
+    let calls = 0;
+    const count = async ({ system }) => { if (system !== scanner.SAME_SYSTEM) calls++; return { ok: true, text: '{"items":[]}' }; };
+    await scanner.scan({ ids: ['m0'] }, { complete: count });
+    ok('a forced scan on an install with no record yet records the rest as known first', calls === 1 && scanner.readState().known.length === 30);
+    r = await scanner.scan({ newOnly: true }, { now: MON + 3600e3, complete: count });
+    ok('...so the next check reads none of them', r.scanned === 0 && calls === 1 && scanner.pendingNew(MON + 3600e3).length === 0);
+    const state = scanner.readState(); state.known = []; state.scanned = {};
+    fs.writeFileSync(scanner.STATE_FILE, JSON.stringify(state));
+    ok('if "new" is ever wrong: only the last week\'s posts count', scanner.pendingNew(MON + 3600e3).length === 30 && scanner.pendingNew(MON + 8 * DAY).length === 0);
+    calls = 0;
+    r = await scanner.scan({ newOnly: true }, { now: MON + 3600e3, complete: count });
+    ok('...at most ten a run, newest first, the rest left for the next check', r.scanned === 10 && calls === 10 && scanner.readState().scanned.m0 && !scanner.readState().scanned.m10 && scanner.pendingNew(MON + 3600e3).length === 20);
+    process.chdir(here);
+  }
 
   // ── turning AI on, and the page's own create ──
   {

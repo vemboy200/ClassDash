@@ -292,11 +292,23 @@ function takeLock() {
 const dropLock = () => { try { fs.unlinkSync(LOCK_FILE); } catch {} };
 
 /** Announcements the automatic scan would read: neither known nor scanned. */
-function pendingNew() {
+// The automatic scan's limits, should "new" ever be wrong again (a forced
+// scan once wrote the state file before anything was recorded as known,
+// and the next check read the whole backlog, 98 announcements, one model
+// call after another): only posts from the last week, where homework can
+// still be due, and at most ten a run (the rest wait for the next check).
+const NEW_MAX_AGE_DAYS = 7;
+const NEW_MAX_PER_RUN = 10;
+
+function isNew(a, state, known, now = Date.now()) {
+  return !known.has(a.id) && !state.scanned[a.id] && (now - postedAt(a)) / 864e5 <= NEW_MAX_AGE_DAYS;
+}
+
+function pendingNew(now = Date.now()) {
   if (!fs.existsSync(STATE_FILE)) return [];
   const state = readState();
   const known = new Set(state.known);
-  return announcements().filter(a => !known.has(a.id) && !state.scanned[a.id]).map(a => a.id);
+  return announcements().filter(a => isNew(a, state, known, now)).map(a => a.id);
 }
 
 /**
@@ -310,7 +322,13 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
   if (!settings.aiProvider || settings.aiProvider === 'none') return { ok: false, why: 'AI is off' };
   // AI turned on before this existed, so nothing was recorded as known:
   // what's here is the backlog, and only what comes after is new.
-  if (newOnly && !fs.existsSync(STATE_FILE)) { seedKnown(); return { ok: true, scanned: 0, kept: [], dropped: 0, failed: 0 }; }
+  // Before any scan writes the state file, forced ones included: otherwise
+  // the file exists with only the forced ones in it, and the next check
+  // takes everything else for new.
+  if (!fs.existsSync(STATE_FILE)) {
+    seedKnown();
+    if (newOnly) return { ok: true, scanned: 0, kept: [], dropped: 0, failed: 0 };
+  }
   if (!takeLock()) return { ok: false, why: 'a scan is already running' };
   try {
     const complete = deps.complete || ((ask) => require('./37-ai.js').complete(ask, settings));
@@ -320,7 +338,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
     const known = new Set(state.known);
     const all = announcements();
     const wanted = ids ? new Set(ids) : null;
-    const todo = all.filter(a => wanted ? wanted.has(a.id) : newOnly && !known.has(a.id) && !state.scanned[a.id]);
+    const todo = wanted ? all.filter(a => wanted.has(a.id)) : newOnly ? all.filter(a => isNew(a, state, known, deps.now || Date.now())).sort((x, y) => postedAt(y) - postedAt(x)).slice(0, NEW_MAX_PER_RUN) : [];
 
     const result = { ok: true, scanned: 0, kept: [], dropped: 0, failed: 0 };
     const others = existing();
@@ -372,7 +390,7 @@ function listForPage() {
       scanned: state.scanned[a.id] || null }));
 }
 
-module.exports = { SYSTEM, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, grounded, similar, conflict, scan, listForPage, STATE_FILE };
+module.exports = { SYSTEM, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, grounded, similar, conflict, scan, listForPage, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.
