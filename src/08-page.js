@@ -420,6 +420,9 @@ function remindersSection(now) {
           <span class="plat">${escapeHtml(t('reminderPlatform'))}</span>
           ${x.class ? `<span class="cls">${escapeHtml(x.class)}</span>` : ''}
           <span class="due">${escapeHtml(dueText(x, kind))}</span>
+          ${x.fromLink === null || x.fromLink === undefined ? '' : x.fromLink
+            ? `<a class="reminder-from" href="${escapeHtml(x.fromLink)}" target="_blank" rel="noopener">${escapeHtml(t('reminderFromAnnouncement'))}</a>`
+            : `<span class="reminder-from">${escapeHtml(t('reminderFromAnnouncement'))}</span>`}
         </div>
       </div>`, actions)}
       </div>`;
@@ -1113,6 +1116,34 @@ ${row(ai.PROVIDER_IDS.filter(id => id !== 'apple').join(' '), `      <label clas
           <button type="button" class="mini-btn" id="ai-test" onclick="testAi(this)">${escapeHtml(t('aiTest'))}</button>
         </span>
         <span class="field-hint" id="ai-test-status"></span>
+      </div>
+${aiScanSection(chosen)}`;
+}
+
+/**
+ * Settings → AI → Announcements (38-announcement-scan.js): new ones are
+ * read for homework after each check by themselves; here any of them can
+ * be ticked and read now, with what the last scan found beside each.
+ */
+function aiScanSection(chosen) {
+  const list = require('./38-announcement-scan.js').listForPage();
+  const tag = scanned => !scanned ? '' : scanned.error ? t('aiScanTagFailed')
+    : scanned.kept ? t('aiScanTagKept', scanned.kept) : t('aiScanTagNone');
+  const rows = list.map(a => `          <label class="check-row ai-scan-row"><input type="checkbox" value="${escapeHtml(a.id)}">` +
+    `<span class="label-text"><b>${escapeHtml(classLinks.linkedName(a.class))}</b> · ${escapeHtml(a.date)} — ${escapeHtml(a.text)}` +
+    ` <span class="ai-scan-tag" data-scan-tag="${escapeHtml(String(a.id).replace(/"/g, ''))}">${escapeHtml(tag(a.scanned))}</span></span></label>`).join('\n');
+  return `      <div id="ai-scan" data-ai-for="${require('./37-ai.js').PROVIDER_IDS.join(' ')}"${chosen === 'none' ? ' hidden' : ''}>
+        <div class="settings-subhead">${escapeHtml(t('aiScanTitle'))}</div>
+        <p class="field-hint">${escapeHtml(t('aiScanHint'))}</p>
+${list.length ? `        <div class="ai-scan-list" id="ai-scan-list">
+${rows}
+        </div>
+        <div class="ai-scan-actions">
+          <button type="button" class="mini-btn" onclick="scanAi(this)">${escapeHtml(t('aiScanButton'))}</button>
+          <button type="button" class="mini-btn" onclick="selectAiScan(true)">${escapeHtml(t('aiScanAll'))}</button>
+          <button type="button" class="mini-btn" onclick="selectAiScan(false)">${escapeHtml(t('aiScanNone'))}</button>
+          <span class="field-hint" id="ai-scan-status"></span>
+        </div>` : `        <p class="field-hint">${escapeHtml(t('aiScanEmpty'))}</p>`}
       </div>`;
 }
 
@@ -2668,6 +2699,13 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   [data-section="ai"] .setting-row.wide .field-with-value { display: flex; gap: 8px; align-items: center; min-width: 0; }
   [data-section="ai"] .setting-row.wide .field-with-value input { flex: 1 1 auto; min-width: 0; }
   #ai-test-row[hidden] { display: none; }
+  .ai-scan-list { max-height: 260px; overflow-y: auto; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 0; margin: 6px 0 8px; }
+  .ai-scan-row { align-items: flex-start; padding: 4px 0; font-size: 13px; }
+  .ai-scan-row input { margin-top: 3px; }
+  .ai-scan-row .label-text { overflow: visible; white-space: normal; text-overflow: clip; max-width: none; flex: 1; line-height: 1.4; }
+  .ai-scan-tag { color: var(--dim); }
+  .ai-scan-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .reminder-from { color: var(--dim); }
   .ai-why { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: var(--dim); }
   .ai-why summary { cursor: pointer; color: var(--text); font-weight: 600; }
   .ai-why p { margin: 8px 0 0; }
@@ -2972,7 +3010,7 @@ ${announcementsSection(announcements, freshAnnouncementIds)}
     </section>
   </div>
   </div>
-  <footer>${escapeHtml(t('footerNote'))}</footer>
+  <footer>${escapeHtml(t(readSettings().aiProvider && readSettings().aiProvider !== 'none' ? 'footerNoteAi' : 'footerNote'))}</footer>
 </main>
 <script>
 // A BROKEN SCRIPT HAS TO SAY SO OUT LOUD.
@@ -3064,6 +3102,15 @@ const WORDS = ${JSON.stringify({
   aiModelMissing: t('aiModelMissing'),
   aiUnavailable: t('aiUnavailable'),
   aiFind: t('aiFind'),
+  aiScanButton: t('aiScanButton'),
+  aiScanningButton: t('aiScanningButton'),
+  aiScanPickFirst: t('aiScanPickFirst'),
+  aiScanning: t('aiScanning', '{n}'),
+  aiScanDone: t('aiScanDone', '{read}', '{kept}', '{dropped}'),
+  aiScanFailed: t('aiScanFailed', '{n}'),
+  aiScanTagKept: t('aiScanTagKept', '{n}'),
+  aiScanTagNone: t('aiScanTagNone'),
+  aiScanTagFailed: t('aiScanTagFailed'),
   aiFinding: t('aiFinding'),
   aiNotFoundHere: t('aiNotFoundHere', '{name}', '{url}'),
   aiFoundAt: t('aiFoundAt', '{name}', '{url}'),
@@ -4147,35 +4194,44 @@ function updateAiRows() {
 // The Test button. It saves first and then tests what was saved, so the
 // key never travels in the test's own message (the apps log those), and
 // the test is of exactly what will be used.
-function testAi(button) {
-  var status = document.getElementById('ai-test-status');
-  var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
-  if (!hasNativeBridge()) { show(WORDS.aiTestNeedsApp, true); return; }
+// Test and Scan both work on what's saved, so they save the panel first
+// (and refuse a cloud provider whose box isn't ticked). show() says what
+// went wrong; then() runs once it's saved, with the provider saved.
+function aiSaveFirst(show, then) {
+  if (!hasNativeBridge()) { show(WORDS.aiTestNeedsApp, true); return false; }
   var select = document.querySelector('[data-key="aiProvider"]');
   var picked = select.options[select.selectedIndex];
   if (picked && picked.hasAttribute('data-cloud')) {
     var box = document.querySelector('[data-key="aiAgreed"][value="' + select.value + '"]');
-    if (!box || !box.checked) { show(WORDS.aiAgreeFirst, true); return; }
+    if (!box || !box.checked) { show(WORDS.aiAgreeFirst, true); return false; }
   }
-  var done = function () { button.textContent = WORDS.aiTest; button.disabled = false; };
-  button.textContent = WORDS.aiTesting;
-  button.disabled = true;
-  show('', false);
   var sent = JSON.stringify(collectSettings());
   dispatchAction('config', toBase64Url(sent), function (res) {
     if (!res || !res.ok || (res.rejected && res.rejected.length)) {
-      done();
       var why = res && (res.why || (res.rejected && res.rejected.join('; ')));
       show(WORDS.saveFailed + (why ? ': ' + why : ''), true);
+      then(null);
       return;
     }
     settingsBaseline = sent;
-    var tested = select.value;
-    select.setAttribute('data-saved', tested);
+    select.setAttribute('data-saved', select.value);
     var input = document.querySelector('[data-key="aiModel"]');
     input.setAttribute('data-saved-model', input.value);
     var address = document.querySelector('[data-key="aiLocalUrl"]');
     address.setAttribute('data-saved-url', address.value);
+    then(select.value);
+  });
+  return true;
+}
+
+function testAi(button) {
+  var status = document.getElementById('ai-test-status');
+  var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
+  var select = document.querySelector('[data-key="aiProvider"]');
+  var done = function () { button.textContent = WORDS.aiTest; button.disabled = false; };
+  show('', false);
+  var started = aiSaveFirst(show, function (tested) {
+    if (!tested) { done(); return; }
     dispatchAction('aiTest', '', function (r) {
       done();
       if (r && r.models) {
@@ -4186,6 +4242,51 @@ function testAi(button) {
       else show(WORDS.aiTestFailed + ' ' + ((r && r.why) || ''), true);
     });
   });
+  if (started) { button.textContent = WORDS.aiTesting; button.disabled = true; }
+}
+
+// Settings → AI → Announcements: scan the ticked ones now.
+function scanAi(button) {
+  var status = document.getElementById('ai-scan-status');
+  var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
+  var boxes = document.querySelectorAll('#ai-scan-list input[type="checkbox"]:checked');
+  var ids = [];
+  for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
+  if (!ids.length) { show(WORDS.aiScanPickFirst, true); return; }
+  var done = function () { button.textContent = WORDS.aiScanButton; button.disabled = false; };
+  show('', false);
+  var started = aiSaveFirst(show, function (saved) {
+    if (!saved) { done(); return; }
+    show(WORDS.aiScanning.split('{n}').join(String(ids.length)), false);
+    dispatchAction('aiScan', toBase64Url(JSON.stringify(ids)), function (r) {
+      done();
+      if (!r || !r.ok) { show(WORDS.aiTestFailed + ' ' + ((r && r.why) || ''), true); return; }
+      show(WORDS.aiScanDone.split('{read}').join(String(r.scanned)).split('{kept}').join(String(r.kept.length))
+        .split('{dropped}').join(String(r.dropped)) + (r.failed ? ' ' + WORDS.aiScanFailed.split('{n}').join(String(r.failed)) + ' ' + (r.why || '') : ''), !!r.failed);
+      if (r.announcements) markScanned(r.announcements);
+      for (var b = 0; b < boxes.length; b++) boxes[b].checked = false;
+    });
+  });
+  if (started) { button.textContent = WORDS.aiScanningButton; button.disabled = true; }
+}
+
+// What each announcement's last scan found, next to it in the list.
+function markScanned(list) {
+  for (var i = 0; i < list.length; i++) {
+    var tag = document.querySelector('#ai-scan-list [data-scan-tag="' + list[i].id.replace(/"/g, '') + '"]');
+    if (tag) tag.textContent = scanTag(list[i].scanned);
+  }
+}
+
+function scanTag(scanned) {
+  if (!scanned) return '';
+  if (scanned.error) return WORDS.aiScanTagFailed;
+  return scanned.kept ? WORDS.aiScanTagKept.split('{n}').join(String(scanned.kept)) : WORDS.aiScanTagNone;
+}
+
+function selectAiScan(all) {
+  var boxes = document.querySelectorAll('#ai-scan-list input[type="checkbox"]');
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = all;
 }
 
 function calendarFeedAction(action, arg, button) {

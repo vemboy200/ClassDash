@@ -380,6 +380,17 @@ function main(action, arg) {
         }
       }
 
+      // AI just turned on: the announcements already here are the backlog,
+      // not new, so the automatic scan after each check leaves them alone
+      // (Settings → AI can scan any of them on purpose).
+      if (result.changed.includes('aiProvider')) {
+        const { aiProvider } = require('./19-settings.js').read();
+        if (aiProvider && aiProvider !== 'none') {
+          const n = require('./38-announcement-scan.js').seedKnown();
+          logAction(`  AI on: ${n} announcements already here won't be scanned automatically`);
+        }
+      }
+
       // Reminders saved under a link's name follow it when it's renamed or
       // removed (see renamesAfter() in 29-class-links.js).
       if (result.changed.includes('classLinks')) {
@@ -501,6 +512,26 @@ function main(action, arg) {
     // that it ran.
     case 'aiDetect': {
       return require('./37-ai.js').detect().then(result => ({ ok: true, action, ...result }));
+    }
+    // Settings → AI's "Scan selected": the announcements ticked there,
+    // as a base64url JSON list of ids. Answers with what was kept and the
+    // list as the page shows it. Logs counts only, never titles or text.
+    case 'aiScan': {
+      let ids;
+      try {
+        ids = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      if (!Array.isArray(ids) || !ids.length) return { ok: false, action, why: 'no announcements picked' };
+      const scanner = require('./38-announcement-scan.js');
+      return scanner.scan({ ids: ids.map(String) }).then(result => {
+        logAction(result.ok
+          ? `  AI scan: ${result.scanned} read, ${result.kept.length} kept, ${result.dropped} already there, ${result.failed} failed`
+          : `  AI scan not run: ${result.why}`);
+        if (result.ok && result.kept.length) redraw();
+        return { ...result, action, announcements: scanner.listForPage() };
+      });
     }
     case 'clearCalendar': {
       const result = require('./33-school-calendar.js').clearCalendar();
@@ -640,7 +671,7 @@ function main(action, arg) {
       } catch (e) {
         return { ok: false, action, why: 'could not parse: ' + e.message };
       }
-      const result = va.create(payload);
+      const result = va.create({ title: payload.title, class: payload.class, due: payload.due });
       if (!result.ok) return { ok: false, action, why: result.why };
       redraw();
       return { ok: true, action, entry: result.entry };

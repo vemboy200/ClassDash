@@ -56,7 +56,7 @@ const requireFresh = (file) => {
     /^\*/,
     /^const readIcon = name => fs\.readFileSync\(path\.join\(__dirname, name\)\)/,
     /path\.join\(__dirname, 'settings\.example\.json'\)/,
-    /path\.join\(__dirname, '(05-playwright-draft|17-api)\.js'\)/,
+    /path\.join\(__dirname, '(05-playwright-draft|17-api|38-announcement-scan)\.js'\)/,
     /cwd: __dirname/,
   ];
   const srcDir = path.join(T.REPO, 'src');

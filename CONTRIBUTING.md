@@ -266,6 +266,20 @@ The cloud boxes are worded about the student the install is for, not whoever set
 
 The `aiTest` action tests what's saved: the page saves with `config` first and sends `aiTest` with no argument, because the apps write other actions' arguments to their logs. It logs only whether the test worked. Prompts and answers are never logged.
 
+### Homework in announcements (`38-announcement-scan.js`)
+
+With AI on, announcements are read for homework that was posted as an announcement instead of an assignment. Per announcement:
+
+1. **The model** (`37-ai.js`'s `complete()`) gets only the class name (as shown, so class links count), the posting day with the 14 days after it by weekday, and the text. It answers `{"items": [{"title", "when", "due"}]}`, where `when` is the announcement's own words for the due date. `parseItems()` also takes a bare list or a ```json fence (Apple's model answers that way), at most five items.
+2. **The due date** comes from those words by plain logic (`resolveWhen()`: today, tomorrow, a weekday as the next one after posting, "next Wednesday" the same, "Oct 14", "14 October", "10/14", ISO), due at 23:59 that day. The model's own date is used only when the words have none, and only within a week before to four months after the posting day. Small models count weekdays wrong; tried with made-up announcements, Apple's put "Friday" a week late until this.
+3. **Invented work** is dropped: `grounded()` needs a word of the title, other than generic ones like "study" or "quiz", in the announcement (or every word of a generic title).
+4. **Conflicts** are dropped: an assignment (`gather()`'s buckets) or reminder in the same class with a similar title (one inside the other, or 60% of words shared) or due the same day.
+5. What's left becomes a reminder through `24-virtual-assignments.js`'s `create()` with `from: {announcement, link}`, which the card shows as "from an announcement". Only the scan sets `from`: the `virtualCreate` action passes title, class and due only.
+
+**Which ones:** after each check, `05-playwright-draft.js` starts `38-announcement-scan.js --new` detached (only with AI on and something not yet read), so a slow local model never holds a check up; it redraws the page when it added reminders. `--new` reads announcements neither known nor scanned. Turning AI on (the `config` action, when `aiProvider` changes to one) records every announcement already there as known (`seedKnown()`), so a backlog isn't sent off at once; an install that turned AI on before this existed is seeded by its first `--new` run instead, which reads nothing. The `aiScan` action (Settings → AI → Announcements, **Scan selected**) reads the ids it's given, scanned before or not, so a deleted reminder can come back only when its announcement is picked again.
+
+`ai-scan.json` holds `known` and, per scanned announcement, `{at, found, kept, error?}`, never the text. `ai-scan.lock` (a pid) keeps it to one scan at a time. Logs carry counts only.
+
 ### Reading Canvas: API, browser, or API with browser fallback
 
 `10-canvas.js` sends the same GET requests to Canvas's REST API whichever way it's reading (`readCanvas(ask)`); only *who the requests are sent as* differs. `askWithToken` calls `fetch` from Node with a bearer header — no page. `askViaPage` runs `fetch` inside an open Canvas tab of the signed-in browser profile, after waiting out the school's sign-in redirect chain (which is what fails as "stuck on sign-in" and shows the sign-in banner). Which one is decided by `canvasPlan()` and carried out by `collectCanvasPlanned(plan, openPage)`:

@@ -111,8 +111,11 @@ function validateTitleAndDue({ title, class: className, due }) {
 
 /** title required, class and due both optional — a due-less reminder
  *  is exactly the "teacher mentioned it, no actual deadline" case this
- *  whole thing exists for. */
-function create({ title, class: className, due }) {
+ *  whole thing exists for. `from` is only set by the announcement scan
+ *  (38-announcement-scan.js): { announcement: id, link }, so the card can
+ *  say where it came from and link to it. Not settable from the page or
+ *  the API, which only ever pass title/class/due. */
+function create({ title, class: className, due, from }) {
   const v = validateTitleAndDue({ title, class: className, due });
   if (!v.ok) return v;
 
@@ -125,6 +128,7 @@ function create({ title, class: className, due }) {
     done: false,
     doneAt: null,
     hidden: false,
+    ...(from && from.announcement ? { from: { announcement: String(from.announcement), link: from.link ? String(from.link) : null } } : {}),
   };
 
   const list = readAll();
@@ -224,6 +228,8 @@ function bucketed(now, treatUndatedAsUrgent) {
       // was actually set, not a display-only stand-in date; see
       // startEditReminder() in 08-page.js.
       rawDue: v.due,
+      // Made by the announcement scan: the post it came from.
+      fromLink: v.from ? (v.from.link || '') : null,
     };
 
     if (v.done) {

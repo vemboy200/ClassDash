@@ -262,7 +262,10 @@ func runAIMode() -> Never {
                 let session = instructions.isEmpty
                     ? LanguageModelSession()
                     : LanguageModelSession(instructions: instructions)
-                let response = try await session.respond(to: prompt)
+                // Greedy: the most likely answer every time, not a sampled
+                // one. Reading an announcement wants the same answer twice,
+                // not a creative one (the small model invents work otherwise).
+                let response = try await session.respond(to: prompt, options: GenerationOptions(sampling: .greedy))
                 answer(["ok": true, "text": response.content])
             } catch {
                 answer(["ok": false, "why": "Apple Intelligence: \(error.localizedDescription)"])

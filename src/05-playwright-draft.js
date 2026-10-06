@@ -2681,7 +2681,29 @@ if (require.main !== module) return;
   // already run. Details are in the comment on rememberCollection.
   rememberCollection(all);
   fs.writeFileSync(STREAM_FILE, JSON.stringify(allAnnouncements, null, 2));
+  startAnnouncementScan();
 })();
+
+/**
+ * With AI on, new announcements are read for homework once a check has
+ * saved them (38-announcement-scan.js). In a process of its own, detached:
+ * a local model can take a while per announcement, and the check is done.
+ * Only started when there's something new, and never a reason for the
+ * check to fail.
+ */
+function startAnnouncementScan() {
+  try {
+    if (!SETTINGS.aiProvider || SETTINGS.aiProvider === 'none') return;
+    const scanner = require('./38-announcement-scan.js');
+    if (fs.existsSync(scanner.STATE_FILE) && !scanner.pendingNew().length) return;
+    const child = require('child_process').spawn(process.execPath, [path.join(__dirname, '38-announcement-scan.js'), '--new'],
+      { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+    console.log('announcement scan started');
+  } catch (e) {
+    console.warn('announcement scan not started:', e.message);
+  }
+}
 
 /**
  * ── WHAT CAN BREAK HERE ────────────────────────────────────────
