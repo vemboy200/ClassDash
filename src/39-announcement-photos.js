@@ -5,15 +5,18 @@
  * show it straight from Google. The collector downloads it during a check,
  * through the signed-in browser, into announcement-photos/, once.
  *
- * One size, 1600 px wide: the card shows it small and a click shows it
- * whole, from the same file.
+ * One size, 1600 px wide, as a JPEG at 80% quality ("-rj-l80" asks Google
+ * for that): the card shows it small and a click shows it whole, from the
+ * same file. Tried on real previews, that's about 40% smaller than what
+ * Google sends by default (some of it PNG), with no difference to see.
  *
  * ── How many are kept ──
  *
- * Downloaded for each class's newest DOWNLOAD_PER_CLASS announcements;
- * kept for its newest KEEP_PER_CLASS. Keeping a little more than is
- * downloaded means a post at the edge isn't deleted on one check and
- * downloaded again on the next. Anything else in the folder is deleted.
+ * The announcementPhotos setting (Settings → Display, 0–100, default 10):
+ * downloaded for each class's newest that-many announcements, kept for
+ * two more. Keeping a little more than is downloaded means a post at the
+ * edge isn't deleted on one check and downloaded again on the next.
+ * Anything else in the folder is deleted; 0 deletes them all.
  */
 const fs = require('fs');
 const path = require('path');
@@ -22,8 +25,8 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 
 const DIR_NAME = 'announcement-photos';
 const DIR = path.join(PROJECT_ROOT, DIR_NAME);
-const DOWNLOAD_PER_CLASS = 10;
-const KEEP_PER_CLASS = 12;
+const DEFAULT_PER_CLASS = 10;
+const KEEP_EXTRA = 2;
 const MAX_PER_POST = 6;
 const MAX_BYTES = 8 * 1024 * 1024;
 const WIDTH = 1600;
@@ -32,6 +35,14 @@ const EXTS = Object.values(TYPES);
 
 /** What the page may load: a file in that folder, named the way it names them. */
 const PHOTO_PATH = new RegExp(`^${DIR_NAME}/[0-9a-f]{20}\\.(${EXTS.join('|')})$`);
+
+/** The announcementPhotos setting, 0–100. */
+function perClass() {
+  try {
+    const n = require('./19-settings.js').read().announcementPhotos;
+    return Number.isInteger(n) && n >= 0 && n <= 100 ? n : DEFAULT_PER_CLASS;
+  } catch { return DEFAULT_PER_CLASS; }
+}
 
 const baseName = fileId => crypto.createHash('sha1').update(String(fileId)).digest('hex').slice(0, 20);
 
@@ -43,9 +54,10 @@ function existing(fileId) {
   return null;
 }
 
-/** The preview address at WIDTH: Google's image addresses end in "=<size>". */
+/** The preview address at WIDTH as a JPEG: Google's image addresses end in "=<options>". */
 function sized(url) {
-  return /=[^/=]*$/.test(url) ? url.replace(/=[^/=]*$/, `=w${WIDTH}`) : `${url}=w${WIDTH}`;
+  const options = `=w${WIDTH}-rj-l80`;
+  return /=[^/=]*$/.test(url) ? url.replace(/=[^/=]*$/, options) : `${url}${options}`;
 }
 
 /**
@@ -55,14 +67,14 @@ function sized(url) {
  * as read. The preview address is dropped either way: it's only good for
  * this download, and nothing else needs it.
  */
-async function fetchFor(posts, request) {
+async function fetchFor(posts, request, limit = perClass()) {
   let downloaded = 0;
   for (const [i, post] of posts.entries()) {
     let tried = 0;
     for (const att of post.attachments || []) {
       const preview = att.preview;
       delete att.preview;
-      if (att.kind !== 'image' || !att.fileId || i >= DOWNLOAD_PER_CLASS || tried >= MAX_PER_POST) continue;
+      if (att.kind !== 'image' || !att.fileId || i >= limit || tried >= MAX_PER_POST) continue;
       tried++;
       att.photo = existing(att.fileId);
       if (att.photo || !preview || !request) continue;
@@ -85,10 +97,11 @@ async function fetchFor(posts, request) {
 
 /**
  * Before announcements are written: drops `photo` from posts past each
- * class's newest KEEP_PER_CLASS (by sortTime) and deletes every file in
+ * class's newest limit + KEEP_EXTRA (by sortTime; with 0, from all) and deletes every file in
  * the folder no post points at any more. Returns how many were deleted.
  */
-function prune(posts) {
+function prune(posts, limit = perClass()) {
+  const keepPerClass = limit > 0 ? limit + KEEP_EXTRA : 0;
   const byClass = new Map();
   for (const p of posts) {
     if (!byClass.has(p.class)) byClass.set(p.class, []);
@@ -100,7 +113,7 @@ function prune(posts) {
     list.forEach((p, i) => {
       for (const att of p.attachments || []) {
         if (!att.photo) continue;
-        if (i < KEEP_PER_CLASS && PHOTO_PATH.test(att.photo)) keep.add(path.basename(att.photo));
+        if (i < keepPerClass && PHOTO_PATH.test(att.photo)) keep.add(path.basename(att.photo));
         else delete att.photo;
       }
     });
@@ -115,4 +128,20 @@ function prune(posts) {
   return deleted;
 }
 
-module.exports = { DIR, DIR_NAME, PHOTO_PATH, DOWNLOAD_PER_CLASS, KEEP_PER_CLASS, MAX_PER_POST, existing, sized, fetchFor, prune };
+/**
+ * Right after the setting changes, rather than at the next check: prunes
+ * the saved announcements with the new number and writes them back, so
+ * lowering it (or 0) clears the photos at once. Raising it downloads more
+ * at the next check.
+ */
+function pruneSaved(limit = perClass()) {
+  const file = path.join(PROJECT_ROOT, 'messages.json');
+  let posts;
+  try { posts = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return 0; }
+  if (!Array.isArray(posts)) return 0;
+  const deleted = prune(posts, limit);
+  fs.writeFileSync(file, JSON.stringify(posts, null, 2));
+  return deleted;
+}
+
+module.exports = { DIR, DIR_NAME, PHOTO_PATH, DEFAULT_PER_CLASS, KEEP_EXTRA, MAX_PER_POST, perClass, existing, sized, fetchFor, prune, pruneSaved };

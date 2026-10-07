@@ -67,14 +67,14 @@ const request = { get: async (url) => { asked.push(url); return { ok: () => true
   ok('...and taken out of the text', p1.text === 'Here is the board from today.\nCopy it into your notes.', JSON.stringify(p1.text));
   const p0 = posts.find(p => p.id === 'post-p0');
   ok('a photo shown big, outside an attachment block, is read too', JSON.stringify(p0.attachments.map(a => [a.kind, a.title])) === '[["image","Oct 1 at 10.21 AM.jpg"]]' && p0.text === 'First period left this behind.', JSON.stringify(p0));
-  ok('...and gets its photo', photos.PHOTO_PATH.test(p0.attachments[0].photo || '') && asked.includes('https://lh3.googleusercontent.com/drive-storage/prevBIGBIGBIGBIGBIGB0=w1600'));
+  ok('...and gets its photo', photos.PHOTO_PATH.test(p0.attachments[0].photo || '') && asked.includes('https://lh3.googleusercontent.com/drive-storage/prevBIGBIGBIGBIGBIGB0=w1600-rj-l80'));
   ok('forms and plain links too', posts.find(p => p.id === 'post-p2').attachments[0].kind === 'form' && posts.find(p => p.id === 'post-p3').attachments[0].kind === 'link');
-  ok('an image\'s preview is downloaded at 1600 px wide, through the signed-in browser', asked[0] === 'https://lh3.googleusercontent.com/drive-storage/prevAAAAAAAAAAAAAAAA1=w1600');
+  ok('an image\'s preview is downloaded 1600 px wide as a JPEG, through the signed-in browser', asked[0] === 'https://lh3.googleusercontent.com/drive-storage/prevAAAAAAAAAAAAAAAA1=w1600-rj-l80');
   ok('...saved in the photos folder, and the post points at it', photos.PHOTO_PATH.test(p1.attachments[0].photo) && fs.existsSync(path.join(proj, p1.attachments[0].photo)));
   ok('...and the preview address isn\'t kept', !JSON.stringify(posts).includes('drive-storage'));
   ok('a PDF gets no photo', !p1.attachments[1].photo);
   const got = posts.filter(p => p.attachments.some(a => a.photo)).map(p => p.id);
-  ok(`only each class's newest ${photos.DOWNLOAD_PER_CLASS} posts get photos`, got.length === photos.DOWNLOAD_PER_CLASS - 4 + 2 && !got.includes('post-q10') && asked.length === got.length, JSON.stringify(got));
+  ok(`only each class's newest ${photos.DEFAULT_PER_CLASS} posts get photos (the default)`, got.length === photos.DEFAULT_PER_CLASS - 4 + 2 && !got.includes('post-q10') && asked.length === got.length, JSON.stringify(got));
 
   asked.length = 0;
   const again = await collectFeed(fakePage(stream, request), { id: '1', name: 'Made-up Bio' });
@@ -84,6 +84,19 @@ const request = { get: async (url) => { asked.push(url); return { ok: () => true
   const html = post('r1', 'New photo', attachment('c1', 'Image', 'new.jpg', drive('fileNNNNNNNNNNNN1'), ICON('icon_1_image'), preview('prevNNNNNNNNNNNNNNNN1')));
   const failed = await collectFeed(fakePage(html, failing), { id: '1', name: 'Made-up Bio' });
   ok('a download that fails: the attachment is still there, without a photo', failed[0].attachments.length === 1 && !failed[0].attachments[0].photo);
+
+  asked.length = 0;
+  const offBefore = fs.readdirSync(photos.DIR).length;
+  const none = await photos.fetchFor([{ attachments: [{ kind: 'image', fileId: 'fileZZZZZZZZZZZZ1', preview: preview('prevZZZZZZZZZZZZZZZZ1') }] }], request, 0);
+  ok('set to 0: nothing downloaded', none === 0 && asked.length === 0 && fs.readdirSync(photos.DIR).length === offBefore);
+
+  // ── the setting ──
+  {
+    const settings = require(path.join(proj, '19-settings.js'));
+    ok('the setting is 10 by default', settings.read().announcementPhotos === 10 && photos.perClass() === 10);
+    ok('0 to 100 are accepted, whole numbers', settings.validate('announcementPhotos', '0').ok && settings.validate('announcementPhotos', 100).value === 100 && settings.validate('announcementPhotos', '7.4').value === 7);
+    ok('...nothing outside that', !settings.validate('announcementPhotos', -1).ok && !settings.validate('announcementPhotos', 101).ok && !settings.validate('announcementPhotos', 'lots').ok);
+  }
 
   // ── keeping only the newest ──
   {
@@ -97,7 +110,12 @@ const request = { get: async (url) => { asked.push(url); return { ok: () => true
     const many = Array.from({ length: 15 }, (_, i) => ({ id: `m${i}`, class: 'Made-up Art', sortTime: 100 - i, attachments: [{ kind: 'image', photo: `${photos.DIR_NAME}/${String(i).padStart(20, 'a')}.jpg` }] }));
     for (const m of many) fs.writeFileSync(path.join(proj, m.attachments[0].photo), 'x');
     photos.prune(many);
-    ok(`each class keeps its newest ${photos.KEEP_PER_CLASS} posts' photos; older ones lose theirs`, many.filter(m => m.attachments[0].photo).length === photos.KEEP_PER_CLASS && !many[14].attachments[0].photo && !fs.existsSync(path.join(photos.DIR, `${String(14).padStart(20, 'a')}.jpg`)));
+    const keep = photos.DEFAULT_PER_CLASS + photos.KEEP_EXTRA;
+    ok(`each class keeps its newest ${keep} posts' photos (two past the setting); older ones lose theirs`, many.filter(m => m.attachments[0].photo).length === keep && !many[14].attachments[0].photo && !fs.existsSync(path.join(photos.DIR, `${String(14).padStart(20, 'a')}.jpg`)));
+    photos.prune(many, 3);
+    ok('a lower setting keeps fewer', many.filter(m => m.attachments[0].photo).length === 5);
+    photos.prune(many, 0);
+    ok('0: none kept, the folder emptied', many.every(m => !m.attachments[0].photo) && fs.readdirSync(photos.DIR).length === 0);
   }
 
   // ── the page ──
@@ -140,6 +158,18 @@ const request = { get: async (url) => { asked.push(url); return { ok: () => true
     d.querySelector('.post-photo').click();
     viewer.click();
     ok('...so does a click beside the photo', viewer.hidden);
+    const slider = d.querySelector('input[type="range"][data-key="announcementPhotos"]');
+    ok('Settings → Display has the slider, 0 to 100, set to 10', slider && slider.min === '0' && slider.max === '100' && slider.value === '10' && slider.nextElementSibling.textContent === '10 per class');
+    slider.value = '0'; slider.dispatchEvent(new w.Event('input'));
+    ok('...0 reads "off"', slider.nextElementSibling.textContent === 'off');
     w.close();
+
+    // Lowering it to 0 clears the photos now, not at the next check.
+    const enc = o => Buffer.from(JSON.stringify(o)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    fs.mkdirSync(path.join(page, photos.DIR_NAME), { recursive: true });
+    fs.writeFileSync(path.join(page, photos.DIR_NAME, 'aaaaaaaaaaaaaaaaaaaa.jpg'), 'x');
+    T.run(page, '21-notifier-actions.js', ['config', enc({ announcementPhotos: 0 })]);
+    const saved = JSON.parse(fs.readFileSync(path.join(page, 'messages.json'), 'utf8'));
+    ok('setting it to 0 deletes the saved photos right away', !fs.existsSync(path.join(page, photos.DIR_NAME, 'aaaaaaaaaaaaaaaaaaaa.jpg')) && !saved[0].attachments.some(a => a.photo) && saved[0].attachments.length === 4);
   }
 })();

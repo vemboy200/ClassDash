@@ -1308,6 +1308,15 @@ ${exclusionsField(s.exclusions)}
         <span class="field-hint">${escapeHtml(t('settingsStaleMonthsHint'))}</span>
       </label>
       <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsAnnouncementPhotos'))}</span>
+        <span class="field-with-value">
+          <input type="range" data-key="announcementPhotos" min="0" max="100" step="1"
+                 value="${s.announcementPhotos}" oninput="updatePhotosLabel(this)">
+          <span class="slider-value">${escapeHtml(s.announcementPhotos ? t('photosPerClass', s.announcementPhotos) : t('photosOff'))}</span>
+        </span>
+        <span class="field-hint">${escapeHtml(t('settingsAnnouncementPhotosHint'))}</span>
+      </label>
+      <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsKeyHints'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="showKeyHints"${s.showKeyHints !== false ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsKeyHintsHint'))}</span>
@@ -3105,6 +3114,8 @@ window.onerror = function (message, source, line, column) {
 // itself, so it's safe regardless of language.
 const WORDS = ${JSON.stringify({
   expand: t('expand'),
+  photosOff: t('photosOff'),
+  photosPerClass: t('photosPerClass', '{n}'),
   collapse: t('collapse'),
   freshCheckHint: t('freshCheckHint'),
   freshCheckLabel: t('freshCheckLabel'),
@@ -3966,6 +3977,12 @@ function syncSliderFill(slider) {
   var sliders = document.querySelectorAll('input[type="range"]');
   for (var i = 0; i < sliders.length; i++) syncSliderFill(sliders[i]);
 })();
+
+function updatePhotosLabel(slider) {
+  syncSliderFill(slider);
+  var label = slider.nextElementSibling;
+  if (label) label.textContent = slider.value == 0 ? WORDS.photosOff : WORDS.photosPerClass.replace('{n}', slider.value);
+}
 
 function updateStaleMonthsLabel(slider) {
   syncSliderFill(slider);

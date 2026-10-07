@@ -183,6 +183,11 @@ const DEFAULTS = {
   // this default (3) matches what was previously hardcoded.
   staleMonths: 3,
 
+  // Photos attached to announcements are saved for each class's newest
+  // this-many announcements (39-announcement-photos.js); 0 saves none.
+  // 0–100, the Display section's slider.
+  announcementPhotos: 10,
+
   // Off by default: a class this project has NEVER recorded a single
   // announcement or assignment/material for (not "quiet for a while" —
   // genuinely nothing, ever) still gets listed by showEmptyClasses,
@@ -310,6 +315,7 @@ const TYPES = {
   showEmptyClasses: 'boolean', hideInactiveClasses: 'boolean',
   apiEnabled: 'boolean', apiNetwork: 'boolean',
   staleMonths: 'staleMonths',
+  announcementPhotos: 'announcementPhotos',
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean', classroomEnabled: 'boolean',
@@ -400,6 +406,13 @@ function validate(key, raw) {
       out.push({ name, classes });
     }
     return { ok: true, value: out };
+  }
+  if (kind === 'announcementPhotos') {
+    const n = Math.round(Number(raw));
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      return { ok: false, why: 'needs to be a whole number of announcements, 0 to 100' };
+    }
+    return { ok: true, value: n };
   }
   if (kind === 'staleMonths') {
     // A whole number of months, 1–12 — matching the settings panel's

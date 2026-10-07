@@ -391,6 +391,13 @@ function main(action, arg) {
         }
       }
 
+      // Fewer announcement photos (or none): cleared now, not at the next
+      // check. More are downloaded at the next check.
+      if (result.changed.includes('announcementPhotos')) {
+        const deleted = require('./39-announcement-photos.js').pruneSaved();
+        logAction(`  announcement photos: ${deleted} deleted`);
+      }
+
       // Reminders saved under a link's name follow it when it's renamed or
       // removed (see renamesAfter() in 29-class-links.js).
       if (result.changed.includes('classLinks')) {
