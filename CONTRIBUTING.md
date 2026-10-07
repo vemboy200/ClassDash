@@ -281,6 +281,12 @@ With AI on, announcements are read for homework that was posted as an announceme
 
 `ai-scan.json` holds `known` and, per scanned announcement, `{at, found, kept, error?}`, never the text. `ai-scan.lock` (a pid) keeps it to one scan at a time. Logs carry counts only.
 
+### Announcement attachments (`12-feed.js`, `39-announcement-photos.js`)
+
+In the Classroom stream each attachment is a block marked `data-attachment-id` whose text is its title and then its kind ("Image", "PDF", "Google Docs") or its address, with a link labeled `Attachment: <kind>: <title>`. `collectFeed()` reads those into `attachments: [{kind, title, link, fileId, photo?}]` and takes their lines out of the announcement's text, where `innerText` used to leave them.
+
+An image's preview (`lh3.googleusercontent.com/drive-storage/...`) only loads signed in: anonymous requests get 403, so the page can't show it straight from Google. `fetchFor()` downloads it during the check with the signed-in page's own `page.context().request`, asking for 1600 px wide (the address ends in `=<size>`), into `announcement-photos/` named by a hash of the Drive file id, once; the preview address isn't stored. Only each class's newest 10 posts (stream order) get photos; `prune()`, run on the merged list before it's written, keeps them for each class's newest 12 (by `sortTime`) and deletes every other file in the folder, so a post at the edge isn't deleted one check and downloaded the next. The page shows only a `photo` matching `PHOTO_PATH` and only web links; the card's picture and the whole-photo viewer use the same file.
+
 ### Reading Canvas: API, browser, or API with browser fallback
 
 `10-canvas.js` sends the same GET requests to Canvas's REST API whichever way it's reading (`readCanvas(ask)`); only *who the requests are sent as* differs. `askWithToken` calls `fetch` from Node with a bearer header — no page. `askViaPage` runs `fetch` inside an open Canvas tab of the signed-in browser profile, after waiting out the school's sign-in redirect chain (which is what fails as "stuck on sign-in" and shows the sign-in banner). Which one is decided by `canvasPlan()` and carried out by `collectCanvasPlanned(plan, openPage)`:

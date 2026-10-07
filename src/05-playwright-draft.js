@@ -2404,6 +2404,11 @@ if (require.main !== module) return;
   // year in either direction, so January posts don't fly off into the future.
   stampAnnouncementTimes(allAnnouncements, now);
   allAnnouncements.sort((a, b) => b.sortTime - a.sortTime);
+  // Photos only for each class's newest posts (39-announcement-photos.js).
+  try {
+    const deleted = require('./39-announcement-photos.js').prune(allAnnouncements);
+    if (deleted) console.log(`Announcement photos deleted: ${deleted}`);
+  } catch (e) { console.warn('announcement photos not pruned:', e.message); }
   // Announcement memory is also written at the very end, together with assignments.
 
   if (announcements.length) {

@@ -268,6 +268,26 @@ function itemCard(x, now, isFresh, section) {
  * the permission slip"), and hiding it after the first view would be wrong.
  * New ones are just marked.
  */
+/**
+ * An announcement's attachments: photos saved by the collector as pictures
+ * (a click shows them whole, see openPhoto), everything else as a chip
+ * that opens it. Only a photo path the collector would write is used
+ * (39-announcement-photos.js's PHOTO_PATH), and only web links.
+ */
+function attachmentsBlock(p) {
+  const list = Array.isArray(p.attachments) ? p.attachments : [];
+  const { PHOTO_PATH } = require('./39-announcement-photos.js');
+  const web = u => /^https?:\/\//i.test(String(u || ''));
+  const photos = list.filter(a => a && a.photo && PHOTO_PATH.test(a.photo));
+  const chips = list.filter(a => a && !photos.includes(a) && web(a.link));
+  if (!photos.length && !chips.length) return '';
+  const kind = k => t(`attachment_${['image', 'pdf', 'doc', 'slides', 'sheet', 'form', 'video', 'link'].includes(k) ? k : 'file'}`);
+  return `        <div class="post-attachments">
+${photos.map(a => `          <button type="button" class="post-photo" onclick="openPhoto(this)" data-link="${web(a.link) ? escapeHtml(a.link) : ''}" title="${escapeHtml(a.title || '')}"><img src="${escapeHtml(a.photo)}" alt="${escapeHtml(a.title || kind('image'))}" loading="lazy"></button>`).join('\n')}
+${chips.map(a => `          <a class="att-chip" href="${escapeHtml(a.link)}" target="_blank" rel="noopener"><span class="att-kind">${escapeHtml(kind(a.kind))}</span> ${escapeHtml(a.title || '')}</a>`).join('\n')}
+        </div>`;
+}
+
 function announcementsSection(announcements, freshIds) {
   if (!announcements.length) {
     return `    <section>
@@ -288,7 +308,8 @@ function announcementsSection(announcements, freshIds) {
           ${p.date ? `<span>${escapeHtml(p.date)}</span>` : ''}
           ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
         </div>
-        <div class="text collapsed">${escapeHtml(p.text || p.title || '')}</div>
+        <div class="text collapsed">${escapeHtml(p.text || (p.attachments && p.attachments.length ? '' : p.title) || '')}</div>
+${attachmentsBlock(p)}
         <div class="actions">
           <button class="expand-btn" onclick="expandPost(this)" hidden>${escapeHtml(t('expand'))}</button>
           <a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(t('openInClassroom'))}</a>
@@ -2144,6 +2165,32 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     background: none; border: none; padding: 0; cursor: pointer;
     color: var(--new); font: inherit;
   }
+  /* Announcement attachments: photos as small pictures, the rest as chips */
+  .post-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: flex-start; }
+  .post-photo {
+    padding: 0; border: 2px solid var(--ink); border-radius: 8px; overflow: hidden;
+    background: var(--card); cursor: zoom-in; line-height: 0;
+  }
+  .post-photo img { display: block; height: 96px; max-width: 220px; width: auto; object-fit: cover; }
+  .post-photo:hover { border-color: var(--new); }
+  .att-chip {
+    display: inline-flex; gap: 6px; align-items: baseline; max-width: 100%;
+    border: 1px solid var(--dim); border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; color: inherit; text-decoration: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .att-chip:hover { border-color: var(--new); color: var(--new); }
+  .att-kind { color: var(--dim); font-weight: 600; }
+  /* The whole photo, over the page */
+  #photo-viewer {
+    position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.82);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; padding: 16px; box-sizing: border-box;
+  }
+  #photo-viewer[hidden] { display: none; }
+  #photo-viewer img { max-width: 100%; max-height: calc(100vh - 80px); object-fit: contain; border-radius: 6px; background: #fff; }
+  #photo-viewer .photo-bar { display: flex; gap: 16px; font-size: 14px; }
+  #photo-viewer a, #photo-viewer button { color: #fff; background: none; border: none; font: inherit; cursor: pointer; text-decoration: underline; padding: 0; }
   /* Its own scrollbar for the feed: otherwise nineteen announcements
      stretch the page and the assignments on the left drift up and away */
   .feed {
@@ -2963,6 +3010,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
 </style>
 </head>
 <body>
+<div id="photo-viewer" hidden onclick="if (event.target === this) closePhoto()">
+  <img alt="">
+  <div class="photo-bar"><a id="photo-viewer-link" href="#" target="_blank" rel="noopener">${escapeHtml(t('photoOpenInDrive'))}</a><button type="button" onclick="closePhoto()">${escapeHtml(t('photoClose'))}</button></div>
+</div>
 <main>
   <header>
     <h1>${escapeHtml(t('title'))}</h1>
@@ -3277,6 +3328,34 @@ for (const post of document.querySelectorAll('.post')) {
     button.hidden = false;
   }
 }
+
+// The whole photo, from the same file as the card's picture.
+function openPhoto(button) {
+  var viewer = document.getElementById('photo-viewer');
+  var img = button.querySelector('img');
+  viewer.querySelector('img').src = img.getAttribute('src');
+  viewer.querySelector('img').alt = img.alt;
+  var link = document.getElementById('photo-viewer-link');
+  var href = button.getAttribute('data-link');
+  link.hidden = !href;
+  link.href = href || '#';
+  viewer.hidden = false;
+}
+
+function closePhoto() {
+  var viewer = document.getElementById('photo-viewer');
+  viewer.hidden = true;
+  viewer.querySelector('img').removeAttribute('src');
+}
+
+// While a photo is open: Escape closes it, and the filter keys (1-9, A, T
+// and the rest) don't act on the page behind it.
+document.addEventListener('keydown', function (e) {
+  var viewer = document.getElementById('photo-viewer');
+  if (!viewer || viewer.hidden) return;
+  if (e.key === 'Escape') closePhoto();
+  if (!e.metaKey && !e.ctrlKey) e.stopImmediatePropagation();
+}, true);
 
 function expandPost(button) {
   const text = button.closest('.post').querySelector('.text');

@@ -56,7 +56,7 @@ async function collectFeed(page, cls, U = 0) {
     await page.waitForTimeout(500);
   }
 
-  return await page.evaluate(({ className, classId, authuser }) => {
+  const posts = await page.evaluate(({ className, classId, authuser }) => {
     // Only take the outer nodes: the attribute is also present on nested ones.
     const nodes = [...document.querySelectorAll('[data-stream-item-id]')]
       .filter(e => !e.parentElement.closest('[data-stream-item-id]'));
@@ -91,7 +91,57 @@ async function collectFeed(page, cls, U = 0) {
         !/^\(Edited/i.test(s)
       );
 
+      // Attachments: a block each, marked data-attachment-id, whose text is
+      // its title and then its kind ("Image", "PDF", "Google Docs") or its
+      // address. Those lines are taken out of the text and kept as
+      // attachments instead. The aria-label says the same, as
+      // "Attachment: <kind>: <title>".
+      const attachments = [], attachmentLines = new Set(), seen = new Set();
+      for (const att of el.querySelectorAll('[data-attachment-id]')) {
+        const key = att.getAttribute('data-attachment-id');
+        const a = att.querySelector('a[href]');
+        if (!a || seen.has(key) || !/^https?:/.test(a.href)) continue;
+        seen.add(key);
+        const own = (att.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+        own.forEach(s => attachmentLines.add(s));
+        const parts = (a.getAttribute('aria-label') || '').split(':').map(s => s.trim());
+        const label = parts[0] === 'Attachment' && parts.length >= 3 ? parts[1] : (own[1] || '');
+        const icon = (att.querySelector('img') || {}).src || '';
+        const kind = label === 'Image' || /mediatype\/icon_\d+_image/.test(icon) ? 'image'
+          : label === 'PDF' || /_pdf_/.test(icon) ? 'pdf'
+          : label === 'Google Docs' || label === 'Word' || /_word_/.test(icon) ? 'doc'
+          : label === 'Google Slides' || label === 'PowerPoint' || /_powerpoint_/.test(icon) ? 'slides'
+          : label === 'Google Sheets' || label === 'Excel' || /_excel_/.test(icon) ? 'sheet'
+          : label === 'Google Forms' ? 'form'
+          : /video/i.test(label) ? 'video'
+          : /^https?:/.test(own[1] || '') ? 'link' : 'file';
+        const fileId = (a.href.match(/\/d\/([A-Za-z0-9_-]{10,})/) || [])[1] || null;
+        // The preview, for an image: any Drive preview in the post that
+        // links to the same file (Classroom shows some bigger than others).
+        let preview = null;
+        if (kind === 'image' && fileId) {
+          const img = [...el.querySelectorAll('img[src*="drive-storage"]')]
+            .find(i => { const l = i.closest('a[href]'); return l && l.href.includes(fileId); });
+          preview = img ? img.src : null;
+        }
+        attachments.push({ kind, title: (own[0] || parts.slice(2).join(':') || a.href).slice(0, 200), link: a.href, fileId, preview });
+      }
+      // Photos are laid out differently: no block, just a link to the Drive
+      // file labeled "Attachment: <file name>" around a big preview, with
+      // the file name as its only text.
+      for (const a of el.querySelectorAll('a[href*="drive.google.com/file/d/"]')) {
+        if (a.closest('[data-attachment-id]')) continue;
+        const img = a.querySelector('img[src*="drive-storage"]');
+        const fileId = (a.href.match(/\/d\/([A-Za-z0-9_-]{10,})/) || [])[1];
+        if (!img || !fileId || attachments.some(x => x.fileId === fileId)) continue;
+        const own = (a.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+        own.forEach(s => attachmentLines.add(s));
+        const label = (a.getAttribute('aria-label') || '').replace(/^Attachment:\s*/, '').trim();
+        attachments.push({ kind: 'image', title: (own[0] || label || 'Photo').slice(0, 200), link: a.href, fileId, preview: img.src });
+      }
+
       const id = el.getAttribute('data-stream-item-id');
+      const text = body.filter(s => !attachmentLines.has(s));
 
       return {
         platform: 'Classroom',
@@ -101,8 +151,9 @@ async function collectFeed(page, cls, U = 0) {
         author,
         date: date ? date.replace(/^Created\s+/i, '') : null,
         // The first line of the body is usually the announcement's title.
-        title: body[0] || 'Announcement',
-        text: body.join('\n'),
+        title: text[0] || (attachments[0] && attachments[0].title) || 'Announcement',
+        text: text.join('\n'),
+        attachments,
         // Link to the class's MAIN page — that's where the stream lives.
         //
         // This used to point at the specific post (/sp/<id>/all/default),
@@ -114,6 +165,15 @@ async function collectFeed(page, cls, U = 0) {
       };
     }).filter(Boolean);
   }, { className: cls.name, classId: cls.id, authuser: FEED_AUTHOR_EMAIL });
+
+  // Photos: downloaded through this signed-in page, since Google won't
+  // hand the preview to the summary page (see 39-announcement-photos.js).
+  try {
+    await require('./39-announcement-photos.js').fetchFor(posts, page.context().request);
+  } catch (e) {
+    for (const p of posts) for (const att of p.attachments) delete att.preview;
+  }
+  return posts;
 }
 
 // Set from the main script on first call.

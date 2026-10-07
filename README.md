@@ -106,6 +106,7 @@ npm run login
 - **Hide** an overdue assignment once it's handled; the button at the bottom of that section brings it back. **Not urgent** moves an assignment with no real due date out of "due soon" without hiding it.
 - The **three dots** next to the gear are one per platform: blue worked, yellow worked the backup way (for Canvas, make a new token), red failed, gray isn't being checked. Click them for the details.
 - The **gear** opens settings. Closing it saves. Most changes show at once; a few (like which classes to read) wait for the next check, and the page says so.
+- **Announcements** show their attachments: photos as pictures you can click to see whole, and files, forms and links as chips that open them. Photos are saved during a check for each class's newest 10 announcements, and deleted once they're older than that.
 
 ### Keyboard shortcuts
 
