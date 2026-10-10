@@ -22,7 +22,8 @@ const server = http.createServer((req, res) => {
   const u = req.url;
   if (u.startsWith('/api/v1/courses?')) {
     return send([
-      { id: 1, name: 'English 9', workflow_state: 'available', term: { end_at: new Date(Date.now() + 90 * 864e5).toISOString() },
+      { id: 1, name: 'English 9', workflow_state: 'available', apply_assignment_group_weights: true, term: { end_at: new Date(Date.now() + 90 * 864e5).toISOString() },
+        enrollments: [{ type: 'student', computed_current_score: 91.5, computed_current_grade: 'A-' }],
         ...(teachersOn ? { teachers: [{ id: 7, display_name: 'Ms. Kirakosyan' }, { id: 8, display_name: 'Mr. Two' }, { id: 9, display_name: 'Ms. Kirakosyan' }] } : {}) },
       { id: 2, name: 'Old Course', workflow_state: 'available', term: { end_at: '2020-01-01T00:00:00Z' } },
       { id: 3, name: 'Not Yet Open', workflow_state: 'unpublished' },
@@ -37,6 +38,7 @@ const server = http.createServer((req, res) => {
     ]);
   }
   if (/^\/api\/v1\/courses\/4\/assignments/.test(u)) return send([]);
+  if (/^\/api\/v1\/courses\/1\/assignment_groups/.test(u)) return send([{ id: 70, name: 'Essays', group_weight: 70, rules: { drop_lowest: 1 } }, { id: 71, name: 'Quizzes', group_weight: 30 }]);
   if (/^\/api\/v1\/courses\/1\/pages/.test(u)) {
     return send([{ page_id: 50, title: 'Reading', html_url: 'x', published: true }, { page_id: 51, title: 'Draft', html_url: 'x', published: false }]);
   }
@@ -66,6 +68,14 @@ const load = (settings) => {
     eq(r.items.find(i => i.id === 'canvas-10').description, 'Write it', 'A description cleaned');
     eq(JSON.parse(fs.readFileSync('canvas-classes.json', 'utf8')).map(c => c.name).sort(), ['English 9', 'No Pages Course'], 'A classes file for the picker');
     ok(seen.some(s => s.url.startsWith('/api/v1/courses?') && s.url.includes('include[]=teachers')), 'A courses are asked for with their teachers');
+    ok(seen.some(s => s.url.startsWith('/api/v1/courses?') && s.url.includes('include[]=total_scores')), 'A ...and their scores, in the same call');
+    const savedGrades = JSON.parse(fs.readFileSync('canvas-grades.json', 'utf8')).classes.sort((a, b) => a.class.localeCompare(b.class));
+    eq(savedGrades.map(({ class: c, grade, percent }) => ({ class: c, grade, percent })),
+      [{ class: 'English 9', grade: 'A-', percent: 91.5 }, { class: 'No Pages Course', grade: null, percent: null }], 'A grades saved per current course, none for the ended or unpublished one');
+    eq(savedGrades[0].assignments.map(a => [a.title, a.score]), [['Essay', null], ['Turned in', null], ['Graded', null]], 'A every assignment kept for the Grades center, turned in or not');
+    eq(savedGrades[1].assignments, [], 'A a course with no assignments has an empty list');
+    eq(savedGrades[0].weighting, { weighted: true, groups: [{ id: '70', name: 'Essays', weight: 70, dropLowest: 1, dropHighest: 0, neverDrop: [] }, { id: '71', name: 'Quizzes', weight: 30, dropLowest: 0, dropHighest: 0, neverDrop: [] }] }, 'A each course\'s categories and weights, for estimating its grade');
+    ok(!('weighting' in savedGrades[1]), 'A a course that refuses the categories call just has none, and the check goes on');
     const classes = JSON.parse(fs.readFileSync('canvas-classes.json', 'utf8'));
     eq(classes.find(c => c.name === 'English 9').teacher, 'Ms. Kirakosyan, Mr. Two', 'A teachers joined, a repeated name once');
     ok(!('teacher' in classes.find(c => c.name === 'No Pages Course')), 'A a course with no teachers gets no teacher key');

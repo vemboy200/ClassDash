@@ -302,10 +302,34 @@ const DEFAULTS = {
   aiProvider: 'none',
   aiModel: '',
   aiLocalUrl: '',
+  // Whether a local AI shows its thinking in the Grades center chat
+  // (41-grades-center.js). Off is faster: Ollama skips thinking. A cloud
+  // AI always shows its own.
+  aiThinking: true,
   aiOpenaiKey: '',
   aiAnthropicKey: '',
   aiGeminiKey: '',
   aiAgreed: [],
+
+  // Grades (40-grades.js): off until a provider is picked. The only one so
+  // far is Aequitas Q ('q'). The address is the whole address of the
+  // district's Q login page, path included (Q never sits at the root). The
+  // password is NOT here: it's in the macOS keychain (or grades-secret.json
+  // where there's none), saved by its own action, never through this file.
+  gradesProvider: 'none',
+  gradesAddress: '',
+  gradesUsername: '',
+  // The Hide button on the page's Grades list: the grades are masked (the
+  // class names stay), for when someone's looking over your shoulder.
+  // Remembered here so it stays hidden across reloads; the API ignores it.
+  gradesHidden: false,
+  // Cloud AIs the Grades center's sidebar may send grades and teacher
+  // comments to (41-grades-center.js): the box in the sidebar. Separate
+  // from aiAgreed, which only covers announcement text.
+  gradesAiAgreed: [],
+  // Category weights the person typed in for a Q class (Q never shows
+  // them): { "<class>": { "<category>": percent } }. See 40-grades.js.
+  gradesWeights: {},
 };
 
 const TYPES = {
@@ -324,8 +348,9 @@ const TYPES = {
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
-  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiAgreed: 'aiAgreed',
+  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiAgreed: 'aiAgreed',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
+  gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
 };
 
 function read() {
@@ -388,11 +413,12 @@ function validate(key, raw) {
     const out = [], names = new Set(), members = new Set();
     for (const link of list) {
       if (!link || typeof link !== 'object') return { ok: false, why: 'each link needs a name and classes' };
-      const name = String(link.name || '').trim();
       const classes = [...new Set((Array.isArray(link.classes) ? link.classes : [])
         .map(c => String(c).trim()).filter(Boolean))];
+      // No name typed: its class with the most assignments (defaultName).
+      const name = String(link.name || '').trim() ||
+        (classes.length ? require('./29-class-links.js').defaultName(classes) : '');
       if (!name && !classes.length) continue;   // a blank row left in the panel
-      if (!name) return { ok: false, why: 'a class link needs a name' };
       if (!classes.length) return { ok: false, why: `"${name}" needs at least one class` };
       if (name.length > 200 || classes.length > 50 || classes.some(c => c.length > 300)) {
         return { ok: false, why: `"${name}" is too long` };
@@ -446,10 +472,42 @@ function validate(key, raw) {
     if (!Number.isFinite(n) || n < 0) return { ok: false, why: 'needs to be a number' };
     return { ok: true, value: n };
   }
+  if (kind === 'gradesProvider') {
+    const id = String(raw).trim();
+    if (id !== 'none' && id !== 'q') return { ok: false, why: `no such grades provider: ${id}` };
+    return { ok: true, value: id };
+  }
+  if (kind === 'gradesAddress') {
+    // Kept as typed (trimmed), so the field shows what was entered; empty
+    // is fine (grades off), anything else has to be a web address.
+    const text = String(raw).trim();
+    if (text && !require('./40-grades.js').portalBase(text)) return { ok: false, why: 'needs to be the address of your Q login page' };
+    return { ok: true, value: text };
+  }
   if (kind === 'aiProvider') {
     const id = String(raw).trim();
     if (id !== 'none' && !require('./37-ai.js').PROVIDER_IDS.includes(id)) return { ok: false, why: `no such AI provider: ${id}` };
     return { ok: true, value: id };
+  }
+  if (kind === 'gradesWeights') {
+    // A class's categories and their weights, 0 to 100 each. A blank or
+    // missing weight is left out; a class with none left is dropped.
+    let map = raw;
+    if (typeof raw === 'string') { try { map = JSON.parse(raw || '{}'); } catch { return { ok: false, why: 'needs to be JSON like {"Class": {"Tests": 40}}' }; } }
+    if (!map || typeof map !== 'object' || Array.isArray(map) || Object.keys(map).length > 100) return { ok: false, why: 'needs to be classes and their category weights' };
+    const out = {};
+    for (const [cls, cats] of Object.entries(map)) {
+      if (!cats || typeof cats !== 'object' || Array.isArray(cats) || cls.length > 300 || Object.keys(cats).length > 50) return { ok: false, why: `"${cls}" needs categories and weights` };
+      const one = {};
+      for (const [cat, w] of Object.entries(cats)) {
+        if (w === null || w === '' || w === undefined) continue;
+        const n = Number(w);
+        if (!isFinite(n) || n < 0 || n > 100 || cat.length > 300) return { ok: false, why: `a weight is a percent from 0 to 100 ("${cat}")` };
+        one[cat] = n;
+      }
+      if (Object.keys(one).length) out[cls] = one;
+    }
+    return { ok: true, value: out };
   }
   if (kind === 'aiAgreed') {
     // Which cloud providers' boxes are ticked. Only known ids, each once.

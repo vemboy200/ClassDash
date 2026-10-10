@@ -52,7 +52,11 @@ const settings = require(path.join(proj, '19-settings.js'));
   ok('a class in two links is refused', !v([{ name: 'A', classes: ['x'] }, { name: 'B', classes: ['x'] }]).ok);
   ok('two links with the same name are refused', !v([{ name: 'A', classes: ['x'] }, { name: 'A', classes: ['y'] }]).ok);
   ok('a link with no classes is refused', !v([{ name: 'A', classes: [] }]).ok);
-  ok('a link with no name is refused', !v([{ name: '', classes: ['x'] }]).ok);
+  ok('a link with no name takes its class with the most assignments', v([{ name: '', classes: [ART, MATH] }]).value[0].name === MATH, JSON.stringify(v([{ name: '', classes: [ART, MATH] }])));
+  ok('...the first ticked on a tie', v([{ name: ' ', classes: [HIST_CANVAS, HIST_CR] }]).value[0].name === HIST_CANVAS);
+  ok('...one with none at all, its one class', v([{ name: '', classes: ['x'] }]).value[0].name === 'x');
+  ok('...the more assignments win, wherever it was ticked', cl.defaultName([HIST_CR, HIST_CANVAS], new Map([[HIST_CR, 2], [HIST_CANVAS, 9]])) === HIST_CANVAS);
+  ok('...and an unnamed link clashing with a named one is refused', !v([{ name: MATH, classes: ['x'] }, { name: '', classes: [MATH] }]).ok);
   ok('one class alone is fine (a rename)', v([{ name: 'Nice', classes: ['Messy name'] }]).ok);
 }
 
@@ -97,8 +101,10 @@ const { JSDOM, VirtualConsole } = T.jsdom();
   w.addClassLink();
   ok('New link adds an empty row', rows().length === 3 && rows()[2].querySelector('.class-link-name').value === '');
   ok('...and a blank row changes nothing yet', w.settingsDirty() === false);
-  rows()[2].querySelector('.class-link-name').value = 'Art';
   box(rows()[2], ART).checked = true;
+  w.updateClassLinks();
+  ok('ticking a class shows the name it would get, if none is typed', rows()[2].querySelector('.class-link-name').placeholder === ART);
+  rows()[2].querySelector('.class-link-name').value = 'Art';
   w.updateClassLinks();
   ok('naming it and ticking a class puts it in the setting', JSON.parse(field.value)[2].name === 'Art' && JSON.parse(field.value)[2].classes[0] === ART, field.value);
   ok('...which counts as an unsaved change', w.settingsDirty() === true);
@@ -166,6 +172,24 @@ const { JSDOM, VirtualConsole } = T.jsdom();
     ok('other reminders are untouched', byTitle['Sketchbook'] === ART && !byTitle['No class'], JSON.stringify(byTitle));
     notifier.main('config', b64({ classLinks: [{ name: 'History', classes: [HIST_CR, HIST_CANVAS] }] }));
     ok('saving without a link change moves nothing', reminders.readAll().find(v => v.title === 'Study for quiz').class === 'History');
+  }
+
+  // ── what the link menu offers ──
+  {
+    const old = new Date(Date.now() - 400 * 864e5).getTime();
+    const p2 = T.makeProject({
+      'settings.json': { language: 'en', email: 'a@b', canvas: '', exclusions: ['Made-up Excluded', 'Made-up Linked Excluded'], skipStaleClasses: true, staleMonths: 3,
+        classLinks: [{ name: 'Kept', classes: ['Made-up Linked Excluded'] }] },
+      'classes.json': [{ id: '1', name: 'Made-up Shown' }, { id: '2', name: 'Made-up Excluded' }, { id: '3', name: 'Made-up Stale' }, { id: '4', name: 'Made-up Linked Excluded' }],
+      'class-activity.json': { 'Made-up Stale': old, 'Made-up Shown': Date.now() },
+      'last-collection.json': [{ class: 'Made-up Orphan', id: 'o1', type: 'Assignment', title: 'Made-up Old', due: null, due_iso: null, link: 'x' }],
+    });
+    T.redraw(p2);
+    const d2 = new JSDOM(fs.readFileSync(path.join(p2, 'summary.html'), 'utf8'), { virtualConsole: new VirtualConsole() }).window.document;
+    const offered = [...d2.querySelectorAll('#class-link-template')].flatMap(t => [...t.content.querySelectorAll('.class-link-member')].map(b => b.value));
+    ok('the link menu offers a shown class', offered.includes('Made-up Shown'), JSON.stringify(offered));
+    ok('...not an excluded, gone-quiet or orphaned one', !offered.some(n => /Made-up (Excluded|Stale|Orphan)/.test(n)), JSON.stringify(offered));
+    ok('...but a class already in a link stays, so saving keeps it', offered.includes('Made-up Linked Excluded'));
   }
 
   dom.window.close();

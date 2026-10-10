@@ -1072,7 +1072,8 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     }
 
     // The summary gets rewritten every ten minutes. Coming back to the
-    // window, it should show what's fresh, not what it was this morning.
+    // window, it should show what's fresh, not what it was this morning:
+    // the page reloads itself if there's a newer version.
     //
     // UNLESS the window only just lost focus because it handed a
     // napominalka:// URL to the notifier — see lastHandoff. In that case
@@ -1090,7 +1091,13 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         if let handoff = lastHandoff, Date().timeIntervalSince(handoff) < 45 {
             return
         }
-        show()
+        // The page decides (classdashCameBack in 08-page.js): it reloads
+        // only for a newer version and never over an open Settings panel
+        // or Grades center, which a reload here used to close every time.
+        // A page without it (not loaded, or an old one) still gets loaded.
+        web.evaluateJavaScript("typeof window.classdashCameBack === 'function' ? (window.classdashCameBack(), true) : false") { [weak self] result, _ in
+            if (result as? Bool) != true { self?.show() }
+        }
     }
 
     // FALSE, NOT TRUE — paired with applicationShouldHandleReopen right

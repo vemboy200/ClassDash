@@ -250,6 +250,6 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
 
   // ── a check starts the scan ──
   const collector = fs.readFileSync(path.join(T.REPO, 'src/05-playwright-draft.js'), 'utf8');
-  ok('a check starts the scan once announcements are saved', /fs\.writeFileSync\(STREAM_FILE[^\n]*\n\s*startAnnouncementScan\(\);\n\}\)\(\);/.test(collector));
+  ok('a check starts the scan once announcements are saved', /fs\.writeFileSync\(STREAM_FILE[^\n]*\n\s*startAnnouncementScan\(\);\n\s*startGradesCheck\(\);\n\}\)\(\);/.test(collector));
   ok('...only with AI on, only when something\'s new, detached', /function startAnnouncementScan\(\) \{[\s\S]{0,200}aiProvider === 'none'\) return;[\s\S]{0,300}pendingNew\(\)\.length\) return;[\s\S]{0,300}detached: true/.test(collector));
 })();

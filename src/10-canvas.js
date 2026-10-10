@@ -347,9 +347,12 @@ async function readCanvas(ask) {
   // include[]=teachers — each course's teachers' display names, for the
   // teacher line on the page and the API. It's the same call, so it costs
   // nothing extra.
+  // include[]=total_scores — the student's current score and letter grade
+  // in each course, on its enrollment, for the Grades list (40-grades.js).
+  // Also the same call. Missing when the teacher hides the totals.
   const all = await ask(
     '/api/v1/courses?enrollment_state=active&state[]=unpublished&state[]=available' +
-    '&include[]=term&include[]=teachers&per_page=100');
+    '&include[]=term&include[]=teachers&include[]=total_scores&per_page=100');
 
   const now = Date.now();
 
@@ -398,12 +401,26 @@ async function readCanvas(ask) {
   }
 
   const items = [];
+  // Every assignment with its score, turned in or not, for the Grades
+  // center (40-grades.js) — from the same call, before the turned-in ones
+  // are dropped below.
+  const gradebook = {};
+  const weights = {};
   for (const course of active) {
     // include[]=submission — to know whether it's already turned in.
     // No reason to show turned-in work as due soon.
     const assignments = await ask(
       `/api/v1/courses/${course.id}/assignments` +
       '?include[]=submission&per_page=100&order_by=due_at');
+    try { gradebook[course.name] = assignments.map(a => require('./40-grades.js').canvasAssignment(a)); } catch { /* the grades center just won't have this course's work */ }
+    // The course's assignment groups (Tests, Homework…) with their weights
+    // and drop rules, so ClassDash can estimate a grade the teacher hides.
+    // One more call per course; a course that refuses it just gets no
+    // estimate.
+    try {
+      const groups = await ask(`/api/v1/courses/${course.id}/assignment_groups?per_page=100`);
+      if (Array.isArray(groups)) weights[course.name] = require('./40-grades.js').canvasWeighting(course, groups);
+    } catch { /* no estimate for this course */ }
 
     for (const a of assignments) {
       const submitted = a.submission &&
@@ -513,6 +530,11 @@ async function readCanvas(ask) {
       return teacher ? { name: c.name, teacher } : { name: c.name };
     }), null, 2));
   } catch { /* couldn't write it — the exclusions/filter UI just won't list Canvas courses this time */ }
+  // The grades, from the same courses. A quiet course without a score is
+  // left out: lots of Canvas courses exist that nobody posts in.
+  try {
+    require('./40-grades.js').saveCanvasGrades(availableNow.filter(c => !isClassStale(c.name) || require('./40-grades.js').canvasGrade(c)), gradebook, new Date(), weights);
+  } catch (e) { console.log(`  Canvas: grades not saved: ${e.message}`); }
 
   return { items, courses, pending };
 }

@@ -315,7 +315,9 @@ function main(action, arg) {
   // A settings save carries every setting, the Canvas access token and the
   // email included, so its payload is never logged — the "applied:" line
   // below says which settings took, by name, which is all a log needs.
-  logAction(action === 'config' ? 'config (payload not logged)' : `${action} ${arg}`);
+  // The Q password (saveGradesPassword) never is either, obviously.
+  // Nor a question to the Grades center's AI: it's about the person's grades.
+  logAction(action === 'config' || action === 'saveGradesPassword' || action === 'gradesAsk' ? `${action} (payload not logged)` : `${action} ${arg}`);
   switch (action) {
     case 'config': {
       const { applyBatch } = require('./19-settings.js');
@@ -541,6 +543,56 @@ function main(action, arg) {
         if (result.ok && result.scanned) redraw();
         return { ...result, action, announcements: scanner.listForPage() };
       });
+    }
+    // Settings → Grades: the Q password, as base64url JSON (a string; empty
+    // removes it). Into the keychain, never settings.json; see 40-grades.js.
+    // Answers with whether one's saved now, nothing more.
+    case 'saveGradesPassword': {
+      let password;
+      try {
+        password = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      if (typeof password !== 'string') return { ok: false, action, why: 'expected a password' };
+      const result = require('./40-grades.js').savePassword(password);
+      logAction(result.ok ? `  grades password ${result.saved ? 'saved' : 'removed'} (${result.where})` : `  grades password not saved: ${result.why}`);
+      if (result.ok) redraw();
+      return { ...result, action };
+    }
+    // Settings → Grades → Check now: signs in to Q and reads the grades right
+    // away (not waiting out the hour), then redraws.
+    case 'checkGrades': {
+      const grades = require('./40-grades.js');
+      if (!grades.takeLock()) return { ok: false, action, why: 'a grades check is already running' };
+      return grades.check({ force: true }).then(result => {
+        logAction(result.skipped ? `  grades not checked: ${result.skipped}` : result.ok ? `  grades: ${result.classes} classes` : `  grades not read: ${result.why}`);
+        redraw();
+        // Why it didn't even try, in words: 'password' means none is saved.
+        if (result.skipped) return { ...result, action, why: require('./18-language.js').t('gradesSkip_' + result.skipped) };
+        return { ...result, action };
+      }).finally(grades.dropLock);
+    }
+    // The Grades center's AI sidebar: a question, as base64url JSON
+    // {question, live}: live is the page's id for showing the answer as
+    // it's written (41-grades-center.js liveWriter). Answers with the reply and the saved chat; logs only
+    // whether it worked, never the question or the answer.
+    case 'gradesAsk': {
+      let payload;
+      try {
+        payload = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      return require('./41-grades-center.js').ask(payload && payload.question, { live: payload && payload.live }).then(result => {
+        if (result.savedWeights) redraw();
+        logAction(result.ok ? `  grades question answered${result.savedWeights ? ', category weights saved' : ''}` : `  grades question not answered: ${result.why}${result.detail ? ' (' + result.detail + ')' : ''}`);
+        const { t } = require('./18-language.js');
+        return result.ok ? { ...result, action } : { ...result, action, why: t('gcWhy_' + result.why) + (result.detail ? ' ' + result.detail : '') };
+      });
+    }
+    case 'gradesChatClear': {
+      return { ...require('./41-grades-center.js').clearChat(), action };
     }
     case 'clearCalendar': {
       const result = require('./33-school-calendar.js').clearCalendar();

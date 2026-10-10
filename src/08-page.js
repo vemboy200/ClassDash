@@ -987,7 +987,22 @@ function jsonForScript(value) {
  * checkboxes deliberately have no data-key of their own.
  */
 function classLinksField(links) {
-  const classes = allKnownClasses();
+  // Not the classes the page's class filter hides: excluded, gone quiet,
+  // never active (canvasHiddenTest, the same rules for every platform);
+  // nor ones no platform lists any more (orphaned), only old data.
+  const hidden = require('./40-grades.js').canvasHiddenTest(readSettings(), classLinks.linkMap(links), classLinks);
+  const status = knownClassStatus();
+  const classes = [...status.keys()].filter(name => status.get(name) === 'known' && !hidden(name));
+  // Q's classes too (Settings → Grades), marked as Q's: linked to their
+  // Classroom or Canvas class, their grade goes with it (40-grades.js
+  // gradesView, the API's classRoster).
+  const grades = require('./40-grades.js');
+  const qClasses = readSettings().gradesProvider === 'q'
+    ? (grades.readGrades().classes || []).map(c => c.class).filter(c => c && !classes.includes(c)) : [];
+  classes.push(...qClasses);
+  // Each class's assignments, for the name an unnamed link will get
+  // (defaultName), shown in its name box as you tick.
+  const counts = classLinks.assignmentCounts();
   // A member no longer listed anywhere stays in the list, ticked, so saving
   // doesn't silently drop it — same as exclusionsField().
   for (const link of links) for (const c of link.classes) if (!classes.includes(c)) classes.push(c);
@@ -996,8 +1011,8 @@ function classLinksField(links) {
     const members = link ? link.classes : [];
     const boxes = classes.map(name =>
       `            <label class="check-row"><input type="checkbox" class="class-link-member"` +
-      ` onchange="updateClassLinks()" value="${escapeHtml(name)}"${members.includes(name) ? ' checked' : ''}>` +
-      `<span class="label-text">${escapeHtml(name)}</span></label>`).join('\n');
+      ` onchange="updateClassLinks()" value="${escapeHtml(name)}" data-count="${counts.get(name) || 0}"${members.includes(name) ? ' checked' : ''}>` +
+      `<span class="label-text">${escapeHtml(name)}${qClasses.includes(name) ? ' <span class="grade-source">Q</span>' : ''}</span></label>`).join('\n');
     return `        <div class="class-link">
           <input type="text" class="class-link-name" placeholder="${escapeHtml(t('classLinkName'))}" value="${escapeHtml(link ? link.name : '')}" oninput="updateClassLinks()">
           <details class="class-picker link-picker">
@@ -1094,6 +1109,205 @@ function browserLabelFor(browserPath) {
  * is sent to it (aiAgreed). Every provider's rows are on the page, hidden
  * or not, so switching back and forth doesn't lose a key.
  */
+/**
+ * Settings → Grades: which system (only Aequitas Q so far), its address,
+ * the username, and the password, which has a button of its own: it goes
+ * to the keychain through its own action (saveGradesPassword), never into
+ * settings.json, so the field is never filled in from anything saved and
+ * has no data-key for saveSettings to pick up. Check now reads right away.
+ */
+function gradesSettings(s, field) {
+  const grades = require('./40-grades.js');
+  const on = s.gradesProvider === 'q';
+  const hidden = on ? '' : ' hidden';
+  const base = grades.portalBase(s.gradesAddress);
+  const view = grades.gradesView(s);
+  const saved = on && grades.hasPassword();
+  const when = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const status = !on ? ''
+    : view.rejected ? t('gradesRejected')
+    : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
+    : view.checkedAt ? t('gradesLastRead', when(view.checkedAt), view.classes.length)
+    : t('gradesNotYet');
+  return `
+      <p class="hint">${escapeHtml(t('gradesIntro'))}</p>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('gradesProvider'))}</span>
+        <select data-key="gradesProvider" onchange="updateGradesRows()">
+          <option value="none"${on ? '' : ' selected'}>${escapeHtml(t('gradesOff'))}</option>
+          <option value="q"${on ? ' selected' : ''}>Aequitas Q (StudentConnection)</option>
+        </select>
+        <span class="field-hint"></span>
+      </label>
+      <div data-grades-for="q"${hidden}>
+${field('gradesAddress', t('gradesAddress'), s.gradesAddress, t('gradesAddressHint'))}
+        <p class="field-hint calendar-error" id="grades-bare"${base && base.bare ? '' : ' hidden'}>${escapeHtml(t('gradesAddressBare'))}</p>
+${field('gradesUsername', t('gradesUsername'), s.gradesUsername, t('gradesUsernameHint'))}
+        <div class="setting-row">
+          <span class="field-name">${escapeHtml(t('gradesPassword'))}</span>
+          <span class="field-with-value">
+            <span class="field-with-toggle" style="flex:1 1 auto;min-width:0;">
+              <input type="password" id="grades-password" autocomplete="off" placeholder="${escapeHtml(t(saved ? 'gradesPasswordSaved' : 'gradesPasswordNone'))}">
+              <button type="button" class="reveal-btn" onclick="toggleReveal(this)" title="${escapeHtml(t('settingsReveal'))}">👁</button>
+            </span>
+            <button type="button" class="mini-btn" onclick="saveGradesPassword(this)">${escapeHtml(t('gradesPasswordSave'))}</button>
+          </span>
+          <span class="field-hint">${escapeHtml(t(process.platform === 'darwin' ? 'gradesPasswordHintMac' : 'gradesPasswordHintOther'))} <span id="grades-password-status"></span></span>
+        </div>
+        <div class="setting-row">
+          <span class="field-name">${escapeHtml(t('gradesCheck'))}</span>
+          <span class="field-with-value">
+            <button type="button" class="mini-btn" onclick="checkGradesNow(this)">${escapeHtml(t('gradesCheckNow'))}</button>
+          </span>
+          <span class="field-hint" id="grades-check-status">${escapeHtml(status)}</span>
+        </div>
+      </div>`;
+}
+
+/** The grades list on the page: the current grade per class, from Q (as of
+ *  the last time it was read) and Canvas (as of the last check). Nothing at
+ *  all while neither has any. */
+/** A class's grade for the Grades list and the Grades center: the letter
+ *  and percent the school shows, or, where the teacher hides the percent,
+ *  ClassDash's estimate from the assignments, marked with a ~. */
+function gradeMark(c) {
+  const pct = n => escapeHtml(n.toLocaleString(locale(), { maximumFractionDigits: 2 }));
+  const estimate = c.percent === null && c.estimate ? ` <span class="grade-percent grade-estimate" title="${escapeHtml(t('gradesEstimateTitle'))}">~${pct(c.estimate.percent)}%</span>` : '';
+  if (!c.grade && c.percent === null) return estimate ? estimate.trim() : `<span class="hint">${escapeHtml(t('gradesHidden'))}</span>`;
+  return `<b>${escapeHtml(c.grade || '')}</b>${c.percent !== null ? ` <span class="grade-percent">${pct(c.percent)}%</span>` : estimate}`;
+}
+
+const SOURCE_LABEL = { q: 'Q', canvas: 'Canvas', classroom: 'Classroom' };
+
+function gradesSection() {
+  const grades = require('./40-grades.js');
+  const s = readSettings();
+  const view = grades.gradesView(s);
+  const qOn = view.provider === 'q';
+  if (!qOn && !view.classes.length) return '';
+  const ready = qOn ? grades.readiness(s) : { ready: true };
+  const when = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  // One grade a class: the one it goes by (Q's first, see ranked in
+  // 40-grades.js). Where each one's from, only when there's more than one place.
+  const shown = view.classes.filter(c => !c.superseded);
+  const mixed = new Set(shown.map(c => c.source)).size > 1;
+  const rows = shown.map(c => `        <li class="grade-row">
+          <span class="grade-period">${c.period ? escapeHtml(c.period) : ''}</span>
+          <span class="grade-class">${escapeHtml(c.class)}${mixed ? ` <span class="grade-source">${SOURCE_LABEL[c.source]}</span>` : ''}</span>
+          <span class="grade-mark">${gradeMark(c)}</span>
+        </li>`).join('\n');
+  const lastOther = [view.canvasCheckedAt, view.classroomCheckedAt].filter(Boolean).sort().pop();
+  const note = !qOn ? (lastOther ? t('gradesAsOf', when(lastOther)) : '')
+    : !ready.ready ? t('gradesSetUp')
+    : view.rejected ? t('gradesRejected')
+    : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
+    : view.checkedAt ? t('gradesAsOf', when(view.checkedAt))
+    : t('gradesNotYet');
+  const hidden = !!s.gradesHidden;
+  return `    <section class="grades-section${hidden ? ' grades-hidden' : ''}" id="grades-section">
+      <h2 class="grades-title">${escapeHtml(t('gradesTitle'))}
+        <span class="grades-buttons">
+          <button type="button" class="mini-btn grades-center-open" onclick="toggleGradesCenter(true)">${escapeHtml(t('gcOpen'))}</button>
+          <button type="button" class="mini-btn grades-toggle" aria-pressed="${hidden}" onclick="toggleGradesHidden(this)">${escapeHtml(t(hidden ? 'gradesShow' : 'gradesHide'))}</button>
+        </span></h2>
+${note ? `      <p class="hint${qOn && (view.ok === false || view.rejected) ? ' grades-problem' : ''}">${escapeHtml(note)}</p>` : ''}
+${rows ? `      <ul class="grades-list">\n${rows}\n      </ul>` : ''}
+    </section>`;
+}
+
+/**
+ * The Grades center (41-grades-center.js): a panel over the page with every
+ * assignment's score by class on the left and the AI sidebar on the right.
+ * The classes are drawn here; the chat is drawn by the page script from the
+ * saved messages (#gc-saved), with textContent, so an answer can't inject
+ * markup. Only on the page while the Grades list is.
+ */
+function gradesCenterPanel() {
+  const center = require('./41-grades-center.js');
+  const grades = require('./40-grades.js');
+  const s = readSettings();
+  const classes = center.centerData(s);
+  if (s.gradesProvider !== 'q' && !classes.length) return '';
+  const can = center.canAsk(s);
+  const num = n => n.toLocaleString(locale(), { maximumFractionDigits: 2 });
+  const day = d => { if (!d) return ''; const x = new Date(String(d).length === 10 ? d + 'T12:00:00' : d); return isNaN(x) ? String(d) : x.toLocaleDateString(locale(), { month: 'short', day: 'numeric' }); };
+  const mark = gradeMark;
+  const score = a => a.excused ? escapeHtml(t('gcExcused'))
+    : a.score !== null ? `${escapeHtml(num(a.score))}${a.possible !== null ? `<span class="gc-dim">/${escapeHtml(num(a.possible))}</span>` : ''}`
+    : a.scoreText ? escapeHtml(a.scoreText) : `<span class="gc-dim">—${a.possible !== null ? `/${escapeHtml(num(a.possible))}` : ''}</span>`;
+  // Q never shows how much each category counts: the person types it in
+  // from the syllabus, and the estimate above says whether it lands on Q's
+  // own grade.
+  const typed = s.gradesWeights || {};
+  const weightsForm = c => {
+    const mine = typed[grades.qName(c)] || {};
+    return `          <details class="gc-weights"${Object.keys(mine).length ? '' : ' open'}>
+            <summary>${escapeHtml(t('gcWeightsTitle'))}</summary>
+            <p class="hint">${escapeHtml(t('gcWeightsHint'))}</p>
+            <div class="gc-weight-rows" data-class="${escapeHtml(grades.qName(c))}">
+${c.categories.map(cat => `              <label class="gc-weight-row"><span>${escapeHtml(cat)}</span><input type="number" min="0" max="100" step="any" inputmode="decimal" data-cat="${escapeHtml(cat)}" value="${typeof mine[cat] === 'number' ? escapeHtml(String(mine[cat])) : ''}"> %</label>`).join('\n')}
+            </div>
+            <div class="gc-ai-buttons"><button type="button" class="mini-btn" onclick="saveGradesWeights(this)">${escapeHtml(t('gcWeightsSave'))}</button>${Object.keys(mine).length ? ` <button type="button" class="mini-btn gc-weights-clear" onclick="saveGradesWeights(this, true)">${escapeHtml(t('gcWeightsClear'))}</button>` : ''} <span class="hint gc-weights-status" role="status"></span></div>
+          </details>
+`;
+  };
+  const classBlock = c => `        <details class="gc-class" open>
+          <summary>
+            <span class="grade-period">${c.period ? escapeHtml(c.period) : ''}</span>
+            <span class="gc-class-name">${escapeHtml(c.class)} <span class="grade-source">${SOURCE_LABEL[c.source]}</span></span>
+            <span class="grade-mark">${mark(c)}</span>
+          </summary>
+          <p class="hint gc-totals">${escapeHtml(t('gcTotals', num(c.totals.earned), num(c.totals.possible), c.totals.percent === null ? null : num(c.totals.percent), c.totals.graded, c.totals.missing))}</p>
+${c.report ? `          <p class="hint gc-report">${escapeHtml(t('gcReport', c.report.term, day(c.report.from), day(c.report.to)))}</p>
+` : ''}${c.estimate ? `          <p class="hint gc-estimate${c.estimate.matches === false ? ' gc-off' : ''}">${escapeHtml(c.estimate.typed
+    ? t('gcEstimateTyped', num(c.estimate.percent), c.estimate.matches, c.report && c.report.percent !== null ? num(c.report.percent) : c.percent !== null ? num(c.percent) : null)
+    : t('gcEstimate', num(c.estimate.percent), c.estimate.weighted))}</p>
+          <ul class="gc-categories">${c.estimate.groups.map(g => `<li>${escapeHtml(t('gcCategory', g.name || '?', num(g.weight), c.estimate.weighted, g.percent === null ? null : num(g.percent)))}</li>`).join('')}</ul>
+` : ''}${c.source === 'q' && c.categories && c.categories.length ? weightsForm(c) : ''}${c.assignments.length ? `          <div class="gc-table-wrap"><table class="gc-table">
+            <thead><tr><th>${escapeHtml(t('gcDue'))}</th><th>${escapeHtml(t('gcAssignment'))}</th><th class="gc-score">${escapeHtml(t('gcScore'))}</th><th class="gc-pct">%</th></tr></thead>
+            <tbody>
+${c.assignments.map(a => `              <tr class="${a.missing ? 'gc-missing' : ''}">
+                <td class="gc-date">${escapeHtml(day(a.due))}</td>
+                <td>${a.link ? `<a href="${escapeHtml(a.link)}" target="_blank" rel="noopener">${escapeHtml(a.title || '')}</a>` : escapeHtml(a.title || '')}${a.missing ? ` <span class="gc-flag">${escapeHtml(t('gcMissing'))}</span>` : ''}${a.late ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcLate'))}</span>` : ''}${a.dropped ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcDropped'))}</span>` : ''}${a.extraCredit ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcExtraCredit'))}</span>` : ''}${a.category ? `<div class="gc-cat">${escapeHtml(a.category)}</div>` : ''}${a.comment ? `<div class="gc-comment">${escapeHtml(a.comment)}</div>` : ''}</td>
+                <td class="gc-score">${score(a)}</td>
+                <td class="gc-pct">${a.percent !== null ? escapeHtml(num(a.percent)) + '%' : ''}</td>
+              </tr>`).join('\n')}
+            </tbody>
+          </table></div>` : `          <p class="hint">${escapeHtml(t('gcNoAssignments'))}</p>`}
+        </details>`;
+  const ai = require('./37-ai.js');
+  const cloud = s.aiProvider && ai.PROVIDERS[s.aiProvider] && !ai.PROVIDERS[s.aiProvider].local ? ai.PROVIDERS[s.aiProvider] : null;
+  const notice = can.ok ? `<p class="hint gc-ai-who">${escapeHtml(t(can.local ? 'gcAiLocal' : 'gcAiCloud', can.label, can.company))}</p>`
+    : can.why === 'off' ? `<p class="hint gc-ai-who">${escapeHtml(t('gcAiOff'))}</p>`
+    : `<div class="warn gc-agree">
+          <p>${escapeHtml(t('gcAgreeText', cloud.company))}</p>
+          <label class="check-row"><input type="checkbox" id="gc-agree-box" data-provider="${escapeHtml(s.aiProvider)}" data-agreed="${escapeHtml(JSON.stringify(s.gradesAiAgreed || []))}" onchange="agreeGradesAi(this)"><span class="label-text">${escapeHtml(t('gcAgreeBox', cloud.company))}</span></label>
+        </div>`;
+  return `  <div class="grades-center" id="grades-center" hidden role="dialog" aria-label="${escapeHtml(t('gcTitle'))}" data-weights="${escapeHtml(JSON.stringify(typed))}">
+    <div class="gc-head">
+      <h2>${escapeHtml(t('gcTitle'))}</h2>
+      <button type="button" class="mini-btn" onclick="toggleGradesCenter(false)">${escapeHtml(t('gcClose'))}</button>
+    </div>
+    <div class="gc-body">
+      <div class="gc-classes">
+${classes.length ? classes.map(classBlock).join('\n') : `        <p class="hint">${escapeHtml(t('gradesNotYet'))}</p>`}
+      </div>
+      <aside class="gc-ai">
+        <h2>${escapeHtml(t('gcAiTitle'))}</h2>
+        ${notice}
+        <div class="gc-chat" id="gc-chat" aria-live="polite"></div>
+        <script type="application/json" id="gc-saved">${jsonForScript(center.readChat())}</script>
+        <textarea id="gc-question" rows="3" maxlength="2000" placeholder="${escapeHtml(t('gcPlaceholder'))}"${can.ok ? '' : ' disabled'}></textarea>
+        <div class="gc-ai-buttons">
+          <button type="button" class="mini-btn" id="gc-ask" onclick="askGrades(this)"${can.ok ? '' : ' disabled'}>${escapeHtml(t('gcAsk'))}</button>
+          <button type="button" class="mini-btn" onclick="clearGradesChat()">${escapeHtml(t('gcClear'))}</button>
+          <span class="hint" id="gc-status"></span>
+        </div>
+      </aside>
+    </div>
+  </div>`;
+}
+
 function aiSettings(s, field) {
   const ai = require('./37-ai.js');
   const P = ai.PROVIDERS;
@@ -1172,6 +1386,11 @@ ${row(ai.PROVIDER_IDS.filter(id => id !== 'apple').join(' '), `      <label clas
           <input type="text" data-key="aiModel" data-saved-model="${escapeHtml(s.aiModel || '')}" value="${escapeHtml(s.aiModel || '')}" spellcheck="false">
         </span>
         <span class="field-hint">${modelHints}</span>
+      </label>`)}
+${row('ollama lmstudio', `      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('aiThinking'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="aiThinking"${s.aiThinking !== false ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('aiThinkingHint'))}</span>
       </label>`)}
       <div class="setting-row" id="ai-test-row"${chosen === 'none' ? ' hidden' : ''}>
         <span class="field-name"></span>
@@ -1375,6 +1594,7 @@ ${classLinksField(s.classLinks)}
       <p class="hint">${escapeHtml(t('scheduleIntro'))}</p>
       <div id="schedule-settings"></div>
       <span class="hint schedule-save-state"></span>` },
+    { id: 'grades', label: t('settingsSectionGrades'), body: gradesSettings(s, field) },
     { id: 'ai', label: t('settingsSectionAi'), body: aiSettings(s, field) },
     { id: 'api', label: t('settingsSectionApi'), body: `
       <label class="setting-row">
@@ -1666,6 +1886,7 @@ const CHECK_STATUS_ENTRIES = [
   ['classroom', 'Google Classroom'],
   ['canvas', 'Canvas'],
   ['edpuzzle', 'Edpuzzle'],
+  ['q', 'Aequitas Q'],
 ];
 
 function checkStatusWord(s) {
@@ -1823,14 +2044,14 @@ function rasterSprite(N, shapeAt, edge, fill) {
 /** The stepped-corner rules — shared geometry once, then the sprite each
  *  kind of element uses, generated for both themes. */
 function pixelCornerCss() {
-  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn';
+  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .gc-class, .gc-ai';
   const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, ' +
     '.settings-actions button, .show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
   const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
     '.setting-row select, #schedule-settings select, #schedule-settings input, .reminder-add input[type="text"], ' +
-    '.reminder-add input[type="datetime-local"], .class-picker';
-  const PILLS = '.count, .plat, .removed-badge, .lock-badge, .class-next-badge, .check-row .count-badge';
+    '.reminder-add input[type="datetime-local"], .class-picker, .gc-weight-row input, #gc-question';
+  const PILLS = '.count, .plat, .removed-badge, .lock-badge, .class-next-badge, .check-row .count-badge, .gc-flag';
   const CHECK = 'input[type="checkbox"]:not(.toggle)';
   const SLIDER = '.field-with-value input[type="range"]';
   const TRACK = SLIDER + '::-webkit-slider-runnable-track';
@@ -1858,6 +2079,9 @@ function pixelCornerCss() {
   ${FIELDS} { ${src('medium', 'ink', 'bg')} }
   ${PILLS} { ${src('pill', 'ink', 'line')} }
   .badge { ${src('pill', 'ink', 'new')} }
+  .gc-missing .gc-flag { ${src('pill', 'hot', 'card')} }
+  .gc-msg.user { ${src('medium', 'ink', 'line')} }
+  .gc-msg.ai { ${src('medium', 'ink', 'bg')} }
   ${CHECK}, ${TOGGLE} { ${src('mini', 'ink', 'card')} }
   ${CHECK}:checked, ${TOGGLE}:checked { ${src('mini', 'ink', 'new')} }
   ${TRACK}, ${THUMB}, ${PROGRESS} { ${src('mini', 'ink', 'card')} }
@@ -1918,6 +2142,7 @@ function pixelCornerCss() {
     background-color: transparent; background-repeat: no-repeat; background-size: 6px 6px;
   }
   ${CHECK}, ${TOGGLE} { ${geometry('mini')} }
+  .gc-msg { border-width: 2px; ${geometry('medium')} }
   /* No "fill" on the track's slice: only its frame comes from the sprite,
      so the progress gradient behind it stays visible. The 4px notch sits
      inside the 2px border, which is why padding-box clipping is enough. */
@@ -2866,6 +3091,78 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .calendar-day-type { position: absolute; top: 1px; left: calc(50% + 9px); font-size: 9px; line-height: 1.2; color: var(--dim); }
   .day-noSchool .calendar-day-type, .day-minimumDay .calendar-day-type { color: inherit; opacity: .75; }
   .calendar-day.day-flipped .calendar-day-type { color: var(--new); font-weight: 700; opacity: 1; }
+  .grades-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .grade-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .grade-row:first-child { border-top: 0; }
+  .grade-period { color: var(--dim); font-size: 12px; text-align: right; }
+  .grade-class { min-width: 0; overflow-wrap: anywhere; }
+  .grade-mark { white-space: nowrap; }
+  .grade-percent { color: var(--dim); }
+  .grade-source { color: var(--dim); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
+  .grades-problem { color: var(--hot); }
+  .grades-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .grades-buttons { display: flex; gap: 6px; }
+  .grades-center { position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--text); overflow: auto; padding: 16px; box-sizing: border-box; }
+  .grades-center[hidden] { display: none; }
+  .gc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 1200px; margin: 0 auto 12px; }
+  .gc-head h2 { margin: 0; }
+  .gc-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; max-width: 1200px; margin: 0 auto; align-items: start; }
+  /* The cards, chat bubbles, fields and tags take the app's pixel frames
+     (pixelCornerCss): only spacing is set here. */
+  .gc-class { margin-bottom: 14px; padding: 2px 14px 6px; }
+  .gc-class > summary { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 10px 0; cursor: pointer; list-style: none; }
+  .gc-class > summary::-webkit-details-marker { display: none; }
+  .gc-class-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+  .gc-totals { margin: 0 0 8px; }
+  .gc-estimate { margin: -4px 0 4px; }
+  .gc-estimate.gc-off { color: var(--hot); }
+  .gc-report { margin: -4px 0 4px; }
+  .gc-weights { margin: 0 0 10px; font-size: 13px; }
+  .gc-weights > summary { cursor: pointer; color: var(--dim); }
+  .gc-weight-rows { display: grid; gap: 4px; margin: 6px 0; max-width: 420px; }
+  .gc-weight-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px auto; gap: 6px; align-items: center; }
+  .gc-weight-row span { overflow-wrap: anywhere; }
+  /* No browser spinner arrows: they're the one smooth thing in a pixel field. */
+  .gc-weight-row input { -moz-appearance: textfield; appearance: textfield; }
+  .gc-weight-row input::-webkit-inner-spin-button, .gc-weight-row input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .gc-weight-row input { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; color: var(--text); text-align: right; }
+  .gc-categories { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--dim); }
+  .gc-cat { color: var(--dim); font-size: 11px; margin-top: 1px; }
+  .grade-estimate { font-style: italic; }
+  .gc-table-wrap { overflow-x: auto; margin-bottom: 10px; }
+  .gc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .gc-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .gc-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .gc-date { white-space: nowrap; color: var(--dim); }
+  .gc-table th.gc-score, .gc-table th.gc-pct, .gc-score, .gc-pct { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .gc-dim { color: var(--dim); }
+  .gc-missing td { color: var(--hot); }
+  .gc-flag { font-size: 11px; padding: 0 6px; white-space: nowrap; color: var(--dim); }
+  .gc-missing .gc-flag { color: var(--hot); }
+  .gc-late { color: var(--dim); }
+  .gc-comment { color: var(--dim); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+  .gc-ai { position: sticky; top: 0; padding: 14px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 100px); box-sizing: border-box; }
+  .gc-ai h2 { margin: 0; }
+  .gc-ai .gc-ai-who { margin: -6px 0 0; }
+  #gc-question { font: inherit; color: var(--text); padding: 8px 10px; resize: vertical; box-sizing: border-box; width: 100%; }
+  .gc-chat { flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+  .gc-msg { padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; flex: none; }
+  .gc-msg.user { align-self: flex-end; max-width: 90%; }
+  .gc-msg.ai { align-self: stretch; }
+  .gc-msg.pending { color: var(--dim); }
+  .gc-thought { margin-bottom: 6px; color: var(--dim); font-size: 13px; }
+  .gc-thought { display: block; }
+  .gc-thought summary { cursor: pointer; white-space: normal; }
+  .gc-said { display: block; }
+  .gc-msg.pending .gc-said { color: var(--dim); }
+  .gc-thought > div { margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--line); max-height: 240px; overflow-y: auto; }
+  #gc-question { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 7px; border: 2px solid var(--ink); background: var(--bg); color: var(--text); }
+  #gc-question:disabled { opacity: .6; }
+  .gc-ai-buttons { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .gc-agree p { margin: 0 0 6px; }
+  @media (max-width: 760px) { .gc-body { grid-template-columns: minmax(0, 1fr); } .gc-ai { position: static; max-height: none; } }
+  .grades-hidden .grade-mark > * { display: none; }
+  .grades-hidden .grade-mark::after { content: '•••'; color: var(--dim); letter-spacing: 2px; }
   .schedule-line { display: flex; flex-direction: column; gap: 2px; font-size: 13px; margin: 0 0 10px; }
   .schedule-day.flipped b { color: var(--new); }
   .schedule-classes, .schedule-flips { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
@@ -3028,14 +3325,14 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
      staircase of 2px cells that turns into a down-pointing one when the
      list is open. Drawn with clip-path (no border or shadow on it to
      lose) in the text colour, so it dims and brightens with the label. */
-  .class-picker summary { list-style: none; display: flex; align-items: center; gap: 8px; }
-  .class-picker summary::-webkit-details-marker { display: none; }
-  .class-picker summary::before {
+  .class-picker summary, .gc-weights > summary, .gc-thought > summary { list-style: none; display: flex; align-items: center; gap: 8px; }
+  .class-picker summary::-webkit-details-marker, .gc-weights > summary::-webkit-details-marker, .gc-thought > summary::-webkit-details-marker { display: none; }
+  .class-picker summary::before, .gc-weights > summary::before, .gc-thought > summary::before {
     content: ''; flex: none; width: 6px; height: 10px; background: currentColor;
     clip-path: polygon(0 0, 2px 0, 2px 2px, 4px 2px, 4px 4px, 6px 4px, 6px 6px,
       4px 6px, 4px 8px, 2px 8px, 2px 10px, 0 10px);
   }
-  .class-picker[open] summary::before {
+  .class-picker[open] summary::before, .gc-weights[open] > summary::before, .gc-thought[open] > summary::before {
     width: 10px; height: 6px;
     clip-path: polygon(0 0, 10px 0, 10px 2px, 8px 2px, 8px 4px, 6px 4px, 6px 6px,
       4px 6px, 4px 4px, 2px 4px, 2px 2px, 0 2px);
@@ -3108,6 +3405,7 @@ ${pendingBanner}
 ${scheduleBanner}
 ${updateBanner}
 ${warning}
+${gradesCenterPanel()}
   <div class="columns">
   <div>
 ${settingsPanel()}
@@ -3122,6 +3420,7 @@ ${section(t('mutedSection'), deferred, now, freshIds, t('mutedCaption'))}
 ${section(t('removed'), gone, now, freshIds, t('removedCaption'))}
   </div>
   <div>
+${gradesSection()}
 ${calendarSection(now)}
 ${announcementsSection(announcements, freshAnnouncementIds)}
     <section>
@@ -3207,10 +3506,28 @@ const WORDS = ${JSON.stringify({
   linkNoTargets: t('linkNoTargets'),
   linkFailed: t('linkFailed'),
   classLinkNone: t('classLinkNone'),
+  classLinkName: t('classLinkName'),
   signInOpening: t('signInOpening'),
   calendarReading: t('calendarReading'),
   aiTest: t('aiTest'),
   aiTesting: t('aiTesting'),
+  gradesCheckNow: t('gradesCheckNow'),
+  gradesHide: t('gradesHide'),
+  gcThinking: t('gcThinking'),
+  gcThought: t('aiPostThinking'),
+  gcAskFailed: t('gcAskFailed'),
+  gcWeightsBad: t('gcWeightsBad'),
+  gcWeightsSaving: t('gcWeightsSaving'),
+  gcWeightsFailed: t('gcWeightsFailed'),
+  gcNeedsApp: t('aiTestNeedsApp'),
+  gcCleared: t('gcCleared'),
+  gradesShow: t('gradesShow'),
+  gradesChecking: t('gradesChecking'),
+  gradesNeedsApp: t('aiTestNeedsApp'),
+  gradesPasswordEmpty: t('gradesPasswordEmpty'),
+  gradesPasswordDone: t('gradesPasswordDone'),
+  gradesPasswordFailed: t('gradesPasswordFailed'),
+  gradesCheckFailed: t('gradesCheckFailed'),
   aiTestOk: t('aiTestOk', '{s}'),
   aiTestFailed: t('aiTestFailed'),
   aiTestNeedsApp: t('aiTestNeedsApp'),
@@ -4386,6 +4703,256 @@ function aiSaveFirst(show, then) {
   return true;
 }
 
+// ── The Grades center ──
+
+function toggleGradesCenter(open) {
+  var panel = document.getElementById('grades-center');
+  if (!panel) return;
+  panel.hidden = !open;
+  document.body.style.overflow = open ? 'hidden' : '';
+  if (open) { drawGradesChat(); var q = document.getElementById('gc-question'); if (q && !q.disabled) q.focus(); }
+}
+document.addEventListener('keydown', function (e) {
+  var panel = document.getElementById('grades-center');
+  if (e.key === 'Escape' && panel && !panel.hidden) toggleGradesCenter(false);
+});
+
+var gradesChat = null;
+function drawGradesChat(extra) {
+  var box = document.getElementById('gc-chat');
+  if (!box) return;
+  if (gradesChat === null) {
+    try { gradesChat = JSON.parse(document.getElementById('gc-saved').textContent) || []; } catch (e) { gradesChat = []; }
+  }
+  box.textContent = '';
+  var list = gradesChat.concat(extra || []);
+  for (var i = 0; i < list.length; i++) {
+    var m = document.createElement('div');
+    m.className = 'gc-msg ' + (list[i].role === 'ai' ? 'ai' : 'user') + (list[i].pending ? ' pending' : '') + (list[i].live ? ' gc-live' : '');
+    // Its thinking, when the model sent some, folded up above the answer;
+    // open while it's still being written.
+    if (list[i].thinking) m.appendChild(thoughtFold(list[i].thinking, !!list[i].live));
+    var said = document.createElement('span');
+    said.className = 'gc-said';
+    said.textContent = list[i].text;
+    m.appendChild(said);
+    box.appendChild(m);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+function thoughtFold(text, open) {
+  var fold = document.createElement('details');
+  fold.className = 'gc-thought';
+  fold.open = open;
+  var head = document.createElement('summary');
+  head.textContent = WORDS.gcThought;
+  var body = document.createElement('div');
+  body.textContent = text;
+  fold.appendChild(head); fold.appendChild(body);
+  return fold;
+}
+// The live answer, updated in place rather than redrawn: the reader's
+// scroll position in the chat and in the thinking stays where they put it,
+// and each only follows the newest words if it was already at the bottom.
+var nearBottom = function (el) { return el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
+function drawLiveAnswer(question, live) {
+  var box = document.getElementById('gc-chat');
+  var m = box && box.querySelector('.gc-msg.gc-live');
+  if (!m) {
+    drawGradesChat([{ role: 'user', text: question }, { role: 'ai', live: true, pending: !live.text, thinking: live.thinking, text: live.text || WORDS.gcThinking }]);
+    var first = box && box.querySelector('.gc-live .gc-thought > div');
+    if (first) first.scrollTop = first.scrollHeight;
+    return;
+  }
+  var followChat = nearBottom(box);
+  var said = m.querySelector('.gc-said');
+  if (live.thinking) {
+    var fold = m.querySelector('.gc-thought');
+    if (!fold) { fold = thoughtFold('', true); m.insertBefore(fold, said); }
+    var body = fold.querySelector('div');
+    if (body.textContent !== live.thinking) {
+      var followThought = nearBottom(body);
+      body.textContent = live.thinking;
+      if (followThought) body.scrollTop = body.scrollHeight;
+    }
+  }
+  var text = live.text || WORDS.gcThinking;
+  if (said.textContent !== text) said.textContent = text;
+  if (live.text) m.classList.remove('pending'); else m.classList.add('pending');
+  if (followChat) box.scrollTop = box.scrollHeight;
+}
+
+// The answer while it's being written (chat-live/answer.js, see
+// 41-grades-center.js liveWriter): loaded every quarter second until the
+// finished answer comes back. Only this question's id is shown.
+var gradesLiveTimer = null;
+function watchGradesAnswer(id, question) {
+  stopGradesAnswer();
+  var tick = function () {
+    loadLiveFile('answer.js', function (ok) {
+      if (gradesLiveTimer === null) return;
+      var live = ok && window.classdashGradesLive;
+      if (live && live.id === id && (live.thinking || live.text)) drawLiveAnswer(question, live);
+      gradesLiveTimer = setTimeout(tick, 250);
+    }, 'chat-live');
+  };
+  gradesLiveTimer = setTimeout(tick, 250);
+}
+function stopGradesAnswer() {
+  if (gradesLiveTimer !== null) clearTimeout(gradesLiveTimer);
+  gradesLiveTimer = null;
+  window.classdashGradesLive = null;
+}
+
+// Sends the question; the chat shows it at once with "Thinking…" under it,
+// and the saved chat comes back with the answer.
+function askGrades(button) {
+  var field = document.getElementById('gc-question');
+  var status = document.getElementById('gc-status');
+  var question = field.value.trim();
+  if (!question) return;
+  if (!hasNativeBridge()) { status.textContent = WORDS.gcNeedsApp; return; }
+  button.disabled = true; field.disabled = true; status.textContent = '';
+  drawGradesChat([{ role: 'user', text: question }, { role: 'ai', text: WORDS.gcThinking, pending: true }]);
+  var live = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  watchGradesAnswer(live, question);
+  dispatchAction('gradesAsk', toBase64Url(JSON.stringify({ question: question, live: live })), function (r) {
+    stopGradesAnswer();
+    button.disabled = false; field.disabled = false;
+    if (r && r.ok) {
+      gradesChat = r.messages || gradesChat.concat([{ role: 'user', text: question }, { role: 'ai', text: r.answer }]);
+      field.value = '';
+      drawGradesChat();
+      // The AI saved some category weights: reload so the boxes and the
+      // estimate show them (the chat comes back from the saved file).
+      if (r.savedWeights) {
+        try { sessionStorage.setItem('classdash-open-grades-center', '1'); } catch (e) {}
+        location.reload();
+        return;
+      }
+    } else {
+      drawGradesChat([{ role: 'user', text: question }]);
+      status.textContent = WORDS.gcAskFailed + ' ' + ((r && r.why) || '');
+    }
+    field.focus();
+  });
+}
+document.addEventListener('keydown', function (e) {
+  if (e.target && e.target.id === 'gc-question' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askGrades(document.getElementById('gc-ask')); }
+});
+
+function clearGradesChat() {
+  gradesChat = [];
+  drawGradesChat();
+  document.getElementById('gc-status').textContent = WORDS.gcCleared;
+  dispatchAction('gradesChatClear', '');
+}
+
+// The box in the sidebar for a cloud AI: adds it to gradesAiAgreed (keeping
+// any others), then redraws so the chat opens up.
+function saveGradesWeights(button, clear) {
+  var form = button.closest('.gc-weights');
+  var rows = form.querySelector('.gc-weight-rows');
+  var cls = rows.getAttribute('data-class');
+  var status = form.querySelector('.gc-weights-status');
+  var map = {};
+  try { map = JSON.parse(document.getElementById('grades-center').getAttribute('data-weights')) || {}; } catch (e) {}
+  var mine = {};
+  var bad = false;
+  Array.prototype.forEach.call(rows.querySelectorAll('input[data-cat]'), function (input) {
+    var v = input.value.trim();
+    if (clear || v === '') return;
+    var n = Number(v);
+    if (!isFinite(n) || n < 0 || n > 100) bad = true; else mine[input.getAttribute('data-cat')] = n;
+  });
+  if (bad) { status.textContent = WORDS.gcWeightsBad; return; }
+  if (Object.keys(mine).length) map[cls] = mine; else delete map[cls];
+  status.textContent = WORDS.gcWeightsSaving;
+  dispatchAction('config', toBase64Url(JSON.stringify({ gradesWeights: map })), function (r) {
+    if (r && r.ok === false) { status.textContent = WORDS.gcWeightsFailed; return; }
+    try { sessionStorage.setItem('classdash-open-grades-center', '1'); } catch (e) {}
+    location.reload();
+  });
+}
+function agreeGradesAi(box) {
+  if (!box.checked) return;
+  var list = [];
+  try { list = JSON.parse(box.getAttribute('data-agreed')) || []; } catch (e) {}
+  var id = box.getAttribute('data-provider');
+  if (list.indexOf(id) < 0) list.push(id);
+  dispatchAction('config', toBase64Url(JSON.stringify({ gradesAiAgreed: list })), function () {
+    try { sessionStorage.setItem('classdash-open-grades-center', '1'); } catch (e) {}
+    location.reload();
+  });
+}
+// Back open after that reload.
+try {
+  if (sessionStorage.getItem('classdash-open-grades-center') === '1') {
+    sessionStorage.setItem('classdash-open-grades-center', '');
+    toggleGradesCenter(true);
+  }
+} catch (e) {}
+
+// The Grades list's Hide/Show: masks the grades on the spot, and remembers
+// it as a setting (gradesHidden) so the next page starts the same way.
+// Fire-and-forget, like the filter panel: it's already done on screen.
+function toggleGradesHidden(button) {
+  var section = document.getElementById('grades-section');
+  var hide = !section.classList.contains('grades-hidden');
+  section.classList.toggle('grades-hidden', hide);
+  button.setAttribute('aria-pressed', String(hide));
+  button.textContent = hide ? WORDS.gradesShow : WORDS.gradesHide;
+  dispatchAction('config', toBase64Url(JSON.stringify({ gradesHidden: hide })));
+}
+
+// Settings → Grades: the Q rows show only with Q picked.
+function updateGradesRows() {
+  var on = document.querySelector('[data-key="gradesProvider"]').value === 'q';
+  var rows = document.querySelectorAll('[data-grades-for]');
+  for (var i = 0; i < rows.length; i++) rows[i].hidden = !on;
+}
+
+// The password goes to the keychain through its own action, never with the
+// rest of the settings; the field empties once it's saved.
+function saveGradesPassword(button) {
+  var status = document.getElementById('grades-password-status');
+  var field = document.getElementById('grades-password');
+  var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
+  if (!hasNativeBridge()) { show(WORDS.gradesNeedsApp, true); return; }
+  if (!field.value) { show(WORDS.gradesPasswordEmpty, true); return; }
+  button.disabled = true;
+  dispatchAction('saveGradesPassword', toBase64Url(JSON.stringify(field.value)), function (r) {
+    button.disabled = false;
+    if (r && r.ok) { field.value = ''; show(WORDS.gradesPasswordDone, false); }
+    else show(WORDS.gradesPasswordFailed + ' ' + ((r && r.why) || ''), true);
+  });
+}
+
+// Check now: saves the settings first (an address or username just typed
+// counts), then signs in to Q and reads. The page redraws with the result.
+function checkGradesNow(button) {
+  var status = document.getElementById('grades-check-status');
+  var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
+  if (!hasNativeBridge()) { show(WORDS.gradesNeedsApp, true); return; }
+  var done = function () { button.textContent = WORDS.gradesCheckNow; button.disabled = false; };
+  button.textContent = WORDS.gradesChecking; button.disabled = true;
+  show('', false);
+  var sent = JSON.stringify(collectSettings());
+  dispatchAction('config', toBase64Url(sent), function (res) {
+    if (!res || !res.ok || (res.rejected && res.rejected.length)) {
+      var why = res && (res.why || (res.rejected && res.rejected.join('; ')));
+      done(); show(WORDS.saveFailed + (why ? ': ' + why : ''), true);
+      return;
+    }
+    settingsBaseline = sent;
+    dispatchAction('checkGrades', '', function (r) {
+      done();
+      if (r && r.ok) { setTimeout(function () { location.reload(); }, 300); return; }
+      show(WORDS.gradesCheckFailed + ' ' + ((r && (r.why || r.skipped)) || ''), true);
+    });
+  });
+}
+
 function testAi(button) {
   var status = document.getElementById('ai-test-status');
   var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
@@ -5275,10 +5842,15 @@ function updateClassLinks() {
   for (var i = 0; i < rows.length; i++) {
     var name = rows[i].querySelector('.class-link-name').value.trim();
     var boxes = rows[i].querySelectorAll('.class-link-member');
-    var members = [];
+    var members = [], most = -1, pick = '';
     for (var j = 0; j < boxes.length; j++) {
-      if (boxes[j].checked) { members.push(boxes[j].value); owner[boxes[j].value] = i; }
+      if (!boxes[j].checked) continue;
+      members.push(boxes[j].value); owner[boxes[j].value] = i;
+      // The name it gets if none is typed: the one with the most assignments.
+      var n = Number(boxes[j].getAttribute('data-count')) || 0;
+      if (n > most) { most = n; pick = boxes[j].value; }
     }
+    rows[i].querySelector('.class-link-name').placeholder = pick || WORDS.classLinkName;
     var summary = rows[i].querySelector('.link-summary');
     if (summary) summary.textContent = members.length ? members.join(', ') : WORDS.classLinkNone;
     if (name || members.length) links.push({ name: name, classes: members });
@@ -5891,7 +6463,7 @@ var lastLiveReport = 0;
 
 // Loads one of the live/ scripts and says whether it loaded. The query
 // string is what stops the web view from serving the previous copy.
-function loadLiveFile(name, done) {
+function loadLiveFile(name, done, folder) {
   var el = document.createElement('script');
   var finished = false;
   var finish = function (ok) {
@@ -5902,7 +6474,7 @@ function loadLiveFile(name, done) {
   };
   el.onload = function () { finish(true); };
   el.onerror = function () { finish(false); };
-  el.src = 'live/' + name + '?t=' + Date.now();
+  el.src = (folder || 'live') + '/' + name + '?t=' + Date.now();
   document.head.appendChild(el);
 }
 
@@ -6010,6 +6582,9 @@ function reloadWhenQuiet() {
   if (now - lastInteraction < QUIET_BEFORE_RELOAD_MS) return;
   var panel = document.getElementById('settings-panel');
   if (panel && !panel.hidden) return;
+  // Nor while the Grades center is open: it reloads once that's closed.
+  var center = document.getElementById('grades-center');
+  if (center && !center.hidden) return;
   // Still waiting on an answer (an AI scan can take a minute): a reload now
   // would drop what it says.
   for (var waiting in bridgeCallbacks) { if (Object.prototype.hasOwnProperty.call(bridgeCallbacks, waiting)) return; }
@@ -6054,6 +6629,16 @@ window.classdashLiveChanged = function (state) {
   livePushed = true;
   clearTimeout(liveTimer);
   if (state) onLiveState(state.run, state.version);
+};
+
+// Called by the Mac app when its window becomes active again. It used to
+// reload the page outright, which closed Settings and the Grades center
+// every time you switched away and back; now the page looks for a newer
+// version itself and reloads only for one, and only once nothing is open
+// (reloadWhenQuiet).
+window.classdashCameBack = function () {
+  if (!livePushed) scheduleLivePoll(0);
+  onLiveState(null, 0);
 };
 
 // A run that dies sends nothing at all, and a reload that was held back by

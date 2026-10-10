@@ -124,6 +124,31 @@ const runState = o => ({ running: true, done: 0, total: 0, at: Date.now(), ...o 
     w.lastInteraction = 0;
     ok('a held-back reload goes through by itself once quiet (no new push needed)', held && await until(() => w.reloadingForLive === true)); close();
   }
+  // ---- coming back to the window: the app asks the page instead of reloading ----
+  {
+    const { w, d, close } = await open(); w.pageLoadedAt = 0; w.lastInteraction = 0;
+    w.newestVersion = cur;
+    w.classdashCameBack();
+    await sleep(200);
+    ok('coming back with nothing newer: no reload', typeof w.classdashCameBack === 'function' && w.reloadingForLive === false);
+    let center = d.getElementById('grades-center');
+    if (!center) { center = d.createElement('div'); center.id = 'grades-center'; d.body.appendChild(center); }
+    center.hidden = false;
+    w.newestVersion = cur + 10;
+    w.classdashCameBack();
+    await sleep(200);
+    ok('...a newer page waits while the Grades center is open', w.reloadingForLive === false);
+    center.hidden = true;
+    ok('...and reloads once it\'s closed', await until(() => w.reloadingForLive === true)); close();
+  }
+  {
+    const { w, d, close } = await open(); w.pageLoadedAt = 0; w.lastInteraction = 0;
+    d.getElementById('settings-panel').hidden = false;
+    w.newestVersion = cur + 10;
+    w.classdashCameBack();
+    await sleep(200);
+    ok('...or while Settings is open', w.reloadingForLive === false); close();
+  }
   // ---- a newer page while a check is RUNNING is a half-read draft: no reload until it ends ----
   {
     const { w, close } = await open(); w.pageLoadedAt = 0; w.lastInteraction = 0;

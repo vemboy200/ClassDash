@@ -86,6 +86,9 @@ function checkStatus() {
     classroom: applied.classroomEnabled === false ? UNKNOWN : (raw.classroom || UNKNOWN),
     canvas: canvasConfigured ? (raw.canvas || UNKNOWN) : UNKNOWN,
     edpuzzle: settings.edpuzzleEnabled ? (raw.edpuzzle || UNKNOWN) : UNKNOWN,
+    // Aequitas Q, for grades (40-grades.js): recorded by each sign-in, at
+    // most hourly, not by the collection itself.
+    q: settings.gradesProvider === 'q' ? (raw.q || UNKNOWN) : UNKNOWN,
   };
 }
 

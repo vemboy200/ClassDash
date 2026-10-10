@@ -424,7 +424,7 @@ async function readCalendarPdf(file, options = {}) {
   }
 }
 
-module.exports = { readCalendarPdf, classify, monthIndex, defaultPages, combinePages };
+module.exports = { readCalendarPdf, classify, monthIndex, defaultPages, combinePages, loadPdfjs };
 
 // node 32-calendar-pdf.js --diagnose calendar.pdf
 //

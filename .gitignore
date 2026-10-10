@@ -16,6 +16,7 @@ fetch-applied.json
 template-sync.json
 previous-scripts/
 live/
+chat-live/
 update-status.json
 update-download.dmg
 update-download.exe
@@ -45,4 +46,10 @@ school-calendar.json
 school-schedule.json
 ai-scan.json
 ai-scan.lock
+grades.json
+canvas-grades.json
+classroom-grades.json
+grades.lock
+grades-secret.json
+grades-chat.json
 announcement-photos/

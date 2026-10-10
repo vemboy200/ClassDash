@@ -1288,6 +1288,11 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 
   const teacherDue = new Set(classesNeedingTeacher(classes).map(c => c.id));
   const teachersFound = new Map();
+  // Grades, from each class's "View your work" (44-classroom-grades.js), an
+  // hour apart per class.
+  const classroomGrades = require('./44-classroom-grades.js');
+  const gradesDue = new Set(classroomGrades.classesDue(classes).map(c => c.id));
+  const gradesFound = new Map();
 
   // Last pass's memory, for catching turned-in work that reads as not
   // turned in (scrapeClassChecked).
@@ -1328,6 +1333,14 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
           teachersFound.set(cls.id, await readClassroomTeachers(page, cls));
         } catch (e) {
           console.warn(`  teachers for ${cls.name}: ${e.message}`);
+        }
+      }
+
+      if (gradesDue.has(cls.id)) {
+        try {
+          gradesFound.set(cls.id, { name: cls.name, entries: await classroomGrades.readClassroomWork(page, cls, { U, timeout: TIMEOUT }) });
+        } catch (e) {
+          console.warn(`  grades for ${cls.name}: ${e.message}`);
         }
       }
 
@@ -1382,6 +1395,12 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     if (teachersFound.size) console.log(`Teachers looked up: ${[...teachersFound.values()].join(' | ')}`);
   } catch (e) {
     console.warn('failed to save teachers:', e.message);
+  }
+  try {
+    classroomGrades.save(gradesFound);
+    if (gradesFound.size) console.log(`Classroom grades read: ${gradesFound.size} class${gradesFound.size === 1 ? '' : 'es'}`);
+  } catch (e) {
+    console.warn('failed to save Classroom grades:', e.message);
   }
 
   return {
@@ -2608,6 +2627,8 @@ if (require.main !== module) return;
     notify(t('schoolLabel'), t('signInRequired'), t('signInRequiredHint'));
     rememberCollection(all);
     fs.writeFileSync(STREAM_FILE, JSON.stringify(allAnnouncements, null, 2));
+    // Q is its own sign-in, unaffected by Google's having run out.
+    startGradesCheck();
     return;
   }
 
@@ -2713,7 +2734,25 @@ if (require.main !== module) return;
   rememberCollection(all);
   fs.writeFileSync(STREAM_FILE, JSON.stringify(allAnnouncements, null, 2));
   startAnnouncementScan();
+  startGradesCheck();
 })();
+
+/**
+ * Grades (Settings → Grades, 40-grades.js): at most once an hour it signs in
+ * to the school's Q and reads them. In a process of its own, detached, like
+ * the announcement scan: its own headless browser, and never a reason for
+ * the check to fail or wait. It decides itself whether one's due.
+ */
+function startGradesCheck() {
+  try {
+    if (SETTINGS.gradesProvider !== 'q') return;
+    const child = require('child_process').spawn(process.execPath, [path.join(__dirname, '40-grades.js'), '--if-due'],
+      { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+  } catch (e) {
+    console.warn('grades check not started:', e.message);
+  }
+}
 
 /**
  * With AI on, new announcements are read for homework once a check has

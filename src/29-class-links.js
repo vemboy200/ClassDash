@@ -88,7 +88,37 @@ function renamesAfter(oldLinks, newLinks) {
   return out;
 }
 
+/** How many assignments each real class has, from the last collection. */
+function assignmentCounts() {
+  const fs = require('fs'), path = require('path');
+  const { PROJECT_ROOT } = require('./00-project-root.js');
+  const counts = new Map();
+  try {
+    for (const x of JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'last-collection.json'), 'utf8'))) {
+      if (x && x.class) counts.set(x.class, (counts.get(x.class) || 0) + 1);
+    }
+  } catch { /* nothing collected yet */ }
+  return counts;
+}
+
+/**
+ * The name a link left unnamed gets when it's saved: its class with the
+ * most assignments (the Classroom or Canvas one, say, over a Q class with
+ * none), the first ticked on a tie. Given once, on saving, not worked out
+ * each time: the schedule, the filter and reminders are saved by it, so
+ * it mustn't change by itself when the counts do.
+ */
+function defaultName(classes, counts = assignmentCounts()) {
+  let best = null, most = -1;
+  for (const c of classes) {
+    const n = counts.get(c) || 0;
+    if (n > most) { best = c; most = n; }
+  }
+  return best;
+}
+
 module.exports = {
+  assignmentCounts, defaultName,
   readLinks, linkMap, linkedName, linkItems, linkedClassNames,
   linkedTeachers, linkedStatus, membersOf, renamesAfter,
 };

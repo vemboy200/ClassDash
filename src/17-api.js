@@ -239,6 +239,8 @@ function toPublic(x, now) {
  * actually leave it — but old data for it is still around). Lets a
  * client filter these out itself instead of an orphaned class looking
  * identical to a real one.
+ *
+ * And `grade`: the class's grade, or null (see gradeByClass below).
  */
 function classRoster(d) {
   const countByClass = (list) => {
@@ -273,6 +275,20 @@ function classRoster(d) {
     const all = [...new Set(members.flatMap(m => platformsByClass.get(m) || []))];
     return all.length > 1 ? all : all[0] || null;
   };
+  // Each class's grade (40-grades.js gradesView, so the same classes the
+  // Grades list shows): the one it goes by, Q's first, then Canvas's, then
+  // Classroom's (ranked there). A Q class only lands on a class here once
+  // it's linked to it in Settings → Classes.
+  const gradeView = require('./40-grades.js').gradesView();
+  const gradeByClass = new Map();
+  for (const c of gradeView.classes) {
+    if (c.superseded || gradeByClass.has(c.class)) continue;
+    gradeByClass.set(c.class, {
+      source: c.source, letter: c.grade || null, percent: c.percent ?? null,
+      estimate: c.estimate ? c.estimate.percent : null, term: c.term || null,
+      checkedAt: { q: gradeView.checkedAt, canvas: gradeView.canvasCheckedAt, classroom: gradeView.classroomCheckedAt }[c.source] || null,
+    });
+  }
   const entry = (name, counts) => ({
     name,
     dueSoon: counts ? dueSoonByClass.get(name) || 0 : 0,
@@ -283,8 +299,16 @@ function classRoster(d) {
     // The real platform classes behind this one: a link's members, or itself.
     classes: classLinks.membersOf(name, links),
     platform: platformOf(classLinks.membersOf(name, links)),
+    grade: gradeByClass.get(name) || null,
   });
   const roster = [...present].map(name => entry(name, true));
+  // A linked Q class is always here, nothing due or not: its grade is the
+  // point of linking it.
+  for (const c of gradeView.classes) {
+    if (c.source !== 'q' || !c.sourceClass || present.has(c.class)) continue;
+    roster.push(entry(c.class, false));
+    present.add(c.class);
+  }
 
   const settings = require('./19-settings.js').read();
   if (settings.showEmptyClasses) {
@@ -392,6 +416,10 @@ const HANDLERS = {
   // minimum days in the next two weeks. See 33-school-calendar.js.
   '/api/calendar': (d) => calendarView(d.now),
   '/api/schedule': (d) => scheduleApiView(d.now),
+  // Grades (Settings → Grades): the current grade per class, as of the last
+  // time Q was read (at most hourly), and whether the last try worked. See
+  // gradesView in 40-grades.js.
+  '/api/grades': () => require('./40-grades.js').gradesView(),
 
   // The check that's running right now, if any: {running, done, total,
   // percent, updatedAt} — see readCollection() in 28-live-state.js.
