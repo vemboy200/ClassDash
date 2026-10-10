@@ -520,9 +520,11 @@ function main(action, arg) {
     case 'aiDetect': {
       return require('./37-ai.js').detect().then(result => ({ ok: true, action, ...result }));
     }
-    // Settings → AI's "Scan selected": the announcements ticked there,
-    // as a base64url JSON list of ids. Answers with what was kept and the
-    // list as the page shows it. Logs counts only, never titles or text.
+    // The AI button beside an announcement, and Settings → AI's "Scan
+    // selected": the announcements picked, as a base64url JSON list of ids.
+    // Answers with what was kept and the list as the page shows it, and
+    // redraws after any scan, so the card's fold-out shows what the AI
+    // said. Logs counts only, never titles or text.
     case 'aiScan': {
       let ids;
       try {
@@ -536,7 +538,7 @@ function main(action, arg) {
         logAction(result.ok
           ? `  AI scan: ${result.scanned} read, ${result.kept.length} kept, ${result.dropped} already there, ${result.failed} failed`
           : `  AI scan not run: ${result.why}`);
-        if (result.ok && result.kept.length) redraw();
+        if (result.ok && result.scanned) redraw();
         return { ...result, action, announcements: scanner.listForPage() };
       });
     }

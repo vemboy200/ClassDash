@@ -288,6 +288,37 @@ ${chips.map(a => `          <a class="att-chip" href="${escapeHtml(a.link)}" tar
         </div>`;
 }
 
+/**
+ * What the last AI scan of an announcement did (38-announcement-scan.js's
+ * record): a fold-out under its text, closed, with each item the AI found
+ * and what became of it, what it answered, and its thinking when the
+ * model sent any. A scan from before these were kept says so.
+ */
+function aiResultBlock(p, record) {
+  if (!record) return '';
+  const date = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const summary = record.error ? t('aiPostSummaryFailed') : record.kept ? t('aiPostSummaryKept', record.kept) : t('aiPostSummaryNone');
+  const outcome = st => st.outcome === 'kept' ? t('aiStepKept')
+    : st.outcome === 'notInText' ? t('aiStepNotInText')
+    : st.outcome === 'sameTitle' ? t('aiStepSameTitle', st.match || '?')
+    : st.outcome === 'sameWork' ? t('aiStepSameWork', st.match || '?')
+    : t('aiStepNotAdded');
+  const steps = Array.isArray(record.steps) ? record.steps : [];
+  const due = st => !st.due ? t('aiStepNoDue') : st.dueFrom === 'nextClass' ? t('aiStepDueNextClass', date(st.due)) : t('aiStepDue', date(st.due));
+  const body = [
+    record.error ? `<p>${escapeHtml(t('aiPostWhy', record.error))}</p>` : '',
+    steps.length ? `<ul>${steps.map(st => `<li class="ai-step ai-step-${escapeHtml(st.outcome || '')}"><b>${escapeHtml(st.title)}</b> · ${escapeHtml(due(st))} — ${escapeHtml(outcome(st))}</li>`).join('')}</ul>`
+      : !record.error && record.answer !== undefined ? `<p>${escapeHtml(t('aiPostNothing'))}</p>` : '',
+    record.answer !== undefined ? `<div class="ai-result-label">${escapeHtml(t('aiPostAnswer'))}</div><pre>${escapeHtml(record.answer)}</pre>`
+      : !record.error ? `<p class="hint">${escapeHtml(t('aiPostOld'))}</p>` : '',
+    record.thinking ? `<div class="ai-result-label">${escapeHtml(t('aiPostThinking'))}</div><pre>${escapeHtml(record.thinking)}</pre>`
+      : record.answer !== undefined ? `<p class="hint">${escapeHtml(t('aiPostNoThinking'))}</p>` : '',
+  ].filter(Boolean).join('\n');
+  return `        <details class="ai-result" data-scan-for="${escapeHtml(p.id)}"><summary>${escapeHtml(summary)}${record.at ? ` · ${escapeHtml(date(record.at))}` : ''}</summary>
+${body}
+        </details>`;
+}
+
 function announcementsSection(announcements, freshIds) {
   if (!announcements.length) {
     return `    <section>
@@ -299,9 +330,17 @@ function announcementsSection(announcements, freshIds) {
   // The card isn't one big link, it's a block with buttons. Otherwise
   // clicking "expand" would navigate to Classroom instead of expanding
   // the text.
+  // With AI on, each card gets an AI scan button beside it (the same
+  // slide-out as an assignment's buttons) and, once scanned, a fold-out
+  // with what the AI did.
+  const aiOn = !!readSettings().aiProvider && readSettings().aiProvider !== 'none';
+  const scanned = aiOn ? require('./38-announcement-scan.js').readState().scanned : {};
   const cards = announcements.map(p => {
     const isFresh = freshIds.has(p.id);
-    return `      <div class="post" data-cls="${escapeHtml(p.class)}" data-new="${isFresh ? 'yes' : 'no'}">
+    const scanButton = aiOn
+      ? `<button type="button" class="quiet ai-scan-btn" data-id="${escapeHtml(p.id)}" onclick="scanPost(this)">${escapeHtml(t('aiPostScan'))}</button>` : '';
+    return `      <div class="post-row">
+      ${cardWithActions(`<div class="post" data-cls="${escapeHtml(p.class)}" data-new="${isFresh ? 'yes' : 'no'}">
         <div class="post-top">
           <span class="cls">${escapeHtml(p.class)}</span>
           <span>${escapeHtml(p.author || '')}</span>
@@ -314,6 +353,9 @@ ${attachmentsBlock(p)}
           <button class="expand-btn" onclick="expandPost(this)" hidden>${escapeHtml(t('expand'))}</button>
           <a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(t('openInClassroom'))}</a>
         </div>
+${aiOn ? `        <div class="ai-post-status" hidden></div>
+${aiResultBlock(p, scanned[p.id])}` : ''}
+      </div>`, scanButton)}
       </div>`;
   }).join('\n');
 
@@ -2154,6 +2196,24 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     text-decoration: none; color: inherit;
   }
   .post:hover { border-color: var(--new); }
+  .post-row { margin-bottom: 8px; }
+  .post-row[hidden] { display: none; }
+  .card-wrap > .post { flex: 1; min-width: 0; margin-bottom: 0; }
+  .quiet.ai-scan-btn { cursor: pointer; font: inherit; font-size: 13px; }
+  .quiet.ai-scan-btn:disabled { cursor: progress; opacity: .6; }
+  /* What the last AI scan did, folded under the announcement */
+  .ai-post-status { margin-top: 6px; font-size: 13px; color: var(--dim); }
+  .ai-result { margin-top: 8px; font-size: 13px; }
+  .ai-result summary { cursor: pointer; color: var(--dim); }
+  .ai-result summary:hover { color: var(--new); }
+  .ai-result ul { margin: 6px 0; padding-left: 18px; }
+  .ai-result p { margin: 6px 0; }
+  .ai-step-kept { color: var(--new); }
+  .ai-result-label { margin-top: 8px; font-weight: 600; color: var(--dim); }
+  .ai-result pre {
+    margin: 4px 0 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+    white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 240px; overflow: auto;
+  }
   .post .post-top {
     display: flex; gap: 8px; font-size: 12px; color: var(--dim);
     margin-bottom: 6px; flex-wrap: wrap;
@@ -2852,7 +2912,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     transition: grid-template-columns .18s ease, margin-left .18s ease, opacity .18s ease;
   }
   .card-actions-inner { display: flex; gap: 8px; min-width: 0; overflow: hidden; padding: 0 4px 4px 0; margin: 0 -4px -4px 0; }
-  .row:hover .card-actions, .card-wrap:focus-within .card-actions { grid-template-columns: 1fr; margin-left: 8px; opacity: 1; }
+  .row:hover .card-actions, .post-row:hover .card-actions, .card-wrap:focus-within .card-actions { grid-template-columns: 1fr; margin-left: 8px; opacity: 1; }
   @media (hover: none) { .card-actions { grid-template-columns: 1fr; margin-left: 8px; opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .card-actions { transition: none; } }
   .quiet.link-here { display: none; cursor: pointer; font: inherit; font-size: 13px; }
@@ -3173,6 +3233,8 @@ const WORDS = ${JSON.stringify({
   aiScanTagKept: t('aiScanTagKept', '{n}'),
   aiScanTagNone: t('aiScanTagNone'),
   aiScanTagFailed: t('aiScanTagFailed'),
+  aiPostScan: t('aiPostScan'),
+  aiPostRunning: t('aiPostRunning'),
   aiFinding: t('aiFinding'),
   aiNotFoundHere: t('aiNotFoundHere', '{name}', '{url}'),
   aiFoundAt: t('aiFoundAt', '{name}', '{url}'),
@@ -4389,6 +4451,45 @@ function selectAiScan(all) {
   for (var i = 0; i < boxes.length; i++) boxes[i].checked = all;
 }
 
+// The AI scan button beside an announcement: reads that one now. The
+// action redraws the page with the card's fold-out filled in, so this
+// reloads and opens it there (remembered across the reload).
+function scanPost(button) {
+  var id = button.getAttribute('data-id');
+  var status = button.closest('.post-row').querySelector('.ai-post-status');
+  // The last scan's fold-out steps aside meanwhile: its result (an old
+  // "couldn't connect", say) read as this scan's own.
+  var previous = button.closest('.post-row').querySelector('.ai-result');
+  if (previous) previous.hidden = true;
+  button.disabled = true;
+  button.textContent = WORDS.aiScanningButton;
+  status.hidden = false;
+  status.classList.remove('calendar-error');
+  status.textContent = WORDS.aiPostRunning;
+  dispatchAction('aiScan', toBase64Url(JSON.stringify([id])), function (r) {
+    button.disabled = false;
+    button.textContent = WORDS.aiPostScan;
+    if (!r || !r.ok) {
+      status.textContent = WORDS.aiTestFailed + ' ' + ((r && r.why) || '');
+      status.classList.add('calendar-error');
+      if (previous) previous.hidden = false;
+      return;
+    }
+    calendarRemember('classdash-open-scan', id);
+    location.reload();
+  });
+}
+
+(function openScanAfterReload() {
+  var id = calendarRemember('classdash-open-scan');
+  if (!id) return;
+  calendarRemember('classdash-open-scan', '');
+  var all = document.querySelectorAll('.ai-result');
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].getAttribute('data-scan-for') === id) { all[i].open = true; all[i].scrollIntoView({ block: 'nearest' }); }
+  }
+})();
+
 function calendarFeedAction(action, arg, button) {
   var original = button.textContent;
   var status = document.getElementById('calendar-ics-status');
@@ -5458,7 +5559,7 @@ function filterAnnouncements() {
     var ok = true;
     if (ok && classes.length && classes.indexOf(p.getAttribute('data-cls')) === -1) ok = false;
     if (ok && newOnly && p.getAttribute('data-new') !== 'yes') ok = false;
-    p.hidden = !ok;
+    (p.closest('.post-row') || p).hidden = !ok;
     if (ok) visible++;
   }
 
