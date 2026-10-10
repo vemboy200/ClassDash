@@ -279,6 +279,11 @@ const EXCLUSIONS = SETTINGS.exclusions;
 // time the list gets fetched from the site and written to classes.json.
 const CLASSES_FALLBACK = [];
 
+// Classes renamed by their teacher this pass (old -> new name), for the
+// copies of the old data this process read before it knew.
+const classRenames = require('./43-class-renames.js');
+const RENAMED = new Map();
+
 // School email. Substituted into links as ?authuser=...
 //
 // Why: without specifying an account, Google opens the link under
@@ -936,6 +941,21 @@ async function resolveClasses(page) {
   // it comes back on its own the moment it has real activity again,
   // since classLastActivity() only ever looks forward from whatever it
   // reads in memory.
+  // A class a teacher renamed keeps its id: everything saved under the old
+  // name follows it (43-class-renames.js), before anything below or the
+  // pass itself goes by name. EXCLUSIONS is this process's copy of the
+  // setting, so it follows in place too.
+  const renames = classRenames.renamesBetween(classesFromMemory(), found);
+  if (renames.size) {
+    try {
+      classRenames.followRenames(renames);
+      EXCLUSIONS.splice(0, EXCLUSIONS.length, ...EXCLUSIONS.map(n => renames.get(n) || n));
+      for (const [old, now] of renames) RENAMED.set(old, now);
+      console.log(`  renamed by the teacher: ${renames.size} class${renames.size === 1 ? '' : 'es'}`);
+    } catch (e) {
+      console.warn(`  couldn't follow a class rename (${e.message})`);
+    }
+  }
   found = withKnownTeachers(found, classesFromMemory());
   fs.writeFileSync(CLASSES_FILE, JSON.stringify(found, null, 2));
 
@@ -1160,6 +1180,8 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     // branches, because without the list it's unknown how many there
     // will even be.
     classes = await resolveClasses(probePage);
+    // A renamed class had assignments under its old name.
+    for (const [old, now] of RENAMED) if (nonEmptyClasses.has(old)) nonEmptyClasses.add(now);
     try { await probePage.close(); } catch { /* already closed — no big deal */ }
   } catch (e) {
     console.warn(`couldn't open a tab to measure (${e.message}) — ` +
@@ -2121,7 +2143,7 @@ module.exports = {
   parseDue, deadline, detectErrorPage, notify, diffWithPrevious, rememberCollection,
   sortIntoBuckets, readMutedIds, readHiddenIds, readDeletedIds, lockState, DELETED_FILE, announcementsForProgress, assignmentsForProgress,
   LOCK_FILE, PROFILE_DIR, killLeftoverBrowser,
-  teacherNamesFromPeoplePage, classesNeedingTeacher, withKnownTeachers, saveClassroomTeachers,
+  teacherNamesFromPeoplePage, classesNeedingTeacher, withKnownTeachers, saveClassroomTeachers, resolveClasses,
   flippedFromTurnedIn, looksMisread, keepTurnedIn, scrapeClassChecked, TURNED_IN_THRESHOLD, TURNED_IN_LOG,
 };
 if (require.main !== module) return;
@@ -2263,6 +2285,8 @@ if (require.main !== module) return;
     // inside it are different things, as in diffWithPrevious: without
     // checking the platform, Canvas assignments would count as "not yet
     // read" even after Canvas was done, and land on the page twice.
+    classRenames.renameIn(memory, RENAMED);
+    classRenames.renameIn(announcementMemory, RENAMED);
     const combined = assignmentsForProgress(memory, items, reading, broken);
     const { burning, later, undated, deferred, overdue, gone } =
       sortIntoBuckets(combined, now, mutedIds, hiddenIds);
@@ -2550,6 +2574,8 @@ if (require.main !== module) return;
   // "new" counter. The course itself gets its own line, and its
   // assignments quietly go into memory and live a normal life from then
   // on: if they have due dates, they'll land in "Due soon" in their turn.
+  // Read before the class list said which classes were renamed.
+  classRenames.renameIn(memory, RENAMED);
   const previousClasses = new Set(memory.map(x => x.class));
   const newlyOpenedClasses = memory.length
     ? [...new Set(all.map(x => x.class))].filter(c => !previousClasses.has(c))
