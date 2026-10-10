@@ -154,17 +154,93 @@ async function request(deps, url, { method = 'GET', headers = {}, body, key, loc
   const text = await res.text();
   let json = null;
   try { json = JSON.parse(text); } catch { /* not JSON: said below */ }
-  if (!res.ok) {
-    const said = json && (json.error && (json.error.message || json.error) || json.message);
-    const plain = res.status === 401 || res.status === 403 ? 'the key was refused'
-      : res.status === 404 ? 'not found (check the model name)'
-      : res.status === 429 ? 'too many requests, or out of credit'
-      : `error ${res.status}`;
-    throw new Error(said && typeof said === 'string' ? `${plain}: ${scrub(said, key)}` : plain);
-  }
+  if (!res.ok) throw refused(res.status, json, key);
   if (!json) throw new Error('the answer wasn\'t JSON');
   return json;
 }
+
+// What a provider said when it turned a request down, in plain words.
+function refused(status, json, key) {
+  const said = json && (json.error && (json.error.message || json.error) || json.message);
+  const plain = status === 401 || status === 403 ? 'the key was refused'
+    : status === 404 ? 'not found (check the model name)'
+    : status === 429 ? 'too many requests, or out of credit'
+    : `error ${status}`;
+  return new Error(said && typeof said === 'string' ? `${plain}: ${scrub(said, key)}` : plain);
+}
+
+/**
+ * Like request(), for an answer sent in pieces as it's written (stream on):
+ * calls onLine with each line of it as it arrives, Ollama's JSON lines or
+ * the others' "data:" lines. A refusal reads the same as request()'s.
+ */
+async function requestLines(deps, url, { method = 'POST', headers = {}, body, key, local } = {}, onLine) {
+  let res;
+  try {
+    res = await deps.fetch(url, {
+      method, headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(deps.timeoutMs || TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new Error(e && e.name === 'TimeoutError' ? 'no answer in time'
+      : local ? 'couldn\'t connect: is its server running?' : `couldn't connect (${scrub(e && e.message, key)})`);
+  }
+  if (!res.ok) {
+    let json = null;
+    try { json = JSON.parse(await res.text()); } catch { /* said in plain words */ }
+    throw refused(res.status, json, key);
+  }
+  let rest = '';
+  const take = chunk => {
+    rest += chunk;
+    for (let i; (i = rest.indexOf('\n')) >= 0;) {
+      const line = rest.slice(0, i).replace(/\r$/, '');
+      rest = rest.slice(i + 1);
+      if (line.trim()) onLine(line);
+    }
+  };
+  try {
+    if (res.body && typeof res.body[Symbol.asyncIterator] === 'function') {
+      const decoder = new TextDecoder();
+      for await (const chunk of res.body) take(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
+    } else {
+      take(await res.text());
+    }
+  } catch (e) {
+    if (e && e.name === 'TimeoutError') throw new Error('no answer in time');
+    throw e;
+  }
+  if (rest.trim()) onLine(rest.replace(/\r$/, ''));
+}
+
+// The answer so far, as it streams in: its thinking kept apart from the
+// answer, including any inside <think>…</think> (one still open counts as
+// thinking until it closes). Each piece calls onPart with the whole of it.
+function streamed(onPart) {
+  let thinking = '', text = '';
+  const view = () => {
+    let t = thinking;
+    let out = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, x) => { t = (t ? t + '\n' : '') + x; return ''; });
+    const open = out.search(/<think>/i);
+    if (open >= 0) { t = (t ? t + '\n' : '') + out.slice(open + 7); out = out.slice(0, open); }
+    return { thinking: t.trim(), text: out };
+  };
+  return {
+    add(kind, piece) {
+      if (typeof piece !== 'string' || !piece) return;
+      if (kind === 'thinking') thinking += piece; else text += piece;
+      try { onPart(view()); } catch { /* showing it is a nicety */ }
+    },
+    result() { const v = view(); return v.thinking ? v : v.text; },
+  };
+}
+// A "data:" line's JSON, or null for anything else ([DONE], event: lines).
+const dataLine = line => {
+  const m = /^data:\s*(.*)$/.exec(line);
+  if (!m || m[1] === '[DONE]') return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+};
 
 const OPENAI = 'https://api.openai.com/v1';
 const ANTHROPIC = 'https://api.anthropic.com/v1';
@@ -200,10 +276,56 @@ async function listModels(config, deps) {
 
 // ── each provider's way of answering ──
 
-async function viaHttp(config, { system, prompt, maxTokens }, deps) {
+async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, deps) {
   const { provider: id, key, url, model } = config;
+  // think true/false (the Grades center chat): Ollama sends its thinking
+  // only through its own API with think on, never through the OpenAI-style
+  // one below, and with think off it skips thinking, which is faster. A
+  // model that can't think refuses either, and is asked the usual way.
+  if (id === 'ollama' && typeof think === 'boolean') {
+    try {
+      const chatUrl = `${String(url).replace(/\/v1\/?$/, '')}/api/chat`;
+      const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];
+      if (onPart) {
+        const got = streamed(onPart);
+        await requestLines(deps, chatUrl, { local: true, body: { model, stream: true, think, messages } }, line => {
+          let part;
+          try { part = JSON.parse(line); } catch { return; }
+          if (part.error) throw new Error(typeof part.error === 'string' ? part.error : 'failed');
+          got.add('thinking', part.message && part.message.thinking);
+          got.add('text', part.message && part.message.content);
+        });
+        return got.result();
+      }
+      const json = await request(deps, chatUrl, {
+        method: 'POST', local: true,
+        body: { model, stream: false, think, messages },
+      });
+      const msg = json.message || {};
+      const text = typeof msg.content === 'string' ? msg.content : '';
+      const thinking = typeof msg.thinking === 'string' ? msg.thinking.trim() : '';
+      return thinking ? { text, thinking } : text;
+    } catch (e) {
+      if (!/think/i.test(e && e.message)) throw e;
+    }
+  }
   if (id === 'ollama' || id === 'lmstudio' || id === 'openai') {
     const base = id === 'openai' ? OPENAI : url;
+    if (onPart) {
+      const got = streamed(onPart);
+      await requestLines(deps, `${base}/chat/completions`, {
+        key, local: id !== 'openai',
+        headers: id === 'openai' ? { Authorization: `Bearer ${key}` } : {},
+        body: { model, stream: true, messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }] },
+      }, line => {
+        const part = dataLine(line);
+        const delta = part && part.choices && part.choices[0] && part.choices[0].delta;
+        if (!delta) return;
+        got.add('thinking', delta.reasoning !== undefined ? delta.reasoning : delta.reasoning_content);
+        got.add('text', delta.content);
+      });
+      return got.result();
+    }
     const json = await request(deps, `${base}/chat/completions`, {
       method: 'POST', key, local: id !== 'openai',
       headers: id === 'openai' ? { Authorization: `Bearer ${key}` } : {},
@@ -219,22 +341,59 @@ async function viaHttp(config, { system, prompt, maxTokens }, deps) {
     return thinking ? { text, thinking: thinking.trim() } : text;
   }
   if (id === 'anthropic') {
-    const json = await request(deps, `${ANTHROPIC}/messages`, {
-      method: 'POST', key, headers: anthropicHeaders(key),
-      body: { model, max_tokens: maxTokens || 2048, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }] },
-    });
-    return (json.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    const body = thinking => ({ model, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }],
+      // Its thinking, summarized (the newer models leave it out unless
+      // asked); thinking counts against max_tokens, so there's room for it.
+      ...(thinking ? { max_tokens: Math.max(maxTokens || 0, 16000), thinking: { type: 'adaptive', display: 'summarized' } } : { max_tokens: maxTokens || 2048 }) });
+    const ask = onPart ? async thinking => {
+      const got = streamed(onPart);
+      await requestLines(deps, `${ANTHROPIC}/messages`, { key, headers: anthropicHeaders(key), body: { ...body(thinking), stream: true } }, line => {
+        const ev = dataLine(line);
+        if (!ev) return;
+        if (ev.type === 'error') throw new Error((ev.error && ev.error.message) || 'failed');
+        if (ev.type === 'content_block_delta' && ev.delta) {
+          if (ev.delta.type === 'thinking_delta') got.add('thinking', ev.delta.thinking);
+          if (ev.delta.type === 'text_delta') got.add('text', ev.delta.text);
+        }
+      });
+      return { streamed: got.result() };
+    } : thinking => request(deps, `${ANTHROPIC}/messages`, { method: 'POST', key, headers: anthropicHeaders(key), body: body(thinking) });
+    let json;
+    // An older model that can't think that way refuses it: asked without.
+    if (think) { try { json = await ask(true); } catch (e) { if (!/think|adaptive|display/i.test(e && e.message)) throw e; } }
+    if (!json) json = await ask(false);
+    if (json.streamed !== undefined) return json.streamed;
+    const blocks = json.content || [];
+    const text = blocks.filter(b => b.type === 'text').map(b => b.text).join('');
+    const thinking = blocks.filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('\n').trim();
+    return thinking ? { text, thinking } : text;
   }
   if (id === 'gemini') {
-    const json = await request(deps, `${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST', key, headers: { 'x-goog-api-key': key },
-      body: {
-        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      },
+    const body = thoughts => ({
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      // A summary of its thinking, as parts marked thought.
+      ...(thoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
     });
+    const at = `${GEMINI}/models/${encodeURIComponent(model)}`;
+    const ask = onPart ? async thoughts => {
+      const got = streamed(onPart);
+      await requestLines(deps, `${at}:streamGenerateContent?alt=sse`, { key, headers: { 'x-goog-api-key': key }, body: body(thoughts) }, line => {
+        const part = dataLine(line);
+        const parts = (part && part.candidates && part.candidates[0] && part.candidates[0].content && part.candidates[0].content.parts) || [];
+        for (const p of parts) got.add(p.thought ? 'thinking' : 'text', p.text);
+      });
+      return { streamed: got.result() };
+    } : thoughts => request(deps, `${at}:generateContent`, { method: 'POST', key, headers: { 'x-goog-api-key': key }, body: body(thoughts) });
+    let json;
+    // A model that doesn't think refuses it: asked without.
+    if (think) { try { json = await ask(true); } catch (e) { if (!/think|thought/i.test(e && e.message)) throw e; } }
+    if (!json) json = await ask(false);
+    if (json.streamed !== undefined) return json.streamed;
     const parts = (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) || [];
-    return parts.map(p => p.text || '').join('');
+    const text = parts.filter(p => !p.thought).map(p => p.text || '').join('');
+    const thinking = parts.filter(p => p.thought).map(p => p.text || '').join('\n').trim();
+    return thinking ? { text, thinking } : text;
   }
   throw new Error(`no such provider: ${id}`);
 }
@@ -333,12 +492,19 @@ function withDefaults(deps = {}) {
 }
 
 /**
- * Asks the chosen model. `ask` is { system, prompt, maxTokens }.
+ * Asks the chosen model. `ask` is { system, prompt, maxTokens, think? }:
+ * think true asks for its thinking where the provider can send it (Ollama,
+ * Anthropic, Gemini; LM Studio sends it on its own), false asks Ollama not
+ * to think and drops any that comes; left out, nothing changes. onPart,
+ * where the provider can stream (all but Apple and Codex), is called with
+ * { thinking, text } so far as the answer is written.
  * Resolves { ok: true, text, thinking? } or { ok: false, why }; never
  * throws. `thinking` is the model's reasoning, only when it sent one.
  */
 async function complete(ask, settings = require('./19-settings.js').read(), deps) {
   const d = withDefaults(deps);
+  // Pieces as they come; with think off, only the answer's.
+  if (ask.onPart && ask.think === false) { const show = ask.onPart; ask = { ...ask, onPart: part => show({ thinking: '', text: part.text }) }; }
   const config = configFrom(settings);
   const can = ready(config, d.platform);
   if (!can.ok) return can;
@@ -346,7 +512,8 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
     const text = config.provider === 'apple' ? await viaApple(ask, d)
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
       : await viaHttp(config, ask, d);
-    if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), thinking: text.thinking };
+    // Asked not to show it (think false): any thinking sent anyway is dropped.
+    if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), ...(ask.think === false ? {} : { thinking: text.thinking }) };
     return { ok: true, text: String(text || '').trim() };
   } catch (e) {
     return { ok: false, why: scrub(e && e.message, config.key) || 'failed' };

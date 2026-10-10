@@ -100,6 +100,119 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     r = await ask(say({ content: 'Yes' }));
     ok('...and none when the model sends none', r.text === 'Yes' && r.thinking === undefined, JSON.stringify(r));
   }
+  // Asked for its thinking (the Grades chat): Ollama's own API with think on,
+  // since its OpenAI-style one doesn't send it; a model that can't think is
+  // asked the usual way.
+  {
+    const f = fakeFetch(url => /\/api\/chat$/.test(url) ? { status: 200, json: { message: { content: 'Yes', thinking: ' 7 leaves 1. ' } } } : chat('no'));
+    const r = await ai.complete({ system: 'Be brief.', prompt: 'x', think: true }, { aiProvider: 'ollama', aiModel: 'm' }, { fetch: f.fetch });
+    ok('think: Ollama\'s own /api/chat, think on, no stream', f.calls.length === 1 && f.calls[0].url === 'http://localhost:11434/api/chat' && f.calls[0].body.think === true && f.calls[0].body.stream === false &&
+      f.calls[0].body.messages[0].role === 'system' && r.text === 'Yes' && r.thinking === '7 leaves 1.', JSON.stringify([f.calls[0], r]));
+    const g = fakeFetch(url => /\/api\/chat$/.test(url) ? { status: 400, json: { error: '"m" does not support thinking' } } : chat('Plain'));
+    const r2 = await ai.complete({ prompt: 'x', think: true }, { aiProvider: 'ollama', aiModel: 'm', aiLocalUrl: 'http://192.168.1.20:11434/v1/' }, { fetch: g.fetch });
+    ok('...a model that can\'t think: asked the usual way', g.calls[0].url === 'http://192.168.1.20:11434/api/chat' && g.calls[1].url === 'http://192.168.1.20:11434/v1/chat/completions' && r2.ok && r2.text === 'Plain' && !r2.thinking, JSON.stringify(g.calls.map(c => c.url)));
+    const h = fakeFetch(() => ({ throws: new Error('down') }));
+    const r3 = await ai.complete({ prompt: 'x', think: true }, { aiProvider: 'ollama', aiModel: 'm' }, { fetch: h.fetch });
+    ok('...a server that\'s down: says so, no second try', !r3.ok && h.calls.length === 1, JSON.stringify(r3));
+    const off = fakeFetch(url => /\/api\/chat$/.test(url) ? { status: 200, json: { message: { content: 'Fast', thinking: 'should not show' } } } : chat('no'));
+    const r4 = await ai.complete({ prompt: 'x', think: false }, { aiProvider: 'ollama', aiModel: 'm' }, { fetch: off.fetch });
+    ok('think off: Ollama asked not to think, and any thinking dropped', off.calls[0].body.think === false && r4.text === 'Fast' && !('thinking' in r4), JSON.stringify(r4));
+    const lmOff = fakeFetch(() => ({ status: 200, json: { choices: [{ message: { content: 'A', reasoning_content: 'hidden' } }] } }));
+    const r5 = await ai.complete({ prompt: 'x', think: false }, { aiProvider: 'lmstudio', aiModel: 'm' }, { fetch: lmOff.fetch });
+    ok('...LM Studio\'s thinking dropped too', r5.text === 'A' && !('thinking' in r5));
+    const l = fakeFetch(() => chat('lm'));
+    await ai.complete({ prompt: 'x', think: true }, { aiProvider: 'lmstudio', aiModel: 'm' }, { fetch: l.fetch });
+    ok('...LM Studio is asked as before', /\/v1\/chat\/completions$/.test(l.calls[0].url));
+  }
+
+  // ── cloud thinking, when asked ──
+  {
+    const cloud = { aiAnthropicKey: KEY, aiAgreed: ['anthropic', 'gemini'], aiGeminiKey: KEY };
+    const a = fakeFetch(() => ({ status: 200, json: { content: [{ type: 'thinking', thinking: 'Made-up summary.' }, { type: 'text', text: 'B+' }] } }));
+    let r = await ai.complete({ prompt: 'x', maxTokens: 1200, think: true }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-x' }, { fetch: a.fetch });
+    ok('Anthropic: adaptive thinking, summarized, with room for it', a.calls.length === 1 && a.calls[0].body.thinking.type === 'adaptive' && a.calls[0].body.thinking.display === 'summarized' &&
+      a.calls[0].body.max_tokens === 16000 && r.text === 'B+' && r.thinking === 'Made-up summary.', JSON.stringify([a.calls[0].body, r]));
+    const old = fakeFetch((url, init) => JSON.parse(init.body).thinking ? { status: 400, json: { error: { message: 'thinking.type: adaptive is not supported for this model' } } } : { status: 200, json: { content: [{ type: 'text', text: 'Plain' }] } });
+    r = await ai.complete({ prompt: 'x', maxTokens: 1200, think: true }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-old' }, { fetch: old.fetch });
+    ok('...an older model that refuses it: asked without', old.calls.length === 2 && !old.calls[1].body.thinking && old.calls[1].body.max_tokens === 1200 && r.ok && r.text === 'Plain' && !r.thinking, JSON.stringify(r));
+    const bad = fakeFetch(() => ({ status: 401, json: { error: { message: 'invalid x-api-key' } } }));
+    r = await ai.complete({ prompt: 'x', think: true }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-x' }, { fetch: bad.fetch });
+    ok('...a refused key isn\'t retried', !r.ok && bad.calls.length === 1);
+    const plain = fakeFetch(() => ({ status: 200, json: { content: [{ type: 'text', text: 'Hi' }] } }));
+    await ai.complete({ prompt: 'x' }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-x' }, { fetch: plain.fetch });
+    ok('...not asked: no thinking sent (the announcement scan stays as it was)', !plain.calls[0].body.thinking && plain.calls[0].body.max_tokens === 2048);
+    const g = fakeFetch(() => ({ status: 200, json: { candidates: [{ content: { parts: [{ text: 'Made-up thought.', thought: true }, { text: 'A-' }] } }] } }));
+    r = await ai.complete({ prompt: 'x', think: true }, { ...cloud, aiProvider: 'gemini' }, { fetch: g.fetch });
+    ok('Gemini: thoughts asked for, kept apart from the answer', g.calls[0].body.generationConfig.thinkingConfig.includeThoughts === true && r.text === 'A-' && r.thinking === 'Made-up thought.', JSON.stringify(r));
+    const g2 = fakeFetch((url, init) => JSON.parse(init.body).generationConfig ? { status: 400, json: { error: { message: 'Thinking is not supported for this model.' } } } : { status: 200, json: { candidates: [{ content: { parts: [{ text: 'Old' }] } }] } });
+    r = await ai.complete({ prompt: 'x', think: true }, { ...cloud, aiProvider: 'gemini' }, { fetch: g2.fetch });
+    ok('...a model that doesn\'t think: asked without', g2.calls.length === 2 && r.text === 'Old');
+  }
+
+  // ── streaming: the answer in pieces as it's written ──
+  {
+    // A body that arrives in chunks cut mid-line, the way a network does.
+    const streamFetch = (lines, status = 200) => {
+      const calls = [];
+      const whole = lines.join('\n') + '\n';
+      const chunks = []; for (let i = 0; i < whole.length; i += 7) chunks.push(Buffer.from(whole.slice(i, i + 7)));
+      return { calls, fetch: async (url, init = {}) => {
+        calls.push({ url, body: JSON.parse(init.body) });
+        return { ok: status < 400, status, text: async () => whole, body: (async function* () { for (const c of chunks) yield c; })() };
+      } };
+    };
+    const seen = [];
+    const onPart = p => seen.push(JSON.parse(JSON.stringify(p)));
+    const cloud = { aiAnthropicKey: KEY, aiOpenaiKey: KEY, aiGeminiKey: KEY, aiAgreed: ['anthropic', 'gemini', 'openai'] };
+
+    let f = streamFetch([JSON.stringify({ message: { thinking: 'Made-up ' } }), JSON.stringify({ message: { thinking: 'adding.' } }),
+      JSON.stringify({ message: { content: 'B' } }), JSON.stringify({ message: { content: '+' }, done: true })]);
+    let r = await ai.complete({ prompt: 'x', think: true, onPart }, { aiProvider: 'ollama', aiModel: 'm' }, { fetch: f.fetch });
+    ok('Ollama streams: stream on, thinking then answer, piece by piece', f.calls[0].body.stream === true && r.text === 'B+' && r.thinking === 'Made-up adding.' &&
+      seen.length === 4 && seen[0].thinking === 'Made-up' && seen[1].thinking === 'Made-up adding.' && seen[2].text === 'B' && seen[3].text === 'B+', JSON.stringify([r, seen]));
+
+    seen.length = 0;
+    f = streamFetch([JSON.stringify({ message: { thinking: 'hidden' } }), JSON.stringify({ message: { content: 'Fast' }, done: true })]);
+    r = await ai.complete({ prompt: 'x', think: false, onPart }, { aiProvider: 'ollama', aiModel: 'm' }, { fetch: f.fetch });
+    ok('...think off: no thinking shown even mid-stream', r.text === 'Fast' && !r.thinking && seen.every(p => p.thinking === ''), JSON.stringify(seen));
+
+    seen.length = 0;
+    f = streamFetch(['data: ' + JSON.stringify({ choices: [{ delta: { reasoning_content: 'Hmm.' } }] }), '', 'data: ' + JSON.stringify({ choices: [{ delta: { content: '<think>more</think>A' } }] }), 'data: [DONE]']);
+    r = await ai.complete({ prompt: 'x', think: true, onPart }, { aiProvider: 'lmstudio', aiModel: 'm' }, { fetch: f.fetch });
+    ok('LM Studio streams "data:" lines; <think> taken out of the answer', f.calls[0].body.stream === true && r.text === 'A' && r.thinking === 'Hmm.\nmore', JSON.stringify(r));
+
+    seen.length = 0;
+    f = streamFetch(['data: ' + JSON.stringify({ choices: [{ delta: { content: '<think>still go' } }] })]);
+    await ai.complete({ prompt: 'x', onPart }, { aiProvider: 'lmstudio', aiModel: 'm' }, { fetch: f.fetch });
+    ok('...a <think> not closed yet shows as thinking, not answer', seen[0].thinking === 'still go' && seen[0].text === '', JSON.stringify(seen));
+
+    f = streamFetch(['event: content_block_delta', 'data: ' + JSON.stringify({ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'Made-up summary.' } }),
+      'data: ' + JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'A-' } }), 'data: ' + JSON.stringify({ type: 'message_stop' })]);
+    r = await ai.complete({ prompt: 'x', think: true, onPart }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-x' }, { fetch: f.fetch });
+    ok('Anthropic streams thinking and text deltas', f.calls[0].body.stream === true && f.calls[0].body.thinking.type === 'adaptive' && r.text === 'A-' && r.thinking === 'Made-up summary.', JSON.stringify(r));
+
+    f = streamFetch(['data: ' + JSON.stringify({ type: 'error', error: { message: 'Overloaded' } })]);
+    r = await ai.complete({ prompt: 'x', think: true, onPart }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-x' }, { fetch: f.fetch });
+    ok('...an error mid-stream says so', !r.ok && /Overloaded/.test(r.why), JSON.stringify(r));
+
+    const refuse = streamFetch(['{"error":{"message":"thinking.type: adaptive is not supported"}}'], 400);
+    const okAfter = streamFetch(['data: ' + JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Plain' } })]);
+    let n = 0;
+    r = await ai.complete({ prompt: 'x', think: true, onPart }, { ...cloud, aiProvider: 'anthropic', aiModel: 'claude-old' }, { fetch: (...a) => (n++ ? okAfter : refuse).fetch(...a) });
+    ok('...an older model that refuses thinking: streamed without it', n === 2 && !okAfter.calls[0].body.thinking && r.text === 'Plain', JSON.stringify(r));
+
+    f = streamFetch(['data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Made-up thought.', thought: true }] } }] }), 'data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: 'C' }] } }] })]);
+    r = await ai.complete({ prompt: 'x', think: true, onPart }, { ...cloud, aiProvider: 'gemini' }, { fetch: f.fetch });
+    ok('Gemini streams from streamGenerateContent, thoughts apart', /:streamGenerateContent\?alt=sse$/.test(f.calls[0].url) && r.text === 'C' && r.thinking === 'Made-up thought.', JSON.stringify([f.calls[0].url, r]));
+
+    f = streamFetch(['data: ' + JSON.stringify({ choices: [{ delta: { content: 'O' } }] }), 'data: ' + JSON.stringify({ choices: [{ delta: { content: 'K' } }] }), 'data: [DONE]']);
+    r = await ai.complete({ prompt: 'x', think: true, onPart }, { ...cloud, aiProvider: 'openai' }, { fetch: f.fetch });
+    ok('OpenAI streams too, with its key', f.calls[0].url === 'https://api.openai.com/v1/chat/completions' && r.text === 'OK');
+
+    f = streamFetch(['{"error":"made-up nope"}'], 401);
+    r = await ai.complete({ prompt: 'x', onPart }, { ...cloud, aiProvider: 'openai' }, { fetch: f.fetch });
+    ok('...a refused key reads the same as before, never with the key', !r.ok && /key was refused/.test(r.why) && !r.why.includes(KEY), r.why);
+  }
 
   // ── errors: plain, and never with the key ──
   {
