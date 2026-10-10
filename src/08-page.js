@@ -3118,8 +3118,19 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   /* The cards, chat bubbles, fields and tags take the app's pixel frames
      (pixelCornerCss): only spacing is set here. */
   .gc-class { margin-bottom: 14px; padding: 2px 14px 6px; }
-  .gc-class > summary { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 10px 0; cursor: pointer; list-style: none; }
+  .gc-class > summary { display: grid; grid-template-columns: 10px 20px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 10px 0; cursor: pointer; list-style: none; }
   .gc-class > summary::-webkit-details-marker { display: none; }
+  /* The same stepped arrow as the other fold-outs, in the spot left of the period. */
+  .gc-class > summary::before {
+    content: ''; align-self: center; justify-self: center; width: 6px; height: 10px; background: var(--dim);
+    clip-path: polygon(0 0, 2px 0, 2px 2px, 4px 2px, 4px 4px, 6px 4px, 6px 6px,
+      4px 6px, 4px 8px, 2px 8px, 2px 10px, 0 10px);
+  }
+  .gc-class[open] > summary::before {
+    width: 10px; height: 6px;
+    clip-path: polygon(0 0, 10px 0, 10px 2px, 8px 2px, 8px 4px, 6px 4px, 6px 6px,
+      4px 6px, 4px 4px, 2px 4px, 2px 2px, 0 2px);
+  }
   .gc-class-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
   .gc-totals { margin: 0 0 8px; }
   .gc-estimate { margin: -4px 0 4px; }
