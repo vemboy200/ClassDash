@@ -29,13 +29,19 @@
  * when AI is on): only announcements that arrived after AI was turned on,
  * each once. The ones already there when it was turned on are recorded as
  * known (seedKnown, from the config action), so a backlog isn't sent off
- * in one go. A forced scan (Settings → AI, the aiScan action) reads the
- * ones the person ticks, scanned before or not.
+ * in one go. A forced scan (the AI button beside an announcement, or
+ * Settings → AI's list; the aiScan action) reads the ones picked, scanned
+ * before or not.
  *
  * ── What's kept ──
  *
- * ai-scan.json: { known: [ids], scanned: { id: { at, found, kept, error? } } }.
- * Nothing of the announcement's text: that's in messages.json already. One
+ * ai-scan.json: { known: [ids], scanned: { id: { at, found, kept, error?,
+ * answer?, thinking?, steps: [{ title, due, dueFrom?, outcome, match? }] } } }:
+ * what the model answered (and its reasoning, if it sent any) and what
+ * became of each item, for the announcement card's fold-out. outcome is
+ * kept, notInText, sameTitle or sameWork (match is the one already on the
+ * list), or notAdded. Nothing of the announcement's own text: that's in
+ * messages.json already. One
  * scan at a time (ai-scan.lock): a second one started meanwhile just stops.
  */
 const fs = require('fs');
@@ -62,6 +68,11 @@ const SYSTEM = [
 // Asked about one pair at a time, it answered right every time.
 const SAME_SYSTEM = 'A student has a to-do list. Say whether two to-dos are the same piece of work, worded differently. Different chapters, pages or numbers are different work. Answer only "yes" or "no".';
 const MAX_COMPARE = 10;
+
+// What the model said, kept with the scan so the page can show it (the
+// card's AI fold-out): its answer, and its reasoning when it sends one.
+const MAX_ANSWER = 2000;
+const MAX_THINKING = 4000;
 
 const MAX_ITEMS = 5;
 const MAX_TEXT = 4000;
@@ -368,7 +379,9 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
     for (const a of todo) {
       const className = linkedName(a.class);
       const answer = await complete({ system: SYSTEM, prompt: promptFor(a, className), maxTokens: 600 });
-      const record = { at: new Date().toISOString(), found: 0, kept: 0 };
+      const record = { at: new Date().toISOString(), found: 0, kept: 0, steps: [] };
+      if (answer.ok) record.answer = answer.text.slice(0, MAX_ANSWER);
+      if (answer.ok && answer.thinking) record.thinking = String(answer.thinking).slice(0, MAX_THINKING);
       const items = answer.ok ? parseItems(answer.text, postedAt(a)) : null;
       if (!items) {
         record.error = answer.ok ? 'the answer wasn\'t understood' : answer.why;
@@ -378,13 +391,23 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
         const text = [a.title, a.text].filter(Boolean).join(' ');
         record.found = items.length;
         for (const it of items) {
-          if (!grounded(it.title, text)) { result.dropped++; continue; }
+          const step = { title: it.title, due: it.due ? it.due.toISOString() : null };
+          record.steps.push(step);
+          if (!grounded(it.title, text)) { step.outcome = 'notInText'; result.dropped++; continue; }
           const draft = { title: it.title, class: className, due: it.due || nextMeetingDue([className, a.class], postedAt(a), deps) };
-          if (conflict(draft, others)) { result.dropped++; continue; }
-          if (await sameWork(draft, others, postedAt(a), complete)) { result.dropped++; continue; }
+          step.due = draft.due ? draft.due.toISOString() : null;
+          if (!it.due && draft.due) step.dueFrom = 'nextClass';
+          if (conflict(draft, others)) {
+            const match = others.find(o => o.class === draft.class && similar(o.title, draft.title));
+            Object.assign(step, { outcome: 'sameTitle', match: match ? String(match.title).slice(0, 120) : null });
+            result.dropped++; continue;
+          }
+          const same = await sameWork(draft, others, postedAt(a), complete);
+          if (same) { Object.assign(step, { outcome: 'sameWork', match: String(same.title).slice(0, 120) }); result.dropped++; continue; }
           const made = virtual.create({ title: draft.title, class: draft.class, due: draft.due ? draft.due.toISOString() : null,
             from: { announcement: a.id, link: a.link || null } });
-          if (!made.ok) continue;
+          if (!made.ok) { step.outcome = 'notAdded'; continue; }
+          step.outcome = 'kept';
           others.push(draft);
           record.kept++;
           result.kept.push({ title: draft.title, class: draft.class, due: draft.due ? draft.due.toISOString() : null });

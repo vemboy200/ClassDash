@@ -210,7 +210,13 @@ async function viaHttp(config, { system, prompt, maxTokens }, deps) {
       body: { model, messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }] },
     });
     const msg = json.choices && json.choices[0] && json.choices[0].message;
-    return msg && typeof msg.content === 'string' ? msg.content : '';
+    // A thinking model's reasoning, when it sends one: beside the answer
+    // (Ollama's "reasoning", LM Studio's "reasoning_content") or inside it
+    // as <think>…</think>. Kept apart so only the answer is read as one.
+    let text = msg && typeof msg.content === 'string' ? msg.content : '';
+    let thinking = msg && (typeof msg.reasoning === 'string' ? msg.reasoning : typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '');
+    text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, t) => { thinking = (thinking ? thinking + '\n' : '') + t; return ''; });
+    return thinking ? { text, thinking: thinking.trim() } : text;
   }
   if (id === 'anthropic') {
     const json = await request(deps, `${ANTHROPIC}/messages`, {
@@ -328,7 +334,8 @@ function withDefaults(deps = {}) {
 
 /**
  * Asks the chosen model. `ask` is { system, prompt, maxTokens }.
- * Resolves { ok: true, text } or { ok: false, why }; never throws.
+ * Resolves { ok: true, text, thinking? } or { ok: false, why }; never
+ * throws. `thinking` is the model's reasoning, only when it sent one.
  */
 async function complete(ask, settings = require('./19-settings.js').read(), deps) {
   const d = withDefaults(deps);
@@ -339,6 +346,7 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
     const text = config.provider === 'apple' ? await viaApple(ask, d)
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
       : await viaHttp(config, ask, d);
+    if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), thinking: text.thinking };
     return { ok: true, text: String(text || '').trim() };
   } catch (e) {
     return { ok: false, why: scrub(e && e.message, config.key) || 'failed' };

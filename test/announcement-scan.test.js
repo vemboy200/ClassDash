@@ -122,7 +122,13 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   ok('the class is the announcement\'s, as shown (the link\'s name)', sheet.class === 'Made-up Bio');
   ok('...due Thursday at the end of the day', new Date(sheet.due).getDate() === 8 && new Date(sheet.due).getHours() === 23);
   ok('...and it says which announcement it came from', sheet.from && sheet.from.announcement === 'n1' && sheet.from.link === 'https://classroom.example/n1');
-  ok('what each scan found is kept, without the text', sc.readState().scanned.n1.kept === 2 && sc.readState().scanned.n3.kept === 0 && !JSON.stringify(sc.readState()).includes('worksheet'));
+  const st = sc.readState().scanned;
+  ok('what each scan found is kept, without the announcement\'s own text', st.n1.kept === 2 && st.n3.kept === 0 && !/Please finish|field trip/.test(JSON.stringify(sc.readState())));
+  ok('...with what the model answered, for the card\'s fold-out', /Finish the cell worksheet/.test(st.n1.answer) && st.n1.thinking === undefined);
+  const outcome = (id, title) => (st[id].steps.find(x => x.title === title) || {});
+  ok('...and what became of each item: kept', outcome('n1', 'Finish the cell worksheet').outcome === 'kept' && !!outcome('n1', 'Finish the cell worksheet').due);
+  ok('...already there, naming what it matched', outcome('n2', 'Problem set 7').outcome === 'sameTitle' && /problem set 7/i.test(outcome('n2', 'Problem set 7').match || ''), JSON.stringify(st.n2.steps));
+  ok('...not in the announcement', outcome('n3', 'Write a poem about volcanoes').outcome === 'notInText');
 
   asked.length = 0;
   r = await sc.scan({ newOnly: true }, { now: MON + 3600e3, complete: fake([]) });

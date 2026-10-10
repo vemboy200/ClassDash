@@ -86,6 +86,20 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     await ai.complete({ prompt: 'Hello?' }, { aiProvider: 'lmstudio', aiLocalUrl: 'http://192.168.1.20:1234/v1/', aiModel: 'm' }, { fetch: f2.fetch });
     ok('LM Studio at a home-network address', f2.calls[0].url === 'http://192.168.1.20:1234/v1/chat/completions', f2.calls[0].url);
   }
+  // A thinking model's reasoning comes back apart from its answer, so only
+  // the answer is read as one (and the card's AI fold-out can show both).
+  {
+    const say = message => fakeFetch(() => ({ status: 200, json: { choices: [{ message }] } }));
+    const ask = f => ai.complete({ prompt: 'x' }, { aiProvider: 'ollama', aiModel: 'm' }, { fetch: f.fetch });
+    let r = await ask(say({ content: 'Yes', reasoning: '7 leaves 1 over.' }));
+    ok('thinking beside the answer (Ollama\'s "reasoning")', r.ok && r.text === 'Yes' && r.thinking === '7 leaves 1 over.', JSON.stringify(r));
+    r = await ask(say({ content: 'Yes', reasoning_content: 'Odd.' }));
+    ok('...or LM Studio\'s "reasoning_content"', r.text === 'Yes' && r.thinking === 'Odd.', JSON.stringify(r));
+    r = await ask(say({ content: '<think>Counting.</think>\n{"items":[]}' }));
+    ok('...or inside the answer as <think>, taken out of it', r.text === '{"items":[]}' && r.thinking === 'Counting.', JSON.stringify(r));
+    r = await ask(say({ content: 'Yes' }));
+    ok('...and none when the model sends none', r.text === 'Yes' && r.thinking === undefined, JSON.stringify(r));
+  }
 
   // ── errors: plain, and never with the key ──
   {
