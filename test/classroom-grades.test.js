@@ -113,7 +113,10 @@ const WORK_PAGE = `<main>
     const rows = [...d.querySelectorAll('#grades-section .grade-row')].map(r => r.textContent.replace(/\s+/g, ' ').trim());
     ok('the Grades list has the class once, with Q\'s grade', rows.length === 1 && /Biology/.test(rows[0]) && /85/.test(rows[0]) && !/91/.test(rows[0]), JSON.stringify(rows));
     const blocks = [...d.querySelectorAll('#grades-center .gc-class-name')].map(n => n.textContent.replace(/\s+/g, ' ').trim());
-    ok('the Grades center still shows Classroom\'s assignments, marked Classroom', blocks.includes('Biology Classroom') && blocks.includes('Biology Q'), JSON.stringify(blocks));
+    ok('the Grades center shows the class once, under Q', JSON.stringify(blocks) === JSON.stringify(['Biology Q']), JSON.stringify(blocks));
+    const also = d.querySelector('#grades-center .gc-class .gc-also');
+    ok('...with Classroom\'s assignments folded in, closed, and no grade of their own', also && !also.open && /^Also on Classroom: 4 assignments, 91\.67% of points there$/.test(also.querySelector('summary').textContent.trim()) &&
+      [...also.querySelectorAll('tbody tr')].some(r => /Made-up Lab Report/.test(r.textContent) && /18/.test(r.textContent)), also && also.textContent.replace(/\s+/g, ' ').slice(0, 200));
     const text = require(path.join(proj, '41-grades-center.js')).gradesText(require(path.join(proj, '41-grades-center.js')).centerData());
     ok('the AI is told which grade the class goes by', /from Google Classroom \(not the grade this class goes by/.test(text) && /Made-up Lab Report/.test(text));
   }

@@ -1251,7 +1251,21 @@ ${c.categories.map(cat => `              <label class="gc-weight-row"><span>${es
           </details>
 `;
   };
-  const classBlock = c => `        <details class="gc-class" open>
+  // One table of assignments: a class's own, or another place's under it.
+  const workTable = list => `          <div class="gc-table-wrap"><table class="gc-table">
+            <thead><tr><th>${escapeHtml(t('gcDue'))}</th><th>${escapeHtml(t('gcAssignment'))}</th><th class="gc-score">${escapeHtml(t('gcScore'))}</th><th class="gc-pct">%</th></tr></thead>
+            <tbody>
+${list.map(a => `              <tr class="${a.missing ? 'gc-missing' : ''}">
+                <td class="gc-date">${escapeHtml(day(a.due))}</td>
+                <td>${a.link ? `<a href="${escapeHtml(a.link)}" target="_blank" rel="noopener">${escapeHtml(a.title || '')}</a>` : escapeHtml(a.title || '')}${a.missing ? ` <span class="gc-flag">${escapeHtml(t('gcMissing'))}</span>` : ''}${a.late ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcLate'))}</span>` : ''}${a.dropped ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcDropped'))}</span>` : ''}${a.extraCredit ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcExtraCredit'))}</span>` : ''}${a.category ? `<div class="gc-cat">${escapeHtml(a.category)}</div>` : ''}${a.comment ? `<div class="gc-comment">${escapeHtml(a.comment)}</div>` : ''}</td>
+                <td class="gc-score">${score(a)}</td>
+                <td class="gc-pct">${a.percent !== null ? escapeHtml(num(a.percent)) + '%' : ''}</td>
+              </tr>`).join('\n')}
+            </tbody>
+          </table></div>`;
+  // A class goes by one grade (Q's first, ranked in 40-grades.js); the
+  // places it doesn't go by (also) fold in under it, assignments only.
+  const classBlock = (c, also = []) => `        <details class="gc-class" open>
           <summary>
             <span class="grade-period">${c.period ? escapeHtml(c.period) : ''}</span>
             <span class="gc-class-name">${escapeHtml(c.class)} <span class="grade-source">${SOURCE_LABEL[c.source]}</span></span>
@@ -1263,17 +1277,11 @@ ${c.report ? `          <p class="hint gc-report">${escapeHtml(t('gcReport', c.r
     ? t('gcEstimateTyped', num(c.estimate.percent), c.estimate.matches, c.report && c.report.percent !== null ? num(c.report.percent) : c.percent !== null ? num(c.percent) : null)
     : t('gcEstimate', num(c.estimate.percent), c.estimate.weighted))}</p>
           <ul class="gc-categories">${c.estimate.groups.map(g => `<li>${escapeHtml(t('gcCategory', g.name || '?', num(g.weight), c.estimate.weighted, g.percent === null ? null : num(g.percent)))}</li>`).join('')}</ul>
-` : ''}${c.source === 'q' && c.categories && c.categories.length ? weightsForm(c) : ''}${c.assignments.length ? `          <div class="gc-table-wrap"><table class="gc-table">
-            <thead><tr><th>${escapeHtml(t('gcDue'))}</th><th>${escapeHtml(t('gcAssignment'))}</th><th class="gc-score">${escapeHtml(t('gcScore'))}</th><th class="gc-pct">%</th></tr></thead>
-            <tbody>
-${c.assignments.map(a => `              <tr class="${a.missing ? 'gc-missing' : ''}">
-                <td class="gc-date">${escapeHtml(day(a.due))}</td>
-                <td>${a.link ? `<a href="${escapeHtml(a.link)}" target="_blank" rel="noopener">${escapeHtml(a.title || '')}</a>` : escapeHtml(a.title || '')}${a.missing ? ` <span class="gc-flag">${escapeHtml(t('gcMissing'))}</span>` : ''}${a.late ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcLate'))}</span>` : ''}${a.dropped ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcDropped'))}</span>` : ''}${a.extraCredit ? ` <span class="gc-flag gc-late">${escapeHtml(t('gcExtraCredit'))}</span>` : ''}${a.category ? `<div class="gc-cat">${escapeHtml(a.category)}</div>` : ''}${a.comment ? `<div class="gc-comment">${escapeHtml(a.comment)}</div>` : ''}</td>
-                <td class="gc-score">${score(a)}</td>
-                <td class="gc-pct">${a.percent !== null ? escapeHtml(num(a.percent)) + '%' : ''}</td>
-              </tr>`).join('\n')}
-            </tbody>
-          </table></div>` : `          <p class="hint">${escapeHtml(t('gcNoAssignments'))}</p>`}
+` : ''}${c.source === 'q' && c.categories && c.categories.length ? weightsForm(c) : ''}${c.assignments.length ? workTable(c.assignments) : `          <p class="hint">${escapeHtml(t('gcNoAssignments'))}</p>`}
+${also.map(x => `          <details class="gc-also">
+            <summary>${escapeHtml(t('gcAlsoFrom', SOURCE_LABEL[x.source], x.assignments.length, x.percent === null ? null : num(x.percent)))}</summary>
+${x.assignments.length ? workTable(x.assignments) : ''}
+          </details>`).join('\n')}
         </details>`;
   const ai = require('./37-ai.js');
   const cloud = s.aiProvider && ai.PROVIDERS[s.aiProvider] && !ai.PROVIDERS[s.aiProvider].local ? ai.PROVIDERS[s.aiProvider] : null;
@@ -1290,7 +1298,7 @@ ${c.assignments.map(a => `              <tr class="${a.missing ? 'gc-missing' : 
     </div>
     <div class="gc-body">
       <div class="gc-classes">
-${classes.length ? classes.map(classBlock).join('\n') : `        <p class="hint">${escapeHtml(t('gradesNotYet'))}</p>`}
+${classes.length ? classes.filter(c => !c.superseded).map(c => classBlock(c, classes.filter(x => x.superseded && x.class === c.class))).join('\n') : `        <p class="hint">${escapeHtml(t('gradesNotYet'))}</p>`}
       </div>
       <aside class="gc-ai">
         <h2>${escapeHtml(t('gcAiTitle'))}</h2>
@@ -3119,6 +3127,8 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .gc-report { margin: -4px 0 4px; }
   .gc-weights { margin: 0 0 10px; font-size: 13px; }
   .gc-weights > summary { cursor: pointer; color: var(--dim); }
+  .gc-also { margin: 10px 0 0; font-size: 13px; }
+  .gc-also > summary { cursor: pointer; color: var(--dim); margin-bottom: 6px; }
   .gc-weight-rows { display: grid; gap: 4px; margin: 6px 0; max-width: 420px; }
   .gc-weight-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px auto; gap: 6px; align-items: center; }
   .gc-weight-row span { overflow-wrap: anywhere; }
@@ -3325,14 +3335,14 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
      staircase of 2px cells that turns into a down-pointing one when the
      list is open. Drawn with clip-path (no border or shadow on it to
      lose) in the text colour, so it dims and brightens with the label. */
-  .class-picker summary, .gc-weights > summary, .gc-thought > summary { list-style: none; display: flex; align-items: center; gap: 8px; }
-  .class-picker summary::-webkit-details-marker, .gc-weights > summary::-webkit-details-marker, .gc-thought > summary::-webkit-details-marker { display: none; }
-  .class-picker summary::before, .gc-weights > summary::before, .gc-thought > summary::before {
+  .class-picker summary, .gc-weights > summary, .gc-thought > summary, .gc-also > summary { list-style: none; display: flex; align-items: center; gap: 8px; }
+  .class-picker summary::-webkit-details-marker, .gc-weights > summary::-webkit-details-marker, .gc-thought > summary::-webkit-details-marker, .gc-also > summary::-webkit-details-marker { display: none; }
+  .class-picker summary::before, .gc-weights > summary::before, .gc-thought > summary::before, .gc-also > summary::before {
     content: ''; flex: none; width: 6px; height: 10px; background: currentColor;
     clip-path: polygon(0 0, 2px 0, 2px 2px, 4px 2px, 4px 4px, 6px 4px, 6px 6px,
       4px 6px, 4px 8px, 2px 8px, 2px 10px, 0 10px);
   }
-  .class-picker[open] summary::before, .gc-weights[open] > summary::before, .gc-thought[open] > summary::before {
+  .class-picker[open] summary::before, .gc-weights[open] > summary::before, .gc-thought[open] > summary::before, .gc-also[open] > summary::before {
     width: 10px; height: 6px;
     clip-path: polygon(0 0, 10px 0, 10px 2px, 8px 2px, 8px 4px, 6px 4px, 6px 6px,
       4px 6px, 4px 4px, 2px 4px, 2px 2px, 0 2px);
