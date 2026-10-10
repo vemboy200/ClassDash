@@ -242,6 +242,57 @@ function parseAssignments(doc) {
 }
 
 class Rejected extends Error {}
+// Signed in, but Q wants a new password before anything else (an expired
+// one). A Rejected too: the same password is never tried again. Setting a
+// new one is the person's to do, on Q's own site; ClassDash only says so,
+// with Q's own words.
+class NewPasswordNeeded extends Rejected {}
+
+/**
+ * Runs in the page, after signing in: whether Q is asking for a new
+ * password, as { message } (Q's sentence, or null when there's only a form
+ * to go by), or null. Only once the sign-in form is gone, so its own
+ * "Forgot password?" never counts; links, buttons and field labels don't
+ * either. The sentence is the shortest visible text of four words or more
+ * that talks about a new, changed or expired password; or else two
+ * password boxes showing (new, and again).
+ */
+function newPasswordMessage() {
+  const visible = el => typeof el.checkVisibility === 'function' ? el.checkVisibility() : !el.closest('[hidden]');
+  const pin = document.querySelector('#Pin');
+  if (pin && visible(pin)) return null;
+  const ABOUT = /\b(new|change|reset|update|expired?)\b[^.!?]{0,40}\bpassword\b|\bpassword\b[^.!?]{0,40}\b(expired?|changed?|reset|new|update[ds]?)\b/i;
+  const SKIP = 'a, button, label, select, option, script, style, template';
+  // An element's words: its visible text, leaving out links, buttons and
+  // labels inside it, each piece apart (a form's labels don't run together
+  // into something that reads like a sentence).
+  const words = el => {
+    const parts = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const host = n.parentElement;
+      if (!host || host.closest(SKIP) || !visible(host)) continue;
+      const t = n.textContent.trim();
+      if (t) parts.push(t);
+    }
+    return parts.join(' ').replace(/\s+/g, ' ');
+  };
+  const boxes = () => [...document.querySelectorAll('input[type="password"]')].filter(visible).length;
+  // Most pages never mention a password at all: no need to look closer.
+  const all = document.body ? (typeof document.body.innerText === 'string' ? document.body.innerText : document.body.textContent) : '';
+  if (!ABOUT.test(all || '')) return boxes() >= 2 ? { message: null } : null;
+  let best = null;
+  for (const el of document.querySelectorAll('body *')) {
+    // Only an element with words of its own can be the sentence.
+    if (![...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+    if (el.closest(SKIP) || !visible(el)) continue;
+    const text = words(el);
+    if (!text || text.length > 300 || text.split(' ').length < 4 || !ABOUT.test(text)) continue;
+    if (!best || text.length < best.length) best = text;
+  }
+  if (best) return { message: best };
+  return boxes() >= 2 ? { message: null } : null;
+}
 
 function browserOptions(s) {
   if (s.browserPath) return { executablePath: path.resolve(PROJECT_ROOT, s.browserPath) };
@@ -267,11 +318,20 @@ async function read({ base, username, password, s = settings(), chromium = requi
       // Any one of them showing: they're all on the page from the start,
       // hidden, and waitForSelector alone would only ever watch the first.
       page.waitForSelector('#loginerrormsg .error >> visible=true').then(() => 'refused'),
+      // Signed in, but sent to change the password first.
+      page.waitForFunction(newPasswordMessage, null, { polling: 500 }).then(() => 'newPassword'),
     ]);
     if (outcome === 'refused') {
       const msg = await page.$eval('#loginerrormsg', el => [...el.querySelectorAll('.error, #msgmessage')].filter(e => e.offsetParent).map(e => e.textContent.trim()).join(' ')).catch(() => '');
       // Too many tries isn't a wrong password, but it's no reason to keep trying either.
       throw new Rejected(msg || 'Q didn\'t accept the username or password');
+    }
+    // Or the portal opened with the request on top of it: a moment for it to show.
+    if (outcome === 'in') await page.waitForTimeout(1500);
+    const asked = await page.evaluate(newPasswordMessage);
+    if (asked) {
+      await page.goto(base + '/Home/Logout').catch(() => {});
+      throw new NewPasswordNeeded(asked.message || 'Q wants a new password');
     }
     // More than one enrollment (two schools, or next year's in spring): Q
     // asks which one. The first is the current one.
@@ -356,6 +416,7 @@ async function check({ force = false, now = new Date(), reader = read } = {}) {
   const username = s.gradesUsername.trim();
   const next = { ...saved, triedAt: now.toISOString() };
   delete next.rejected;
+  delete next.newPassword;
   try {
     const classes = await reader({ base, username, password, s, now });
     if (!classes.length) throw new Error('signed in, but found no classes under Assignments');
@@ -364,6 +425,7 @@ async function check({ force = false, now = new Date(), reader = read } = {}) {
     next.ok = false;
     next.why = String(e.message || e).split('\n')[0].slice(0, 200);
     if (e instanceof Rejected) next.rejected = fingerprint(username, password, base);
+    if (e instanceof NewPasswordNeeded) next.newPassword = true;
   }
   writeGrades(next);
   // Q's dot beside the other platforms' (25-check-status.js).
@@ -586,6 +648,8 @@ function gradesView(s = settings(), { assignments = false } = {}) {
     ok: on && saved.triedAt ? saved.ok !== false : null,
     why: on && saved.ok === false ? saved.why || null : null,
     rejected: on && !!saved.rejected,
+    // Q wants a new password (`why` is what it said): set on Q's site.
+    newPassword: on && !!saved.rejected && !!saved.newPassword,
     canvasCheckedAt: canvasOn ? canvas.checkedAt || null : null,
     classroomCheckedAt: classroom.reduce((t, c) => !t || c.checkedAt > t ? c.checkedAt : t, null),
     // By period, the way a school day goes; ones without a period last.
@@ -632,10 +696,17 @@ function takeLock() {
 }
 const dropLock = () => { try { fs.unlinkSync(LOCK_FILE); } catch {} };
 
+/** A check of its own, now, in the background (it redraws when done). */
+let startCheckNow = () => {
+  require('child_process').spawn(process.execPath, [path.join(__dirname, '40-grades.js'), '--now'], { detached: true, stdio: 'ignore' }).unref();
+};
+
 module.exports = {
   portalBase, parseAssignments, canvasGrade, canvasAssignment, canvasWeighting, estimateGrade, typedEstimate, qName, canvasHiddenTest, saveCanvasGrades, readCanvasGrades, savePassword, hasPassword, readiness, due, check, read, gradesView, readGrades,
-  takeLock, dropLock, keychainStore, fileStore, quoted, Rejected, CHECK_EVERY_MS, FILE, SERVICE,
+  takeLock, dropLock, keychainStore, fileStore, quoted, Rejected, NewPasswordNeeded, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
   _setStore: s => { storeOverride = s; },
+  startCheckNow: () => startCheckNow(),
+  _setStartCheck: f => { startCheckNow = f; },
 };
 
 // node 40-grades.js --if-due   after a check (05-playwright-draft.js)

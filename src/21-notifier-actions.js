@@ -558,6 +558,14 @@ function main(action, arg) {
       const result = require('./40-grades.js').savePassword(password);
       logAction(result.ok ? `  grades password ${result.saved ? 'saved' : 'removed'} (${result.where})` : `  grades password not saved: ${result.why}`);
       if (result.ok) redraw();
+      // A new password is tried right away, not at the next hourly check:
+      // usually it's the fix for one Q turned down or wanted changed.
+      if (result.ok && result.saved && require('./40-grades.js').readiness().ready) {
+        try {
+          require('./40-grades.js').startCheckNow();
+          logAction('  grades check started with the new password');
+        } catch (e) { logAction(`  grades check not started: ${e.message}`); }
+      }
       return { ...result, action };
     }
     // Settings → Grades → Check now: signs in to Q and reads the grades right

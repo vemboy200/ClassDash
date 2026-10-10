@@ -1125,6 +1125,7 @@ function gradesSettings(s, field) {
   const saved = on && grades.hasPassword();
   const when = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   const status = !on ? ''
+    : view.newPassword ? t('gradesNewPassword', view.why)
     : view.rejected ? t('gradesRejected')
     : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
     : view.checkedAt ? t('gradesLastRead', when(view.checkedAt), view.classes.length)
@@ -1199,6 +1200,7 @@ function gradesSection() {
   const lastOther = [view.canvasCheckedAt, view.classroomCheckedAt].filter(Boolean).sort().pop();
   const note = !qOn ? (lastOther ? t('gradesAsOf', when(lastOther)) : '')
     : !ready.ready ? t('gradesSetUp')
+    : view.newPassword ? t('gradesNewPassword', view.why)
     : view.rejected ? t('gradesRejected')
     : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
     : view.checkedAt ? t('gradesAsOf', when(view.checkedAt))
@@ -1211,6 +1213,7 @@ function gradesSection() {
           <button type="button" class="mini-btn grades-toggle" aria-pressed="${hidden}" onclick="toggleGradesHidden(this)">${escapeHtml(t(hidden ? 'gradesShow' : 'gradesHide'))}</button>
         </span></h2>
 ${note ? `      <p class="hint${qOn && (view.ok === false || view.rejected) ? ' grades-problem' : ''}">${escapeHtml(note)}</p>` : ''}
+${qOn && view.rejected ? `      <p class="grades-fix">${view.newPassword && grades.portalBase(s.gradesAddress) ? `<a class="mini-btn" href="${escapeHtml(grades.portalBase(s.gradesAddress).base + '/')}" target="_blank" rel="noopener">${escapeHtml(t('gradesOpenQ'))}</a> ` : ''}<button type="button" class="mini-btn" onclick="openGradesSettings()">${escapeHtml(t('gradesOpenSettings'))}</button></p>` : ''}
 ${rows ? `      <ul class="grades-list">\n${rows}\n      </ul>` : ''}
     </section>`;
 }
@@ -3108,6 +3111,8 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .grade-percent { color: var(--dim); }
   .grade-source { color: var(--dim); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
   .grades-problem { color: var(--hot); }
+  .grades-fix { margin: 4px 0 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .grades-fix a.mini-btn { text-decoration: none; }
   .grades-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .grades-buttons { display: flex; gap: 6px; }
   .grades-center { position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--text); overflow: auto; padding: 16px; box-sizing: border-box; }
@@ -4935,6 +4940,16 @@ function updateGradesRows() {
 
 // The password goes to the keychain through its own action, never with the
 // rest of the settings; the field empties once it's saved.
+// From a Q problem on the Grades list: Settings, open at Grades.
+function openGradesSettings() {
+  var panel = document.getElementById('settings-panel');
+  if (panel && panel.hidden) toggleSettingsPanel();
+  var btn = document.querySelector('.settings-nav-btn[onclick*=grades]');
+  showSettingsSection('grades', btn);
+  var field = document.getElementById('grades-password');
+  if (field) field.focus();
+}
+
 function saveGradesPassword(button) {
   var status = document.getElementById('grades-password-status');
   var field = document.getElementById('grades-password');
