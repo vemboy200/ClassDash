@@ -522,11 +522,10 @@ function main(action, arg) {
     case 'aiDetect': {
       return require('./37-ai.js').detect().then(result => ({ ok: true, action, ...result }));
     }
-    // The AI button beside an announcement, and Settings → AI's "Scan
-    // selected": the announcements picked, as a base64url JSON list of ids.
-    // Answers with what was kept and the list as the page shows it, and
-    // redraws after any scan, so the card's fold-out shows what the AI
-    // said. Logs counts only, never titles or text.
+    // The AI button beside an announcement: the announcements picked, as a
+    // base64url JSON list of ids. Answers with what was kept, and redraws
+    // after any scan, so the card's fold-out shows what the AI said. Logs
+    // counts only, never titles or text.
     case 'aiScan': {
       let ids;
       try {
@@ -541,7 +540,7 @@ function main(action, arg) {
           ? `  AI scan: ${result.scanned} read, ${result.kept.length} kept, ${result.dropped} already there, ${result.failed} failed`
           : `  AI scan not run: ${result.why}`);
         if (result.ok && result.scanned) redraw();
-        return { ...result, action, announcements: scanner.listForPage() };
+        return { ...result, action };
       });
     }
     // Settings → Grades: the Q password, as base64url JSON (a string; empty

@@ -30,9 +30,8 @@
  * when AI is on): only announcements that arrived after AI was turned on,
  * each once. The ones already there when it was turned on are recorded as
  * known (seedKnown, from the config action), so a backlog isn't sent off
- * in one go. A forced scan (the AI button beside an announcement, or
- * Settings → AI's list; the aiScan action) reads the ones picked, scanned
- * before or not.
+ * in one go. A forced scan (the AI button beside an announcement; the
+ * aiScan action) reads the ones picked, scanned before or not.
  *
  * ── What's kept ──
  *
@@ -434,19 +433,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
   }
 }
 
-/** For Settings → AI's list: every announcement, newest first, with what a scan found.
- *  None with Google Classroom off: announcements are Classroom's, and a
- *  leftover one isn't shown anywhere else either. */
-function listForPage() {
-  if (require('./19-settings.js').read().classroomEnabled === false) return [];
-  const state = readState();
-  return announcements()
-    .sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0))
-    .map(a => ({ id: a.id, class: a.class, date: a.date || '', text: String(a.title || a.text || '').replace(/\s+/g, ' ').slice(0, 140),
-      scanned: state.scanned[a.id] || null }));
-}
-
-module.exports = { SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, listForPage, STATE_FILE };
+module.exports = { SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.

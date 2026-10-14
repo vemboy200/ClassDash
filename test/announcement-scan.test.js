@@ -238,22 +238,11 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     const from = [...d.querySelectorAll('.reminder-from')];
     ok('a reminder from an announcement links to it', from.length >= 2 && from[0].getAttribute('href').startsWith('https://classroom.example/'));
     ok('the footer says AI reads announcements while it\'s on', /AI only reads announcements/.test(d.querySelector('footer').textContent));
-    const rows = [...d.querySelectorAll('#ai-scan-list .ai-scan-row')];
-    ok('Settings → AI lists every announcement, newest first, with what its scan found', rows.length === 7 &&
-      /· 2 added|· 1 added/.test(d.getElementById('ai-scan-list').textContent) && /nothing found/.test(d.getElementById('ai-scan-list').textContent) && /couldn't be read/.test(d.getElementById('ai-scan-list').textContent));
-    ok('...under the class as shown', /Made-up Bio/.test(rows.map(r => r.textContent).join()) && !/Biology Period 2/.test(rows.map(r => r.textContent).join()));
-    const button = d.querySelector('#ai-scan .mini-btn');
-    w.scanAi(button);
-    ok('Scan selected with nothing ticked: asks for some, sends nothing', posted2.length === 0 && /Tick some/.test(d.getElementById('ai-scan-status').textContent));
-    rows[0].querySelector('input').checked = true; rows[2].querySelector('input').checked = true;
-    w.scanAi(button);
-    ok('ticked: saves first', posted2[0] && posted2[0].action === 'config' && button.disabled);
-    w.classdashBridgeResult(posted2[0].id, { ok: true, accepted: [], rejected: [] });
-    const ids = JSON.parse(Buffer.from(posted2[1].arg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
-    ok('...then scans exactly the ticked ones', posted2[1].action === 'aiScan' && JSON.stringify(ids) === JSON.stringify([rows[0].querySelector('input').value, rows[2].querySelector('input').value]));
-    w.classdashBridgeResult(posted2[1].id, { ok: true, scanned: 2, kept: [{}], dropped: 1, failed: 0, announcements: [{ id: rows[0].querySelector('input').value, scanned: { kept: 3 } }] });
-    ok('...and says what happened, updating the list', /Read: 2\. Reminders added: 1\. Already there: 1\./.test(d.getElementById('ai-scan-status').textContent) &&
-      /· 3 added/.test(rows[0].textContent) && !rows[0].querySelector('input').checked && !button.disabled, d.getElementById('ai-scan-status').textContent);
+    ok('Settings → AI has no announcement list any more (the AI scan button on each one replaced it)', !d.getElementById('ai-scan-list') && !d.querySelector('.ai-scan-row') && !!d.getElementById('ai-scan'));
+    const skip = d.querySelector('#ai-scan [data-bool-key="aiSkipClasswork"]');
+    ok('...but has Skip classwork, off by default, saved with the rest', skip && !skip.checked && w.collectSettings().aiSkipClasswork === false);
+    skip.checked = true;
+    ok('...and turned on, it\'s saved on', w.collectSettings().aiSkipClasswork === true);
     w.close();
   }
   {
