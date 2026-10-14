@@ -716,7 +716,7 @@ if (require.main === module && (process.argv.includes('--if-due') || process.arg
   check({ force: process.argv.includes('--now') }).then(r => {
     if (!r.skipped) {
       console.log(r.ok ? `Grades: ${r.classes} classes` : `Grades not read: ${r.why}`);
-      require('child_process').spawnSync(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), '--redraw'], { stdio: 'ignore' });
+      require('child_process').spawnSync(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), r.ok ? '--grades-read' : '--redraw'], { stdio: 'ignore' });
     }
   }).catch(e => console.error('grades check failed:', e.message)).finally(dropLock);
 }

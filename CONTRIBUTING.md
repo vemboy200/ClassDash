@@ -189,6 +189,7 @@ Almost everything below now has a control in the settings panel (gear icon on th
 | `gradesAddress`, `gradesUsername` | Q's portal address (the whole thing, with its path; only the part before `/Home/` is kept) and username. |
 | `gradesHidden` | `true` masks the grades on the Grades list (Hide), names kept. |
 | `gradesWeights` | `{"Q class name": {"Category": 40}}`: the category weights typed in (or saved by the AI) for Q classes, by Q's own class name even when the class is linked. |
+| `gradeAlerts` | `"all"` (default), `"drops"` or `"off"`: when a class's grade change gets a notification (`45-grade-history.js`). |
 | `gradesAiAgreed` | the cloud providers whose box the person ticked to send grades and teacher comments to them, separate from `aiAgreed`. |
 | `browserPath` | advanced override for which browser binary to automate; leave empty. Set by picking an app, not typing — Advanced has the current path with **Choose App…** and **Clear**, and Setup has **Choose Browser…** (see "Native setup actions" below) |
 
@@ -294,6 +295,12 @@ With AI on, announcements are read for homework that was posted as an announceme
 **What the card shows:** each scan's record in `ai-scan.json` keeps the model's answer (up to 2,000 characters), its reasoning when it sent one (up to 4,000; `37-ai.js`'s `complete()` returns it as `thinking`, from Ollama's `reasoning`, LM Studio's `reasoning_content`, or `<think>` blocks taken out of the answer), and `steps`: each item with its due date and outcome (`kept`, `notInText`, `sameTitle` or `sameWork` with the `match` already on the list, or `notAdded`). With AI on, `aiResultBlock()` in `08-page.js` renders that as a closed fold-out on the card. Records from before steps were kept just say to scan again.
 
 `ai-scan.json` holds `known` and, per scanned announcement, `{at, found, kept, error?, answer?, thinking?, steps}` (above), never the announcement's own text. `ai-scan.lock` (a pid) keeps it to one scan at a time. Logs carry counts only.
+
+### Grade history and alerts (`45-grade-history.js`)
+
+`grade-history.json` keeps a point (`{at, percent, grade, est?}`) per class only when its grade changes, so it's a list of changes, not one per check; points older than 400 days, or beyond 500 per class, are dropped. A series belongs to one place's class (`"canvas:<Canvas's own name>"`, `sourceClass` when linked), so linking or renaming a link never mixes two places' numbers. The number is what the page shows: the percent, or the estimate when the teacher hides it (`est: true`).
+
+`record(gradesView())` runs after every grade read: at the end of a collection, just before the page is written (Canvas's and Classroom's grades), and after a good Q read through `05-playwright-draft.js --grades-read`, which the Q check (`40-grades.js --if-due/--now`) and the `checkGrades` action start instead of `--redraw`. It answers the changes of grades classes go by (never a superseded one, never a class's first point), and `recordGradeChanges()` in the collector turns those into one notification under `gradeAlerts` (`all`, `drops`, `off`): up to three classes, "and N more". A drop is by percent when both points have one, else by letter. The page draws `historyByClass()`: the Grades list's ▲/▼ for a change in the last 7 days (inside `.grade-mark`, so Hide masks it), and a step chart per class in the Grades center (a grade stays put until it changes). Tests set `CLASSDASH_NOTIFY_TO` to a file, so `notify()` writes there instead of showing a notification from the app installed on the machine.
 
 ### Classroom class renames (`43-class-renames.js`)
 

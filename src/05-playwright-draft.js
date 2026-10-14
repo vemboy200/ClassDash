@@ -51,6 +51,7 @@
  *   node 05-playwright-draft.js               a normal pass
  *   node 05-playwright-draft.js --full        and Edpuzzle too
  *   node 05-playwright-draft.js --redraw      just the page
+ *   node 05-playwright-draft.js --grades-read after Q's grades are read: history, alerts, the page
  *   node 05-playwright-draft.js --language en one-time different language
  */
 
@@ -1439,6 +1440,13 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 function notify(title, subtitle, message) {
   const { execFileSync } = require('child_process');
 
+  // Tests: the notification goes into this file instead of on screen, so a
+  // test run never shows one from the real app installed on the machine.
+  if (process.env.CLASSDASH_NOTIFY_TO) {
+    fs.appendFileSync(process.env.CLASSDASH_NOTIFY_TO, JSON.stringify({ title, subtitle, message }) + '\n');
+    return;
+  }
+
   if (fs.existsSync(SUMMARY_APP)) {
     try {
       // Three lines: title, subtitle, message. Written before either
@@ -2180,6 +2188,14 @@ if (require.main !== module) return;
     return;
   }
 
+  // After Q's own grade check (40-grades.js, and Check now): keep the new
+  // grades in the history, alert on changes, then redraw.
+  if (process.argv.includes('--grades-read')) {
+    recordGradeChanges();
+    redrawPage();
+    return;
+  }
+
   if (process.argv.includes('--login')) {
     await login();
     return;
@@ -2548,6 +2564,10 @@ if (require.main !== module) return;
     }
   }
 
+  // Canvas's and Classroom's grades were just read: into the history (and
+  // an alert for a change) before the page draws it.
+  recordGradeChanges();
+
   // The page is written on EVERY run, even when there won't be a popup:
   // it needs to be fresh at any moment someone clicks it.
   writePage({
@@ -2736,6 +2756,29 @@ if (require.main !== module) return;
   startAnnouncementScan();
   startGradesCheck();
 })();
+
+/**
+ * Grade history and alerts (45-grade-history.js): each class's grade as the
+ * page shows it is compared with the last one kept, a change is kept, and
+ * (Settings → Grades → Grade alerts) a notification says what changed. Up
+ * to three classes in the notification; the rest are on the page. Never a
+ * reason for a check to fail.
+ */
+function recordGradeChanges() {
+  try {
+    const history = require('./45-grade-history.js');
+    const s = require('./19-settings.js').read();
+    const changes = history.record(require('./40-grades.js').gradesView(s));
+    const alerts = history.alertsFor(changes, s.gradeAlerts);
+    if (!alerts.length) return;
+    const lines = alerts.map(ch => history.changeText(ch, locale()));
+    const body = lines.slice(0, 3).join('\n') + (lines.length > 3 ? '\n' + t('gradeAlertMore', lines.length - 3) : '');
+    notify(t('schoolLabel'), t('gradeAlertTitle', alerts.length), body);
+    console.log(`\nShowed a grade alert: ${alerts.length} ${alerts.length === 1 ? 'class' : 'classes'}`);
+  } catch (e) {
+    console.warn('grade history not recorded:', e.message);
+  }
+}
 
 /**
  * Grades (Settings → Grades, 40-grades.js): at most once an hour it signs in

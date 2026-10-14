@@ -1166,7 +1166,14 @@ ${field('gradesUsername', t('gradesUsername'), s.gradesUsername, t('gradesUserna
           </span>
           <span class="field-hint" id="grades-check-status">${escapeHtml(status)}</span>
         </div>
-      </div>`;
+      </div>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('gradeAlerts'))}</span>
+        <select data-key="gradeAlerts">
+${['all', 'drops', 'off'].map(m => `          <option value="${m}"${(s.gradeAlerts || 'all') === m ? ' selected' : ''}>${escapeHtml(t('gradeAlerts_' + m))}</option>`).join('\n')}
+        </select>
+        <span class="field-hint">${escapeHtml(t(process.platform === 'darwin' ? 'gradeAlertsHintMac' : 'gradeAlertsHintOther'))}</span>
+      </label>`;
 }
 
 /** The grades list on the page: the current grade per class, from Q (as of
@@ -1184,6 +1191,50 @@ function gradeMark(c) {
 
 const SOURCE_LABEL = { q: 'Q', canvas: 'Canvas', classroom: 'Classroom' };
 
+/** ▲ or ▼ and by how much, next to a grade that changed in the last week
+ *  (45-grade-history.js). Inside .grade-mark, so Hide masks it too. */
+const TREND_DAYS = 7;
+function gradeTrend(points, now = Date.now()) {
+  if (!points || points.length < 2) return '';
+  const a = points[points.length - 2], b = points[points.length - 1];
+  if (a.percent === null || b.percent === null || now - Date.parse(b.at) > TREND_DAYS * 864e5) return '';
+  const diff = Math.round((b.percent - a.percent) * 100) / 100;
+  if (!diff) return '';
+  const num = n => n.toLocaleString(locale(), { maximumFractionDigits: 2 });
+  const day = new Date(b.at).toLocaleDateString(locale(), { month: 'short', day: 'numeric' });
+  return ` <span class="grade-trend ${diff < 0 ? 'grade-down' : 'grade-up'}" title="${escapeHtml(t('gradeTrendTitle', num(a.percent), day))}">${diff < 0 ? '▼' : '▲'}${escapeHtml(num(Math.abs(diff)))}</span>`;
+}
+
+/**
+ * A class's grade over time in the Grades center: a step line (a grade
+ * stays put until it changes), from its first kept point to now, with a
+ * line under it saying where it started and where it is. One point is just
+ * where the history starts.
+ */
+function gradeHistoryChart(points, now = new Date()) {
+  const pts = (points || []).filter(p => p.percent !== null);
+  const day = iso => new Date(iso).toLocaleDateString(locale(), { month: 'short', day: 'numeric' });
+  const num = n => n.toLocaleString(locale(), { maximumFractionDigits: 2 });
+  if (!pts.length) return '';
+  if (pts.length < 2) return `          <p class="hint gc-history-note">${escapeHtml(t('gcHistoryStart', day(pts[0].at)))}</p>\n`;
+  const W = 260, H = 56, PAD = 4;
+  const t0 = Date.parse(pts[0].at), t1 = Math.max(now.getTime(), Date.parse(pts[pts.length - 1].at) + 1);
+  let lo = Math.min(...pts.map(p => p.percent)), hi = Math.max(...pts.map(p => p.percent));
+  if (hi - lo < 2) { const mid = (hi + lo) / 2; lo = mid - 1; hi = mid + 1; }
+  const x = at => PAD + (Date.parse(at) - t0) / (t1 - t0) * (W - 2 * PAD);
+  const y = pct => PAD + (hi - pct) / (hi - lo) * (H - 2 * PAD);
+  let d = `M${x(pts[0].at).toFixed(1)},${y(pts[0].percent).toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) d += ` H${x(pts[i].at).toFixed(1)} V${y(pts[i].percent).toFixed(1)}`;
+  d += ` H${(W - PAD).toFixed(1)}`;
+  const dots = pts.map(p => `<circle cx="${x(p.at).toFixed(1)}" cy="${y(p.percent).toFixed(1)}" r="2.5"><title>${escapeHtml(`${day(p.at)}: ${p.est ? '~' : ''}${num(p.percent)}%${p.grade ? ` (${p.grade})` : ''}`)}</title></circle>`).join('');
+  const first = pts[0], last = pts[pts.length - 1];
+  return `          <div class="gc-history">
+            <svg class="gc-history-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(t('gcHistoryLabel'))}"><path d="${d}" /><g>${dots}</g></svg>
+            <span class="hint">${escapeHtml(t('gcHistory', day(first.at), num(first.percent), num(last.percent), pts.length - 1))}</span>
+          </div>
+`;
+}
+
 function gradesSection() {
   const grades = require('./40-grades.js');
   const s = readSettings();
@@ -1196,10 +1247,11 @@ function gradesSection() {
   // 40-grades.js). Where each one's from, only when there's more than one place.
   const shown = view.classes.filter(c => !c.superseded);
   const mixed = new Set(shown.map(c => c.source)).size > 1;
+  const history = require('./45-grade-history.js').historyByClass(view);
   const rows = shown.map(c => `        <li class="grade-row">
           <span class="grade-period">${c.period ? escapeHtml(c.period) : ''}</span>
           <span class="grade-class">${escapeHtml(c.class)}${mixed ? ` <span class="grade-source">${SOURCE_LABEL[c.source]}</span>` : ''}</span>
-          <span class="grade-mark">${gradeMark(c)}</span>
+          <span class="grade-mark">${gradeMark(c)}${gradeTrend(history[c.class])}</span>
         </li>`).join('\n');
   const lastOther = [view.canvasCheckedAt, view.classroomCheckedAt].filter(Boolean).sort().pop();
   const note = !qOn ? (lastOther ? t('gradesAsOf', when(lastOther)) : '')
@@ -1235,6 +1287,7 @@ function gradesCenterPanel() {
   const s = readSettings();
   const classes = center.centerData(s);
   if (s.gradesProvider !== 'q' && !classes.length) return '';
+  const history = require('./45-grade-history.js').historyByClass({ classes });
   const can = center.canAsk(s);
   const num = n => n.toLocaleString(locale(), { maximumFractionDigits: 2 });
   const day = d => { if (!d) return ''; const x = new Date(String(d).length === 10 ? d + 'T12:00:00' : d); return isNaN(x) ? String(d) : x.toLocaleDateString(locale(), { month: 'short', day: 'numeric' }); };
@@ -1279,7 +1332,7 @@ ${list.map(a => `              <tr class="${a.missing ? 'gc-missing' : ''}">
             <span class="grade-mark">${mark(c)}</span>
           </summary>
           <p class="hint gc-totals">${escapeHtml(t('gcTotals', num(c.totals.earned), num(c.totals.possible), c.totals.percent === null ? null : num(c.totals.percent), c.totals.graded, c.totals.missing))}</p>
-${c.report ? `          <p class="hint gc-report">${escapeHtml(t('gcReport', c.report.term, day(c.report.from), day(c.report.to)))}</p>
+${gradeHistoryChart(history[c.class])}${c.report ? `          <p class="hint gc-report">${escapeHtml(t('gcReport', c.report.term, day(c.report.from), day(c.report.to)))}</p>
 ` : ''}${c.estimate ? `          <p class="hint gc-estimate${c.estimate.matches === false ? ' gc-off' : ''}">${escapeHtml(c.estimate.typed
     ? t('gcEstimateTyped', num(c.estimate.percent), c.estimate.matches, c.report && c.report.percent !== null ? num(c.report.percent) : c.percent !== null ? num(c.percent) : null)
     : t('gcEstimate', num(c.estimate.percent), c.estimate.weighted))}</p>
@@ -3103,6 +3156,14 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .grade-class { min-width: 0; overflow-wrap: anywhere; }
   .grade-mark { white-space: nowrap; }
   .grade-percent { color: var(--dim); }
+  .grade-trend { font-size: 11px; margin-left: 4px; }
+  .grade-trend.grade-down { color: var(--hot); }
+  .grade-trend.grade-up { color: var(--new); }
+  .gc-history { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 8px; }
+  .gc-history-chart { max-width: 100%; height: auto; color: var(--text); }
+  .gc-history-chart path { fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .gc-history-chart circle { fill: var(--card); stroke: currentColor; stroke-width: 1.5; }
+  .gc-history-note { margin: -2px 0 8px; }
   .grade-source { color: var(--dim); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
   .grades-problem { color: var(--hot); }
   .grades-fix { margin: 4px 0 8px; display: flex; gap: 8px; flex-wrap: wrap; }

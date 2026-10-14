@@ -333,6 +333,9 @@ const DEFAULTS = {
   // Category weights the person typed in for a Q class (Q never shows
   // them): { "<class>": { "<category>": percent } }. See 40-grades.js.
   gradesWeights: {},
+  // A notification when a class's grade changes (45-grade-history.js):
+  // 'all', 'drops' (only when it goes down) or 'off'.
+  gradeAlerts: 'all',
 };
 
 const TYPES = {
@@ -354,6 +357,7 @@ const TYPES = {
   aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
   gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
+  gradeAlerts: 'gradeAlerts',
 };
 
 function read() {
@@ -479,6 +483,11 @@ function validate(key, raw) {
     const id = String(raw).trim();
     if (id !== 'none' && id !== 'q') return { ok: false, why: `no such grades provider: ${id}` };
     return { ok: true, value: id };
+  }
+  if (kind === 'gradeAlerts') {
+    const mode = String(raw).trim();
+    if (!['all', 'drops', 'off'].includes(mode)) return { ok: false, why: `no such grade alert setting: ${mode}` };
+    return { ok: true, value: mode };
   }
   if (kind === 'gradesAddress') {
     // Kept as typed (trimmed), so the field shows what was entered; empty

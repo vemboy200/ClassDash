@@ -574,7 +574,9 @@ function main(action, arg) {
       if (!grades.takeLock()) return { ok: false, action, why: 'a grades check is already running' };
       return grades.check({ force: true }).then(result => {
         logAction(result.skipped ? `  grades not checked: ${result.skipped}` : result.ok ? `  grades: ${result.classes} classes` : `  grades not read: ${result.why}`);
-        redraw();
+        // A good read goes into the grade history (and its alerts) first.
+        if (result.ok) execFileSync(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), '--grades-read'], { stdio: 'ignore' });
+        else redraw();
         // Why it didn't even try, in words: 'password' means none is saved.
         if (result.skipped) return { ...result, action, why: require('./18-language.js').t('gradesSkip_' + result.skipped) };
         return { ...result, action };
