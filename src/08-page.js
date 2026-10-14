@@ -1379,7 +1379,7 @@ ${note(localIds.join(' '), escapeHtml(t('aiLocalNote')), 'field-hint ai-local-no
 ${note('apple', `${escapeHtml(t('aiAppleHint'))} <span id="ai-apple-status"></span>`)}
 ${note('ollama', escapeHtml(t('aiOllamaHint')))}
 ${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
-${note('codex', escapeHtml(t('aiCodexHint')))}
+${note('codex', `${escapeHtml(t('aiCodexHint'))} <span id="ai-codex-status"></span>`)}
 ${note('claudecode', `${escapeHtml(t('aiClaudeCodeHint'))} <span id="ai-claudecode-status"></span>`)}
 ${cloud}
 ${row('ollama lmstudio', `      <label class="setting-row wide">
@@ -3556,6 +3556,8 @@ const WORDS = ${JSON.stringify({
   aiModelMissing: t('aiModelMissing'),
   aiUnavailable: t('aiUnavailable'),
   aiClaudeCodeSignedOut: t('aiClaudeCodeSignedOut'),
+  aiCodexSignedOut: t('aiCodexSignedOut'),
+  aiNotSignedIn: t('aiNotSignedIn'),
   aiFind: t('aiFind'),
   aiScanningButton: t('aiScanningButton'),
   aiPostScan: t('aiPostScan'),
@@ -4561,21 +4563,26 @@ function markAiFound() {
   var count = function (n) { return n === 1 ? WORDS.aiModelOne : WORDS.aiModelsCount.split('{n}').join(String(n)); };
   if (r.ollama) found.ollama = count(r.ollama.models.length);
   if (r.lmstudio) found.lmstudio = count(r.lmstudio.models.length);
-  if (r.codex) found.codex = '';
-  // Installed but not signed in isn't found: it can't answer yet.
-  if (r.claudeCode && r.claudeCode.ok) found.claudecode = '';
+  // Codex and Claude Code installed but not signed in are found, but get
+  // no ✓: they can't answer until they're signed in.
+  var signedOut = {};
+  if (r.codex) { if (r.codex.ok) found.codex = ''; else signedOut.codex = WORDS.aiNotSignedIn; }
+  if (r.claudeCode) { if (r.claudeCode.ok) found.claudecode = ''; else signedOut.claudecode = WORDS.aiNotSignedIn; }
   var names = [];
   for (var i = 0; i < select.options.length; i++) {
     var o = select.options[i];
     var base = o.getAttribute('data-label');
     if (!base) continue;
     var is = Object.prototype.hasOwnProperty.call(found, o.value);
+    var out = Object.prototype.hasOwnProperty.call(signedOut, o.value);
     o.textContent = base + (is ? ' ✓' : '');
-    if (is) names.push(base + (found[o.value] ? ' (' + found[o.value] + ')' : ''));
+    if (is || out) names.push(base + ((is ? found : signedOut)[o.value] ? ' (' + (is ? found : signedOut)[o.value] + ')' : ''));
   }
   document.getElementById('ai-found').textContent = names.length ? WORDS.aiFound + ' ' + names.join(', ') : WORDS.aiFoundNone;
   var apple = document.getElementById('ai-apple-status');
   if (apple) apple.textContent = r.apple && !r.apple.ok ? WORDS.aiUnavailable + ' ' + r.apple.why + '.' : '';
+  var codex = document.getElementById('ai-codex-status');
+  if (codex) codex.textContent = r.codex && !r.codex.ok ? WORDS.aiCodexSignedOut : '';
   var claude = document.getElementById('ai-claudecode-status');
   if (claude) claude.textContent = r.claudeCode && !r.claudeCode.ok ? WORDS.aiClaudeCodeSignedOut : '';
 }

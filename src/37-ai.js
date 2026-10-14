@@ -597,13 +597,14 @@ async function test(settings, deps) {
  * What Settings → AI can fill in by itself: Ollama and LM Studio running
  * at their usual addresses (or the saved one) with the models downloaded
  * there, whether Apple Intelligence can be used on this Mac, whether Codex
- * is installed, whether Claude Code is installed and signed in (`claude
- * auth status`, which says only that, never the login itself), and the saved cloud provider's models when it may be asked
+ * and Claude Code are installed and signed in (`codex login status`'s exit
+ * code, `claude auth status`'s loggedIn: never the login itself), and the
+ * saved cloud provider's models when it may be asked
  * (its box ticked and a key saved). Only lists are asked for: nothing of
  * the person's goes anywhere. Quick, so the panel isn't kept waiting.
  *
  * { ollama: {url, models} | null, lmstudio: …, apple: {ok, why} | null,
- *   codex: bool, claudeCode: {ok, why} | null, cloud: {provider, models} | {provider, why} | null }
+ *   codex: {ok, why} | null, claudeCode: {ok, why} | null, cloud: {provider, models} | {provider, why} | null }
  */
 async function detect(settings = require('./19-settings.js').read(), deps = {}) {
   const d = withDefaults({ timeoutMs: 2500, ...deps });
@@ -626,6 +627,16 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
       return answer.ok ? { ok: true } : { ok: false, why: answer.why || 'not available' };
     } catch { return { ok: false, why: 'not available' }; }
   };
+  // `codex login status` exits 0 when signed in (its output, which can
+  // name the login, isn't read).
+  const codex = async () => {
+    const bin = findCodex(d);
+    if (!bin) return null;
+    try {
+      const { code } = await runCommand({ ...d, timeoutMs: 10000 }, bin, ['login', 'status'], '');
+      return code === 0 ? { ok: true } : { ok: false, why: 'signedOut' };
+    } catch { return { ok: false, why: 'signedOut' }; }
+  };
   const claudeCode = async () => {
     const bin = findClaude(d);
     if (!bin) return null;
@@ -643,8 +654,8 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
       return { provider: saved.provider, why: scrub(e && e.message, saved.key) };
     }
   };
-  const [ollama, lmstudio, appleResult, claudeResult, cloudResult] = await Promise.all([local('ollama'), local('lmstudio'), apple(), claudeCode(), cloud()]);
-  return { ollama, lmstudio, apple: appleResult, codex: !!findCodex(d), claudeCode: claudeResult, cloud: cloudResult };
+  const [ollama, lmstudio, appleResult, codexResult, claudeResult, cloudResult] = await Promise.all([local('ollama'), local('lmstudio'), apple(), codex(), claudeCode(), cloud()]);
+  return { ollama, lmstudio, apple: appleResult, codex: codexResult, claudeCode: claudeResult, cloud: cloudResult };
 }
 
 module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, appBinary, complete, test, detect };

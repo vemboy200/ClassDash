@@ -266,7 +266,7 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     ok('finds Ollama at its usual address, with chat models only', r.ollama && r.ollama.url === 'http://localhost:11434/v1' && JSON.stringify(r.ollama.models) === '["big:8b","small:1b"]', JSON.stringify(r.ollama));
     ok('...LM Studio not running: not found', r.lmstudio === null);
     ok('...Apple Intelligence asked only whether it can be used', r.apple && r.apple.ok === true);
-    ok('...no Codex, and no cloud provider asked when none is saved', r.codex === false && r.cloud === null && !f.calls.some(c => /anthropic|openai|google/.test(c.url)));
+    ok('...no Codex, and no cloud provider asked when none is saved', r.codex === null && r.cloud === null && !f.calls.some(c => /anthropic|openai|google/.test(c.url)));
     const off = await ai.detect({ aiProvider: 'anthropic', aiAnthropicKey: KEY }, { fetch: f.fetch, platform: 'win32', env, exists: () => false });
     ok('a saved cloud provider with its box unticked isn\'t asked, and no Apple on Windows', off.cloud === null && off.apple === null && !f.calls.some(c => /anthropic/.test(c.url)));
     const on = await ai.detect({ aiProvider: 'anthropic', aiAnthropicKey: KEY, aiAgreed: ['anthropic'] }, { fetch: f.fetch, platform: 'win32', env, exists: () => false });
@@ -337,6 +337,27 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
       w.args.every(a => /^".*"$/.test(a)) && w.args.includes('"gpt-5"'), JSON.stringify(w && { file: w.file, args: w.args }));
   }
 
+  // ── detect: Codex installed, and whether it's signed in ──
+  {
+    const { EventEmitter } = require('events');
+    const asked = [];
+    const status = code => (file, args, options) => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.stdin = { on() {}, end() { asked.push(args); setImmediate(() => child.emit('close', code)); } };
+      child.kill = () => {};
+      return child;
+    };
+    const bin = '/opt/homebrew/bin/codex';
+    const deps = { platform: 'darwin', env: { PATH: '/usr/bin' }, exists: f => f === bin, home: '/Users/nobody', fetch: async () => { throw new Error('nothing'); } };
+    let found = await ai.detect({}, { ...deps, spawn: status(0) });
+    ok('detect: Codex signed in, asked through codex login status', found.codex.ok === true && asked[0].join(' ') === 'login status', JSON.stringify(found.codex));
+    found = await ai.detect({}, { ...deps, spawn: status(1) });
+    ok('...installed but signed out: not ok', found.codex.ok === false && found.codex.why === 'signedOut');
+    found = await ai.detect({}, { ...deps, exists: () => false, spawn: status(0) });
+    ok('...not installed: null', found.codex === null);
+  }
+
   // ── Claude Code: the person's own claude, no tools, in an empty folder ──
   {
     const runs = [];
@@ -381,7 +402,7 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     const nofetch = async () => { throw new Error('nothing'); };
     const before = runs.length;
     let found = await ai.detect({}, { ...deps, fetch: nofetch, spawn: fakeSpawn({ out: '{"loggedIn":true,"authMethod":"claude.ai"}' }) });
-    ok('detect: Claude Code installed and signed in, asked through claude auth status', found.claudeCode.ok === true && found.codex === false &&
+    ok('detect: Claude Code installed and signed in, asked through claude auth status', found.claudeCode.ok === true && found.codex === null &&
       runs[before].args.slice(0, 2).join(' ') === 'auth status' && !('CLAUDECODE' in runs[before].options.env));
     found = await ai.detect({}, { ...deps, fetch: nofetch, spawn: fakeSpawn({ out: '{"loggedIn":false,"authMethod":"none"}' }) });
     ok('...installed but signed out: not ok', found.claudeCode.ok === false);
@@ -507,13 +528,15 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     ok('showing the AI section asks what\'s on this computer, once', posted.length === 1 && posted[0].action === 'aiDetect' && posted[0].arg === '');
     w.showSettingsSection('ai', null);
     ok('...not again while it\'s asking', posted.length === 1);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: true, claudeCode: { ok: false, why: 'signedOut' }, cloud: null });
+    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: { ok: true }, claudeCode: { ok: false, why: 'signedOut' }, cloud: null });
     const select = d.querySelector('[data-key="aiProvider"]');
     const label = v => select.querySelector(`option[value="${v}"]`).textContent;
     ok('found ones get a ✓, others don\'t', /✓$/.test(label('ollama')) && /✓$/.test(label('codex')) && !/✓/.test(label('lmstudio')) && !/✓/.test(label('openai')));
     ok('...and a line says what was found', /Found: Ollama \(2 models\), ChatGPT \(through Codex\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
     ok('Claude Code installed but signed out: no ✓, and a line saying to sign in', !/✓/.test(label('claudecode')) &&
       /not signed in: run "claude auth login"/.test(d.getElementById('ai-claudecode-status').textContent));
+    ok('...but still listed as found, saying it isn\'t signed in', /Claude \(through Claude Code\) \(not signed in\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
+    ok('Codex signed in: no sign-in line', d.getElementById('ai-codex-status').textContent === '');
     if (process.platform === 'darwin') ok('Apple Intelligence that can\'t be used says why', /Not available here: Apple Intelligence is off/.test(d.getElementById('ai-apple-status').textContent));
     select.value = 'ollama'; w.updateAiRows();
     const list = d.getElementById('ai-model-select');
@@ -530,12 +553,12 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     const find = d.getElementById('ai-find');
     w.findAi(find);
     ok('Find asks again', posted.length === 1 && posted[0].action === 'aiDetect' && find.disabled);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: null, lmstudio: null, apple: null, codex: false, cloud: null });
+    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: null, lmstudio: null, apple: null, codex: null, cloud: null });
     ok('...not running: says where it looked and asks whether it\'s running', /LM Studio isn't at http:\/\/localhost:1234\/v1\. Is its server running\?/.test(d.getElementById('ai-find-status').textContent) && !find.disabled,
       d.getElementById('ai-find-status').textContent);
     posted.length = 0;
     w.findAi(find);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: null, lmstudio: { url: 'http://localhost:1234/v1', models: ['qwen-x'] }, apple: null, codex: false, cloud: null });
+    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: null, lmstudio: { url: 'http://localhost:1234/v1', models: ['qwen-x'] }, apple: null, codex: null, cloud: null });
     ok('...started since: fills in the address and the model dropdown', w.collectSettings().aiLocalUrl === 'http://localhost:1234/v1' && w.collectSettings().aiModel === 'qwen-x' &&
       !d.getElementById('ai-model-wrap').hidden && /Found LM Studio at http:\/\/localhost:1234\/v1/.test(d.getElementById('ai-find-status').textContent));
     w.close();
