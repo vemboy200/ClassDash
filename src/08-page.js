@@ -421,9 +421,10 @@ function activeReminderItems(now) {
 
 function remindersSection(now) {
   const settings = readSettings();
-  const { burning, later, overdue, undated, done } =
+  const { burning, later, overdue, undated, done: rawDone } =
     virtualAssignments.bucketed(now, settings.treatUndatedAsUrgent);
   const all = classLinks.linkItems([...overdue, ...burning, ...later, ...undated]);
+  const done = classLinks.linkItems(rawDone);
   const active = all.filter(x => !x.hidden)
     .sort((a, b) => {
       if (!a.due_at && !b.due_at) return 0;

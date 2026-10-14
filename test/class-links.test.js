@@ -132,6 +132,19 @@ const { JSDOM, VirtualConsole } = T.jsdom();
   ok('announcements too', art.class === 'US History' && art.sourceClass === HIST_CANVAS);
   ok('/api/status counts linked classes', api.HANDLERS['/api/status'](g).classes === 3, api.HANDLERS['/api/status'](g).classes);
 
+  // ── reminders made under a member class's own name ──
+  {
+    const va = require(path.join(proj, '24-virtual-assignments.js'));
+    const open = va.create({ title: 'Study for quiz', class: HIST_CANVAS, due: soon(2) }).entry;
+    const finished = va.create({ title: 'Read ch. 4', class: HIST_CR, due: soon(1) }).entry;
+    va.markDone(finished.id, true);
+    const vs = api.HANDLERS['/api/virtual'](api.gather());
+    const a = vs.find(x => x.id === open.id), b = vs.find(x => x.id === finished.id);
+    ok('/api/virtual: a reminder takes the linked name, keeping its own as sourceClass', a && a.class === 'US History' && a.sourceClass === HIST_CANVAS, JSON.stringify(a));
+    ok('/api/virtual: done ones too', b && b.class === 'US History' && b.sourceClass === HIST_CR, JSON.stringify(b));
+    va.remove(open.id); va.remove(finished.id);
+  }
+
   // ── a class in a link that the automatic hiding skips (skipStaleClasses) ──
   // Staleness is per real class: the link stays while any member is active.
   {

@@ -503,7 +503,9 @@ const HANDLERS = {
     const { treatUndatedAsUrgent } = require('./19-settings.js').read();
     const { burning, later, overdue, undated, done } =
       virtualAssignments.bucketed(d.now, treatUndatedAsUrgent);
-    return [...overdue, ...burning, ...later, ...undated, ...done]
+    // Linked like every other list here, so a reminder made before its
+    // class was linked comes back under the link's name too.
+    return classLinks.linkItems([...overdue, ...burning, ...later, ...undated, ...done])
       .map(x => toPublic(x, d.now));
   },
 };
