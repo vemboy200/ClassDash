@@ -78,7 +78,9 @@ const TIMEOUT_MS = 120 * 1000;
 const PROVIDERS = {
   apple: { local: true, label: 'Apple Intelligence', mac: true },
   ollama: { local: true, label: 'Ollama', url: 'http://localhost:11434/v1' },
-  lmstudio: { local: true, label: 'LM Studio', url: 'http://localhost:1234/v1' },
+  // LM Studio Bionic, LM Studio's agent app on the same engine, serves on
+  // 1235 (seen on a real install; one of the two runs at a time).
+  lmstudio: { local: true, label: 'LM Studio', url: 'http://localhost:1234/v1', also: ['http://localhost:1235/v1'] },
   foundry: { local: true, label: 'Foundry Local' },
   codex: {
     local: false, label: 'ChatGPT (Codex)', company: 'OpenAI', minAge: 13, parent: true,
@@ -546,6 +548,20 @@ function runCommand(deps, bin, args, input, options) {
   return run(deps, shell ? `"${bin}"` : bin, shell ? args.map(a => `"${a}"`) : args, input, { ...options, shell });
 }
 
+// With no address saved, LM Studio's usual one, then Bionic's when nothing
+// answers there.
+async function viaUsualAddress(config, settings, ask, deps) {
+  const p = PROVIDERS[config.provider];
+  const others = String(settings.aiLocalUrl || '').trim() || !p || !p.also ? [] : p.also;
+  for (const url of others) {
+    try { return await viaHttp(config, ask, deps); } catch (e) {
+      if (!/couldn't connect/.test(e && e.message)) throw e;
+      config = { ...config, url };
+    }
+  }
+  return viaHttp(config, ask, deps);
+}
+
 // A model name goes on Codex's command line, so only a plain one.
 const MODEL_NAME = /^[A-Za-z0-9._:\/-]+$/;
 
@@ -636,7 +652,7 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
       : config.provider === 'claudecode' ? await viaClaudeCode(config, ask, d)
       : config.provider === 'foundry' ? await viaFoundry(config, ask, d)
-      : await viaHttp(config, ask, d);
+      : await viaUsualAddress(config, settings, ask, d);
     // Asked not to show it (think false): any thinking sent anyway is dropped.
     if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), ...(ask.think === false ? {} : { thinking: text.thinking }) };
     return { ok: true, text: String(text || '').trim() };
@@ -658,7 +674,15 @@ async function test(settings, deps) {
   let models = null;
   try {
     if (config.provider === 'foundry') config.url = await foundryUrl(d, true);
-    models = await listModels(config, d);
+    const p = PROVIDERS[config.provider];
+    const others = String(settings.aiLocalUrl || '').trim() || !p.also ? [] : p.also;
+    for (const url of others) {
+      try { models = await listModels(config, d); break; } catch (e) {
+        if (!/couldn't connect/.test(e && e.message)) throw e;
+        config.url = url;
+      }
+    }
+    if (!models) models = await listModels(config, d);
   } catch (e) {
     return { ok: false, why: scrub(e && e.message, config.key) };
   }
@@ -693,7 +717,7 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
   const d = withDefaults({ timeoutMs: 2500, ...deps });
   const saved = configFrom(settings);
   const local = async id => {
-    const urls = [...new Set([saved.provider === id ? saved.url : null, PROVIDERS[id].url].filter(Boolean))]
+    const urls = [...new Set([saved.provider === id ? saved.url : null, PROVIDERS[id].url, ...(PROVIDERS[id].also || [])].filter(Boolean))]
       .filter(localAddress);
     for (const url of urls) {
       try { return { url, models: await listModels({ provider: id, url }, d) }; } catch { /* not there */ }

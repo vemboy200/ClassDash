@@ -85,6 +85,20 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     const f2 = fakeFetch(() => chat('Local'));
     await ai.complete({ prompt: 'Hello?' }, { aiProvider: 'lmstudio', aiLocalUrl: 'http://192.168.1.20:1234/v1/', aiModel: 'm' }, { fetch: f2.fetch });
     ok('LM Studio at a home-network address', f2.calls[0].url === 'http://192.168.1.20:1234/v1/chat/completions', f2.calls[0].url);
+    // LM Studio Bionic: 1235, tried when nothing answers on 1234 and no address is saved.
+    const bionic = () => fakeFetch(url => /:1235\//.test(url) ? (/\/models$/.test(url) ? { status: 200, json: { data: [{ id: 'bionic-model' }] } } : chat('Bionic')) : { throws: new Error('ECONNREFUSED') });
+    const f3 = bionic();
+    let r2 = await ai.complete({ prompt: 'Hello?' }, { aiProvider: 'lmstudio', aiModel: 'm' }, { fetch: f3.fetch });
+    ok('LM Studio Bionic: nothing on 1234, so 1235', r2.ok && r2.text === 'Bionic' && JSON.stringify(f3.calls.map(c => c.url)) === '["http://localhost:1234/v1/chat/completions","http://localhost:1235/v1/chat/completions"]', JSON.stringify(f3.calls.map(c => c.url)));
+    const f4 = bionic();
+    r2 = await ai.complete({ prompt: 'Hello?' }, { aiProvider: 'lmstudio', aiModel: 'm', aiLocalUrl: 'http://localhost:1234/v1' }, { fetch: f4.fetch });
+    ok('...but a saved address is the only one asked', !r2.ok && f4.calls.length === 1);
+    const f5 = bionic();
+    r2 = await ai.test({ aiProvider: 'lmstudio' }, { fetch: f5.fetch });
+    ok('...Test finds it there too, and its model', r2.ok && r2.model === 'bionic-model', JSON.stringify(r2));
+    const f6 = bionic();
+    const seen = await ai.detect({}, { fetch: f6.fetch, exists: () => false, spawn: () => { throw new Error('no'); } });
+    ok('...and so does detect, with its address', seen.lmstudio && seen.lmstudio.url === 'http://localhost:1235/v1' && JSON.stringify(seen.lmstudio.models) === '["bionic-model"]', JSON.stringify(seen.lmstudio));
   }
   // A thinking model's reasoning comes back apart from its answer, so only
   // the answer is read as one (and the card's AI fold-out can show both).
