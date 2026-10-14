@@ -22,8 +22,8 @@
  *
  *   OpenAI API, ChatGPT through Codex   13+, under 18 with a parent's or
  *                                       guardian's permission
- *   Anthropic API                       18+ (Claude's own apps are 18+, and
- *                                       apps minors use need safeguards
+ *   Anthropic API, Claude through       18+ (Claude's own apps are 18+, and
+ *   Claude Code                         apps minors use need safeguards
  *                                       ClassDash doesn't have)
  *   Gemini API                          18+, and not in apps likely used by
  *                                       under-18s (Google's API terms)
@@ -42,6 +42,14 @@
  *   codex      the person's own `codex` command (`codex exec`), signed in
  *              with their ChatGPT plan (`codex login`), in a read-only
  *              sandbox in an empty folder.
+ *   claudecode the person's own `claude` command (`claude -p`), signed in
+ *              with their Claude plan (`claude auth login`), with no tools,
+ *              settings, MCP servers or saved session, in an empty folder.
+ *              A gray area, said on the panel: Anthropic's Agent SDK docs
+ *              say other apps may not offer Claude plan logins or rate
+ *              limits without its approval. ClassDash never signs in or
+ *              sees the login, like T3 Code, but the requests still count
+ *              against the person's plan.
  *   openai,    their HTTP APIs with the person's own key.
  *   anthropic,
  *   gemini
@@ -63,6 +71,10 @@ const PROVIDERS = {
   codex: {
     local: false, label: 'ChatGPT (Codex)', company: 'OpenAI', minAge: 13, parent: true,
     terms: 'https://openai.com/policies/terms-of-use/', privacy: 'https://openai.com/policies/privacy-policy/',
+  },
+  claudecode: {
+    local: false, label: 'Claude (Claude Code)', company: 'Anthropic', minAge: 18, grayZone: true, model: 'haiku',
+    terms: 'https://www.anthropic.com/legal/consumer-terms', privacy: 'https://www.anthropic.com/legal/privacy',
   },
   openai: {
     local: false, label: 'OpenAI API', company: 'OpenAI', minAge: 13, parent: true,
@@ -430,22 +442,31 @@ async function viaApple({ system, prompt }, deps) {
   return String(answer.text || '');
 }
 
-/** Where the person's `codex` command is: on the PATH, or where installers put it. */
-function findCodex(deps) {
+/** Where one of the person's commands is: on the PATH, or where installers put it. */
+function findCommand(deps, command) {
   const env = deps.env || process.env;
   const win = deps.platform === 'win32';
-  const names = win ? ['codex.cmd', 'codex.exe', 'codex'] : ['codex'];
+  const names = win ? [`${command}.cmd`, `${command}.exe`, command] : [command];
   const home = deps.home || os.homedir();
   const dirs = [
     ...String(env.PATH || env.Path || '').split(path.delimiter),
-    ...(win ? [path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm')]
-      : ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local', 'bin'), path.join(home, '.npm-global', 'bin')]),
+    ...(win ? [path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm'), path.join(home, '.local', 'bin')]
+      : ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local', 'bin'), path.join(home, '.npm-global', 'bin'), path.join(home, '.claude', 'local')]),
   ].filter(Boolean);
   for (const dir of dirs) for (const n of names) {
     const file = path.join(dir, n);
     if (deps.exists(file)) return file;
   }
   return null;
+}
+const findCodex = deps => findCommand(deps, 'codex');
+const findClaude = deps => findCommand(deps, 'claude');
+
+// A .cmd (npm's Windows launcher) only runs through the shell; every
+// argument given to one is a flag, a path or a fixed sentence, quoted for it.
+function runCommand(deps, bin, args, input, options) {
+  const shell = /\.cmd$/i.test(bin);
+  return run(deps, shell ? `"${bin}"` : bin, shell ? args.map(a => `"${a}"`) : args, input, { ...options, shell });
 }
 
 // A model name goes on Codex's command line, so only a plain one.
@@ -462,11 +483,7 @@ async function viaCodex(config, { system, prompt }, deps) {
   try {
     const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--ephemeral',
       '--output-last-message', outFile, ...(config.model ? ['-m', config.model] : []), '-'];
-    // A .cmd (npm's Windows launcher) only runs through the shell; every
-    // argument here is a flag or a path, quoted for it.
-    const shell = /\.cmd$/i.test(bin);
-    const { code, err } = await run(deps, shell ? `"${bin}"` : bin, shell ? args.map(a => `"${a}"`) : args,
-      (system ? `${system}\n\n` : '') + prompt, { cwd: dir, shell });
+    const { code, err } = await runCommand(deps, bin, args, (system ? `${system}\n\n` : '') + prompt, { cwd: dir });
     let text = '';
     try { text = fs.readFileSync(outFile, 'utf8'); } catch { /* none: said below */ }
     if (code !== 0 && !text) {
@@ -474,6 +491,35 @@ async function viaCodex(config, { system, prompt }, deps) {
       throw new Error(/login|auth/i.test(said) ? 'Codex isn\'t signed in (run "codex login")' : `Codex stopped${said ? `: ${said}` : ''}`);
     }
     return text;
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// Claude Code's own system prompt is for writing code; this one replaces
+// it, and ClassDash's instructions go first in the message, like Codex's.
+const CLAUDE_SYSTEM = 'Follow the instructions in the message. Answer with text only.';
+
+async function viaClaudeCode(config, { system, prompt }, deps) {
+  const bin = findClaude(deps);
+  if (!bin) throw new Error('Claude Code isn\'t installed (install it, then run "claude auth login" once)');
+  if (config.model && !MODEL_NAME.test(config.model)) throw new Error('that model name has characters Claude Code won\'t take');
+  // No tools, none of the person's settings, hooks or MCP servers, nothing
+  // saved, in an empty folder: it can only answer.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classdash-claude-'));
+  try {
+    const args = ['-p', '--output-format', 'text', '--tools', '', '--setting-sources', '', '--strict-mcp-config',
+      '--no-session-persistence', '--system-prompt', CLAUDE_SYSTEM, ...(config.model ? ['--model', config.model] : [])];
+    // Started from inside a Claude Code session (a developer's), it would
+    // think it's nested.
+    const env = { ...(deps.env || process.env) };
+    delete env.CLAUDECODE;
+    const { code, out, err } = await runCommand(deps, bin, args, (system ? `${system}\n\n` : '') + prompt, { cwd: dir, env });
+    if (code !== 0) {
+      const said = scrub(`${err}\n${out}`.split('\n').filter(l => l.trim()).pop() || '');
+      throw new Error(/auth|log ?in|oauth/i.test(said) ? 'Claude Code isn\'t signed in (run "claude auth login")' : `Claude Code stopped${said ? `: ${said}` : ''}`);
+    }
+    return out;
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
@@ -496,7 +542,7 @@ function withDefaults(deps = {}) {
  * think true asks for its thinking where the provider can send it (Ollama,
  * Anthropic, Gemini; LM Studio sends it on its own), false asks Ollama not
  * to think and drops any that comes; left out, nothing changes. onPart,
- * where the provider can stream (all but Apple and Codex), is called with
+ * where the provider can stream (all but Apple, Codex and Claude Code), is called with
  * { thinking, text } so far as the answer is written.
  * Resolves { ok: true, text, thinking? } or { ok: false, why }; never
  * throws. `thinking` is the model's reasoning, only when it sent one.
@@ -511,6 +557,7 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
   try {
     const text = config.provider === 'apple' ? await viaApple(ask, d)
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
+      : config.provider === 'claudecode' ? await viaClaudeCode(config, ask, d)
       : await viaHttp(config, ask, d);
     // Asked not to show it (think false): any thinking sent anyway is dropped.
     if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), ...(ask.think === false ? {} : { thinking: text.thinking }) };
@@ -549,12 +596,12 @@ async function test(settings, deps) {
  * What Settings → AI can fill in by itself: Ollama and LM Studio running
  * at their usual addresses (or the saved one) with the models downloaded
  * there, whether Apple Intelligence can be used on this Mac, whether Codex
- * is installed, and the saved cloud provider's models when it may be asked
+ * and Claude Code are installed, and the saved cloud provider's models when it may be asked
  * (its box ticked and a key saved). Only lists are asked for: nothing of
  * the person's goes anywhere. Quick, so the panel isn't kept waiting.
  *
  * { ollama: {url, models} | null, lmstudio: …, apple: {ok, why} | null,
- *   codex: bool, cloud: {provider, models} | {provider, why} | null }
+ *   codex: bool, claudeCode: bool, cloud: {provider, models} | {provider, why} | null }
  */
 async function detect(settings = require('./19-settings.js').read(), deps = {}) {
   const d = withDefaults({ timeoutMs: 2500, ...deps });
@@ -585,7 +632,7 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
     }
   };
   const [ollama, lmstudio, appleResult, cloudResult] = await Promise.all([local('ollama'), local('lmstudio'), apple(), cloud()]);
-  return { ollama, lmstudio, apple: appleResult, codex: !!findCodex(d), cloud: cloudResult };
+  return { ollama, lmstudio, apple: appleResult, codex: !!findCodex(d), claudeCode: !!findClaude(d), cloud: cloudResult };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, appBinary, complete, test, detect };
+module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, appBinary, complete, test, detect };

@@ -294,7 +294,7 @@ const DEFAULTS = {
 
   // AI (37-ai.js): off until a provider is picked. The local ones (apple,
   // ollama, lmstudio) keep class text on this computer; the cloud ones
-  // (codex, openai, anthropic, gemini) work only once their id is in
+  // (codex, claudecode, openai, anthropic, gemini) work only once their id is in
   // aiAgreed, the box on the panel stating that provider's age rule and
   // that class text goes to them. aiModel empty means the provider's
   // default; aiLocalUrl empty means Ollama's or LM Studio's usual address.

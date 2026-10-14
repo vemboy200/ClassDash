@@ -337,6 +337,51 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
       w.args.every(a => /^".*"$/.test(a)) && w.args.includes('"gpt-5"'), JSON.stringify(w && { file: w.file, args: w.args }));
   }
 
+  // ── Claude Code: the person's own claude, no tools, in an empty folder ──
+  {
+    const runs = [];
+    const fakeSpawn = ({ code = 0, out = 'Done\n', err = '' } = {}) => (file, args, options) => {
+      const { EventEmitter } = require('events');
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.stdin = { on() {}, end(input) {
+        runs.push({ file, args, options, input, folderFiles: fs.readdirSync(options.cwd) });
+        setImmediate(() => { if (out) child.stdout.emit('data', out); if (err) child.stderr.emit('data', err); child.emit('close', code); });
+      } };
+      child.kill = () => {};
+      return child;
+    };
+    const bin = '/Users/nobody/.local/bin/claude';
+    const deps = { platform: 'darwin', env: { PATH: '/usr/bin', CLAUDECODE: '1' }, exists: f => f === bin, home: '/Users/nobody' };
+    const set = { aiProvider: 'claudecode', aiAgreed: ['claudecode'] };
+    const notAgreed = await ai.complete({ prompt: 'x' }, { aiProvider: 'claudecode' }, { ...deps, spawn: fakeSpawn() });
+    ok('Claude Code: nothing runs before its box is ticked', !notAgreed.ok && runs.length === 0);
+    const r = await ai.complete({ system: 'Be brief.', prompt: 'Hello?' }, set, { ...deps, spawn: fakeSpawn() });
+    const run = runs[0];
+    const after = flag => run.args[run.args.indexOf(flag) + 1];
+    ok('...found where its installer puts it, the answer from its output', r.ok && r.text === 'Done' && run.file === bin, JSON.stringify(r));
+    ok('...print mode, no tools, no settings or MCP servers, nothing saved, Haiku unless told', run.args.includes('-p') && after('--tools') === '' && after('--setting-sources') === '' &&
+      run.args.includes('--strict-mcp-config') && run.args.includes('--no-session-persistence') && after('--model') === 'haiku' && after('--output-format') === 'text', JSON.stringify(run.args));
+    ok('...its coding system prompt replaced, ClassDash\'s instructions and the prompt on stdin', /^Follow the instructions/.test(after('--system-prompt')) && run.input === 'Be brief.\n\nHello?');
+    ok('...run in an empty folder, removed after, not told it\'s nested', run.folderFiles.length === 0 && !fs.existsSync(run.options.cwd) && !('CLAUDECODE' in run.options.env));
+    const signedOut = await ai.complete({ prompt: 'x' }, set, { ...deps, spawn: fakeSpawn({ code: 1, out: 'Failed to authenticate: OAuth session expired and could not be refreshed\n' }) });
+    ok('not signed in: says to run claude auth login', !signedOut.ok && /claude auth login/.test(signedOut.why), signedOut.why);
+    const limit = await ai.complete({ prompt: 'x' }, set, { ...deps, spawn: fakeSpawn({ code: 1, out: '', err: 'Claude usage limit reached. Your limit will reset at 5pm.\n' }) });
+    ok('any other stop: in its own words', !limit.ok && /usage limit reached/.test(limit.why), limit.why);
+    const missing = await ai.complete({ prompt: 'x' }, set, { ...deps, exists: () => false, spawn: fakeSpawn() });
+    ok('not installed: says so', !missing.ok && /isn't installed/.test(missing.why));
+    const odd = await ai.complete({ prompt: 'x' }, { ...set, aiModel: 'opus; rm -rf' }, { ...deps, spawn: fakeSpawn() });
+    ok('a model name with odd characters never reaches its command line', !odd.ok && runs.length === 2 + 1 + 0 + 0 && /model name/.test(odd.why), odd.why);
+    const winBin = path.join('C:\\Users\\kid\\AppData\\Roaming', 'npm', 'claude.cmd');
+    await ai.complete({ prompt: 'x' }, { ...set, aiModel: 'sonnet' },
+      { platform: 'win32', env: { PATH: '', APPDATA: 'C:\\Users\\kid\\AppData\\Roaming' }, exists: f => f === winBin, spawn: fakeSpawn() });
+    const w = runs[runs.length - 1];
+    ok('Windows: npm\'s claude.cmd, through the shell, every argument quoted', w.file === `"${winBin}"` && w.options.shell === true &&
+      w.args.every(a => /^".*"$/.test(a)) && w.args.includes('"sonnet"') && w.args.includes('""'), JSON.stringify(w && { file: w.file, args: w.args }));
+    const found = await ai.detect({}, { ...deps, fetch: async () => { throw new Error('nothing'); } });
+    ok('detect: Claude Code installed', found.claudeCode === true && found.codex === false);
+  }
+
   // ── settings ──
   {
     const v = (k, x) => settings.validate(k, x);
@@ -393,10 +438,16 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     const anth = d.querySelector('[data-ai-for="anthropic"] .ai-notice').textContent;
     ok('Anthropic: 18 or older, about the student, with a note for parents', /18 or older/.test(anth) && /The student this ClassDash is for is 18 or older/.test(anth) && /your child/.test(anth));
     const why = [...d.querySelectorAll('[data-section="ai"] .ai-why')];
-    ok('one "which to pick" fold-out at the top, whatever is picked: local first, the age rules, and why no Claude or Google plan',
+    ok('one "which to pick" fold-out at the top, whatever is picked: local first, the age rules, Claude Code\'s gray area and why no Google plan',
       why.length === 1 && !why[0].closest('[data-ai-for]') && why[0] === d.querySelector('[data-section="ai"] .hint').nextElementSibling &&
       /A local one if you can/.test(why[0].textContent) && /13 or older/.test(why[0].textContent) && /18 or older/.test(why[0].textContent) &&
-      /Claude Pro\/Max or Google AI Pro/.test(why[0].textContent) && /Antigravity/.test(why[0].textContent) && /API key/.test(why[0].textContent) && /own model/.test(why[0].textContent));
+      /Claude through Claude Code a gray area/.test(why[0].textContent) && /Google AI Pro/.test(why[0].textContent) && /with a key is the sure way/.test(why[0].textContent));
+    select.value = 'claudecode'; w.updateAiRows();
+    const cc = d.querySelector('[data-ai-for="claudecode"] .ai-notice');
+    ok('Claude Code: the gray area first, 18 or older, and its box says both',
+      cc.querySelector('p').classList.contains('ai-gray') && /A gray area/.test(cc.querySelector('p').textContent) && /18 or older/.test(cc.textContent) &&
+      /18 or older.*gray area in Anthropic's terms/.test(cc.querySelector('.ai-agree').textContent) && /claude auth login/.test(d.querySelector('[data-ai-for="claudecode"] .field-hint').textContent));
+    ok('...and only the Anthropic API\'s box has no gray area', !/gray area/.test(d.querySelector('[data-ai-for="anthropic"] .ai-notice').textContent));
     select.value = 'gemini'; w.updateAiRows();
     const gem = d.querySelector('[data-ai-for="gemini"] .ai-notice').textContent;
     ok('Gemini: 18 or older, and the free tier\'s training', /18 or older/.test(gem) && /free tier/.test(gem));

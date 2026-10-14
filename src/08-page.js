@@ -1323,7 +1323,7 @@ function aiSettings(s, field) {
   const ai = require('./37-ai.js');
   const P = ai.PROVIDERS;
   const chosen = ai.PROVIDER_IDS.includes(s.aiProvider) && !(P[s.aiProvider].mac && process.platform !== 'darwin') ? s.aiProvider : 'none';
-  const label = id => id === 'apple' ? t('aiApple') : id === 'codex' ? t('aiCodex') : P[id].label;
+  const label = id => id === 'apple' ? t('aiApple') : id === 'codex' ? t('aiCodex') : id === 'claudecode' ? t('aiClaudeCode') : P[id].label;
   const option = id => `<option value="${id}" data-label="${escapeHtml(label(id))}"${P[id].model ? ` data-default-model="${escapeHtml(P[id].model)}"` : ''}${P[id].url ? ` data-default-url="${escapeHtml(P[id].url)}"` : ''}` +
     `${P[id].local ? '' : ' data-cloud'}${chosen === id ? ' selected' : ''}>${escapeHtml(label(id))}</option>`;
   const localIds = ai.PROVIDER_IDS.filter(id => P[id].local && !(P[id].mac && process.platform !== 'darwin'));
@@ -1337,10 +1337,10 @@ function aiSettings(s, field) {
 
   const cloud = cloudIds.map(id => {
     const p = P[id];
-    const age = p.minAge === 13 ? t('aiAge13', p.company) : id === 'anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
-    const agree = p.minAge === 13 ? t('aiAgree13', p.company) : t('aiAgree18', p.company);
+    const age = p.minAge === 13 ? t('aiAge13', p.company) : p.company === 'Anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
+    const agree = (p.minAge === 13 ? t('aiAgree13', p.company) : t('aiAgree18', p.company)) + (p.grayZone ? ' ' + t('aiAgreeGrayZone') : '');
     return row(id, `        <div class="warn ai-notice">
-          <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
+${p.grayZone ? `          <p class="ai-gray">${escapeHtml(t('aiGrayZone'))}</p>\n` : ''}          <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
 ${p.freeTierTraining ? `          <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n` : ''}          <p>${escapeHtml(age)} ${link(p.terms, t('aiTerms'))} · ${link(p.privacy, t('aiPrivacy'))}</p>
           <p>${escapeHtml(t('aiForSomeoneElse'))}</p>
           <label class="check-row ai-agree"><input type="checkbox" data-key="aiAgreed" value="${id}"${agreed.includes(id) ? ' checked' : ''}><span class="label-text">${escapeHtml(agree)}</span></label>
@@ -1380,6 +1380,7 @@ ${note('apple', `${escapeHtml(t('aiAppleHint'))} <span id="ai-apple-status"></sp
 ${note('ollama', escapeHtml(t('aiOllamaHint')))}
 ${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
 ${note('codex', escapeHtml(t('aiCodexHint')))}
+${note('claudecode', escapeHtml(t('aiClaudeCodeHint')))}
 ${cloud}
 ${row('ollama lmstudio', `      <label class="setting-row wide">
         <span class="field-name">${escapeHtml(t('aiAddress'))}</span>
@@ -3038,6 +3039,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   /* Settings → AI: what a cloud provider gets, and its age rule. */
   .warn.ai-notice { margin: 4px 0 12px; font-size: 13px; line-height: 1.45; }
   .ai-notice p { margin: 0 0 8px; }
+  .ai-notice .ai-gray { font-weight: 600; }
   .ai-notice a { color: inherit; text-decoration: underline; }
   .ai-notice .ai-agree { align-items: flex-start; margin-top: 4px; }
   .ai-notice .ai-agree input { margin-top: 3px; }
@@ -4546,7 +4548,7 @@ function importCalendarPdf(button) {
 // The feed: Save fetches it at once (an empty link removes it), Read again
 // fetches it again. Both answer with the whole calendar to draw.
 // Settings → AI fills itself in: what aiDetect found (Ollama and LM Studio
-// with their models, Apple Intelligence, Codex, the saved cloud provider's
+// with their models, Apple Intelligence, Codex, Claude Code, the saved cloud provider's
 // models) marks the picker with ✓ and turns the model field into a
 // dropdown. Asked once, the first time the AI section is shown.
 var aiModels = {};
@@ -4580,6 +4582,7 @@ function markAiFound() {
   if (r.ollama) found.ollama = count(r.ollama.models.length);
   if (r.lmstudio) found.lmstudio = count(r.lmstudio.models.length);
   if (r.codex) found.codex = '';
+  if (r.claudeCode) found.claudecode = '';
   var names = [];
   for (var i = 0; i < select.options.length; i++) {
     var o = select.options[i];
