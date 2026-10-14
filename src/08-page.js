@@ -1380,7 +1380,7 @@ ${note('apple', `${escapeHtml(t('aiAppleHint'))} <span id="ai-apple-status"></sp
 ${note('ollama', escapeHtml(t('aiOllamaHint')))}
 ${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
 ${note('codex', escapeHtml(t('aiCodexHint')))}
-${note('claudecode', escapeHtml(t('aiClaudeCodeHint')))}
+${note('claudecode', `${escapeHtml(t('aiClaudeCodeHint'))} <span id="ai-claudecode-status"></span>`)}
 ${cloud}
 ${row('ollama lmstudio', `      <label class="setting-row wide">
         <span class="field-name">${escapeHtml(t('aiAddress'))}</span>
@@ -3568,6 +3568,7 @@ const WORDS = ${JSON.stringify({
   aiModelDefaultOption: t('aiModelDefaultOption', '{m}'),
   aiModelMissing: t('aiModelMissing'),
   aiUnavailable: t('aiUnavailable'),
+  aiClaudeCodeSignedOut: t('aiClaudeCodeSignedOut'),
   aiFind: t('aiFind'),
   aiScanButton: t('aiScanButton'),
   aiScanningButton: t('aiScanningButton'),
@@ -4582,7 +4583,8 @@ function markAiFound() {
   if (r.ollama) found.ollama = count(r.ollama.models.length);
   if (r.lmstudio) found.lmstudio = count(r.lmstudio.models.length);
   if (r.codex) found.codex = '';
-  if (r.claudeCode) found.claudecode = '';
+  // Installed but not signed in isn't found: it can't answer yet.
+  if (r.claudeCode && r.claudeCode.ok) found.claudecode = '';
   var names = [];
   for (var i = 0; i < select.options.length; i++) {
     var o = select.options[i];
@@ -4595,6 +4597,8 @@ function markAiFound() {
   document.getElementById('ai-found').textContent = names.length ? WORDS.aiFound + ' ' + names.join(', ') : WORDS.aiFoundNone;
   var apple = document.getElementById('ai-apple-status');
   if (apple) apple.textContent = r.apple && !r.apple.ok ? WORDS.aiUnavailable + ' ' + r.apple.why + '.' : '';
+  var claude = document.getElementById('ai-claudecode-status');
+  if (claude) claude.textContent = r.claudeCode && !r.claudeCode.ok ? WORDS.aiClaudeCodeSignedOut : '';
 }
 
 // The model as a dropdown wherever there's a list; a text field otherwise

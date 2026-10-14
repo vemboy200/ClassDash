@@ -345,7 +345,7 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
       const child = new EventEmitter();
       child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
       child.stdin = { on() {}, end(input) {
-        runs.push({ file, args, options, input, folderFiles: fs.readdirSync(options.cwd) });
+        runs.push({ file, args, options, input, folderFiles: options.cwd ? fs.readdirSync(options.cwd) : null });
         setImmediate(() => { if (out) child.stdout.emit('data', out); if (err) child.stderr.emit('data', err); child.emit('close', code); });
       } };
       child.kill = () => {};
@@ -378,8 +378,15 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     const w = runs[runs.length - 1];
     ok('Windows: npm\'s claude.cmd, through the shell, every argument quoted', w.file === `"${winBin}"` && w.options.shell === true &&
       w.args.every(a => /^".*"$/.test(a)) && w.args.includes('"sonnet"') && w.args.includes('""'), JSON.stringify(w && { file: w.file, args: w.args }));
-    const found = await ai.detect({}, { ...deps, fetch: async () => { throw new Error('nothing'); } });
-    ok('detect: Claude Code installed', found.claudeCode === true && found.codex === false);
+    const nofetch = async () => { throw new Error('nothing'); };
+    const before = runs.length;
+    let found = await ai.detect({}, { ...deps, fetch: nofetch, spawn: fakeSpawn({ out: '{"loggedIn":true,"authMethod":"claude.ai"}' }) });
+    ok('detect: Claude Code installed and signed in, asked through claude auth status', found.claudeCode.ok === true && found.codex === false &&
+      runs[before].args.slice(0, 2).join(' ') === 'auth status' && !('CLAUDECODE' in runs[before].options.env));
+    found = await ai.detect({}, { ...deps, fetch: nofetch, spawn: fakeSpawn({ out: '{"loggedIn":false,"authMethod":"none"}' }) });
+    ok('...installed but signed out: not ok', found.claudeCode.ok === false);
+    found = await ai.detect({}, { ...deps, exists: () => false, fetch: nofetch, spawn: fakeSpawn() });
+    ok('...not installed: null', found.claudeCode === null);
   }
 
   // ── settings ──
@@ -500,11 +507,13 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     ok('showing the AI section asks what\'s on this computer, once', posted.length === 1 && posted[0].action === 'aiDetect' && posted[0].arg === '');
     w.showSettingsSection('ai', null);
     ok('...not again while it\'s asking', posted.length === 1);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: true, cloud: null });
+    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: true, claudeCode: { ok: false, why: 'signedOut' }, cloud: null });
     const select = d.querySelector('[data-key="aiProvider"]');
     const label = v => select.querySelector(`option[value="${v}"]`).textContent;
     ok('found ones get a ✓, others don\'t', /✓$/.test(label('ollama')) && /✓$/.test(label('codex')) && !/✓/.test(label('lmstudio')) && !/✓/.test(label('openai')));
     ok('...and a line says what was found', /Found: Ollama \(2 models\), ChatGPT \(through Codex\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
+    ok('Claude Code installed but signed out: no ✓, and a line saying to sign in', !/✓/.test(label('claudecode')) &&
+      /not signed in: run "claude auth login"/.test(d.getElementById('ai-claudecode-status').textContent));
     if (process.platform === 'darwin') ok('Apple Intelligence that can\'t be used says why', /Not available here: Apple Intelligence is off/.test(d.getElementById('ai-apple-status').textContent));
     select.value = 'ollama'; w.updateAiRows();
     const list = d.getElementById('ai-model-select');
