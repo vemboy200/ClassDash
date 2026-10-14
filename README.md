@@ -172,7 +172,7 @@ Off unless you pick one in Settings → **AI**. It finds homework your teachers 
 
 ### Staying up to date
 
-ClassDash checks for a new release once a day and shows a banner when there is one; **Check for Updates…** in the menu bar checks now and installs it for you. Updating also refreshes your project folder's scripts, never your settings or data.
+ClassDash checks for a new release once a day and shows a banner when there is one; **Check for Updates…** in the menu bar checks now, shows a progress bar while the update downloads, and asks to install it as soon as it's done. Updating also refreshes your project folder's scripts, never your settings or data.
 
 ## Home API
 

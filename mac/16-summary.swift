@@ -2111,10 +2111,15 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     // here specifically because a menu click doesn't need to wait
     // synchronously on the result the way a page button would (see
     // downloadUpdate's own case in 21-notifier-actions.js for why that
-    // matters there and not here): this just fires it and lets
-    // maybeShowInstallPrompt()'s existing 60-second poll notice once
-    // it's actually done, exactly like an API-triggered download
-    // already gets noticed.
+    // matters there and not here).
+    //
+    // While it runs, a small panel shows a progress bar, read from the
+    // downloadedBytes/totalBytes downloadUpdate() records in
+    // update-status.json. runAction()'s completion fires when the node
+    // process exits, which for downloadUpdate is when the download has
+    // finished or failed, so the install prompt comes up right then
+    // instead of waiting for maybeShowInstallPrompt()'s 60-second poll.
+    // Closing the panel only hides the progress; the download carries on.
     @MainActor
     private func offerToDownload(latestVersion: String) {
         let alert = NSAlert()
@@ -2124,7 +2129,77 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         alert.addButton(withTitle: "Not Now")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         logWindow("menu: starting download of v\(latestVersion)")
-        runAction("downloadUpdate", "") { _ in }
+
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 90),
+                            styleMask: [.titled, .closable, .utilityWindow],
+                            backing: .buffered, defer: false)
+        panel.title = "Downloading ClassDash \(latestVersion)"
+        panel.isFloatingPanel = true
+        panel.isReleasedWhenClosed = false
+        panel.center()
+
+        let bar = NSProgressIndicator(frame: NSRect(x: 20, y: 45, width: 320, height: 20))
+        bar.style = .bar
+        bar.isIndeterminate = true
+        bar.minValue = 0
+        bar.maxValue = 1
+        bar.startAnimation(nil)
+
+        let label = NSTextField(labelWithString: "Starting…")
+        label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .secondaryLabelColor
+        label.frame = NSRect(x: 20, y: 18, width: 320, height: 18)
+
+        panel.contentView?.addSubview(bar)
+        panel.contentView?.addSubview(label)
+        panel.makeKeyAndOrderFront(nil)
+
+        let mb = { (bytes: Double) in String(format: "%.1f MB", bytes / 1e6) }
+        let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
+            guard let status = self?.readUpdateStatusFile(),
+                  (status["downloading"] as? Bool) == true else { return }
+            let got = (status["downloadedBytes"] as? NSNumber)?.doubleValue ?? 0
+            let total = (status["totalBytes"] as? NSNumber)?.doubleValue ?? 0
+            if total > 0 {
+                let fraction = min(1, got / total)
+                bar.isIndeterminate = false
+                bar.doubleValue = fraction
+                label.stringValue = "\(mb(got)) of \(mb(total)) (\(Int((fraction * 100).rounded()))%)"
+            } else {
+                label.stringValue = mb(got)
+            }
+        }
+        // .common so it keeps ticking while a menu or another modal is open.
+        RunLoop.main.add(timer, forMode: .common)
+
+        runAction("downloadUpdate", "") { [weak self] result in
+            DispatchQueue.main.async {
+                timer.invalidate()
+                panel.close()
+                guard let self = self else { return }
+                let status = self.readUpdateStatusFile() ?? [:]
+                if (status["readyToInstall"] as? Bool) == true,
+                   (status["readyVersion"] as? String) == latestVersion {
+                    // Asked for just now, so a "Later" from earlier in
+                    // this launch doesn't count.
+                    self.declinedInstallVersion = nil
+                    self.maybeShowInstallPrompt()
+                } else {
+                    var why = status["error"] as? String
+                    if why == nil,
+                       let data = result.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        why = obj["why"] as? String
+                    }
+                    logWindow("menu: download of v\(latestVersion) failed: \(why ?? "no reason given")")
+                    let failed = NSAlert()
+                    failed.messageText = "Couldn't download the update"
+                    failed.informativeText = why ?? "The download stopped without finishing."
+                    failed.alertStyle = .warning
+                    failed.runModal()
+                }
+            }
+        }
     }
 
     // A failed check couldn't call writeUpdateStatus() below — there's

@@ -480,7 +480,7 @@ const HANDLERS = {
   // handle erroring — same "no signal isn't an error" reasoning
   // classLastActivity() already uses in 22-class-activity.js.
   //
-  // `status` and `downloadedVersion` are computed on read by
+  // `status`, `downloadedVersion` and `progress` are computed on read by
   // readUpdateStatus() itself, not stored fields — see computeStatus()
   // in 26-update-check.js for the one place that logic lives, so a
   // client can watch a single word (unknown/error/downloading/ready/
@@ -489,7 +489,7 @@ const HANDLERS = {
   '/api/update-status': () => readUpdateStatus() || {
     currentVersion: null, latestVersion: null, url: null,
     checkedAt: null, updateAvailable: false,
-    status: 'unknown', downloadedVersion: null,
+    status: 'unknown', downloadedVersion: null, progress: null,
   },
 
   // Virtual assignments — reminders the user typed in themselves, not

@@ -79,6 +79,16 @@ function computeStatus(raw) {
 }
 
 /**
+ * How far along a download is, 0 to 1, from the downloadedBytes/totalBytes
+ * downloadUpdate() records while it runs. Null when nothing is downloading
+ * or the server didn't say how big the file is.
+ */
+function progressOf(raw) {
+  if (!raw || !raw.downloading || !raw.totalBytes) return null;
+  return Math.min(1, (raw.downloadedBytes || 0) / raw.totalBytes);
+}
+
+/**
  * Whatever the last check found, plus `status` (computeStatus() above)
  * and `downloadedVersion` — the version actually sitting downloaded,
  * as opposed to `currentVersion` (what's running) or `latestVersion`
@@ -99,6 +109,7 @@ function readUpdateStatus() {
     ...raw,
     status: computeStatus(raw),
     downloadedVersion: raw.readyVersion || null,
+    progress: progressOf(raw),
   };
 }
 
@@ -200,9 +211,15 @@ function dismissUpdate(version) {
  * URL rather than serving the asset directly. Capped at 5 hops so a
  * redirect loop fails loudly instead of hanging forever.
  */
-function fetchToFile(url, destPath, redirectsLeft, cb) {
+function fetchToFile(url, destPath, redirectsLeft, cb, onProgress) {
   const file = fs.createWriteStream(destPath);
+  // A connection that drops part way still lets the write stream finish
+  // (file.close() below ends it), and 'finish' used to report that cut-off
+  // file as a complete download. Once anything has failed, it stays failed.
+  let failed = false;
   const cleanupAndFail = (err) => {
+    if (failed) return;
+    failed = true;
     file.close();
     fs.unlink(destPath, () => cb(err));
   };
@@ -233,15 +250,31 @@ function fetchToFile(url, destPath, redirectsLeft, cb) {
         } catch (e) {
           return cleanupAndFail(e);
         }
-        return fetchToFile(nextUrl, destPath, redirectsLeft - 1, cb);
+        return fetchToFile(nextUrl, destPath, redirectsLeft - 1, cb, onProgress);
       }
       if (res.statusCode !== 200) {
         res.resume();
         return cleanupAndFail(new Error(`download responded ${res.statusCode}`));
       }
+      const total = Number(res.headers['content-length']) || null;
+      let received = 0;
+      if (onProgress) onProgress(0, total);
+      res.on('data', (chunk) => {
+        received += chunk.length;
+        if (onProgress) onProgress(received, total);
+      });
       res.pipe(file);
-      file.on('finish', () => file.close(() => cb(null)));
+      file.on('finish', () => file.close(() => {
+        if (failed) return;
+        if (total && received < total) {
+          cleanupAndFail(new Error(`download was cut off (${received} of ${total} bytes)`));
+          return;
+        }
+        cb(null);
+      }));
       file.on('error', cleanupAndFail);
+      res.on('aborted', () => cleanupAndFail(new Error('download was cut off')));
+      res.on('error', cleanupAndFail);
     });
   } catch (e) {
     cleanupAndFail(e);
@@ -280,12 +313,24 @@ function downloadUpdate() {
   // computeStatus() would otherwise keep reading "error" right through
   // a download that's actually in progress right now, since a stale
   // error field never got cleared by anything.
-  writeFields({ downloading: true, error: null });
+  writeFields({ downloading: true, error: null, downloadedBytes: 0, totalBytes: undefined });
+
+  // The apps' progress windows read downloadedBytes/totalBytes from the
+  // file, so it's rewritten as the bytes arrive, at most a few times a
+  // second rather than once per network chunk. Both fields are dropped
+  // again when the download ends (undefined leaves them out of the JSON).
+  let lastWrite = 0;
+  const onProgress = (received, total) => {
+    const now = Date.now();
+    if (received !== 0 && now - lastWrite < 250) return;
+    lastWrite = now;
+    writeFields({ downloadedBytes: received, totalBytes: total || undefined });
+  };
 
   const destPath = destPathFor(status.downloadURL);
   fetchToFile(status.downloadURL, destPath, 5, (err) => {
     if (err) {
-      writeFields({ downloading: false, error: err.message });
+      writeFields({ downloading: false, error: err.message, downloadedBytes: undefined, totalBytes: undefined });
       return;
     }
     writeFields({
@@ -294,8 +339,10 @@ function downloadUpdate() {
       readyVersion: latestVersion,
       downloadedPath: destPath,
       error: null,
+      downloadedBytes: undefined,
+      totalBytes: undefined,
     });
-  });
+  }, onProgress);
 
   return { ok: true, started: true };
 }

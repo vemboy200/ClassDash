@@ -30,6 +30,7 @@ let win = null;
 let projectDir = null;
 let isLocked = false; // mirrors isDisplayAsleep's role, via lock-screen below
 let declinedInstallVersion = null;
+let installPromptOpen = false;
 let freshCheckTimer = null;
 let updateCheckTimer = null;
 let installPromptTimer = null;
@@ -1466,7 +1467,85 @@ function offerToDownload(latestVersion) {
     buttons: ['Download', 'Not Now'],
     defaultId: 0,
   }).then(({ response }) => {
-    if (response === 0) runAction('downloadUpdate', '');
+    if (response === 0) downloadWithProgress(latestVersion);
+  });
+}
+
+function formatMB(bytes) {
+  return (bytes / 1e6).toFixed(1) + ' MB';
+}
+
+// A download started from "Check for Updates…" shows a small window with a
+// progress bar (and the same progress on the taskbar button), then goes
+// straight to the install prompt when it's done, instead of waiting for
+// the 60-second installPromptTimer. downloadUpdate() records
+// downloadedBytes/totalBytes in update-status.json as the bytes arrive,
+// and the window reads them from there. runAction() resolves when the
+// notifier process exits, which for downloadUpdate is when the download
+// has finished or failed. Closing the window only hides the progress: the
+// download carries on and the install prompt still appears.
+function downloadWithProgress(latestVersion) {
+  const progressWin = new BrowserWindow({
+    width: 360,
+    height: 120,
+    parent: win,
+    title: `Downloading ClassDash ${latestVersion}`,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    autoHideMenuBar: true,
+    webPreferences: { contextIsolation: true },
+  });
+  const html = '<!doctype html><html><head><meta charset="utf-8"><style>' +
+    ':root{color-scheme:light dark}' +
+    'body{margin:0;padding:18px 20px;font:14px "Segoe UI",-apple-system,sans-serif;' +
+    'background:Canvas;color:CanvasText}' +
+    'progress{width:100%;height:14px;margin:10px 0 6px}' +
+    '#detail{font-size:12px;opacity:.7}' +
+    '</style></head><body>' +
+    '<div>Downloading ClassDash ' + latestVersion + '…</div>' +
+    '<progress id="bar"></progress><div id="detail">Starting…</div>' +
+    '<script>window.setProgress=function(f,t){var b=document.getElementById("bar");' +
+    'if(f==null){b.removeAttribute("value")}else{b.max=1;b.value=f}' +
+    'document.getElementById("detail").textContent=t}</script>' +
+    '</body></html>';
+  // charset=utf-8 for the "…", same as showBusyWindow() above.
+  progressWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+  const tick = () => {
+    const status = readUpdateStatusFile() || {};
+    if (!status.downloading) return;
+    const got = status.downloadedBytes || 0;
+    const total = status.totalBytes || 0;
+    const fraction = total ? Math.min(1, got / total) : null;
+    const text = total
+      ? `${formatMB(got)} of ${formatMB(total)} (${Math.round(fraction * 100)}%)`
+      : formatMB(got);
+    // 2 is Electron's "indeterminate" taskbar progress.
+    if (win && !win.isDestroyed()) win.setProgressBar(fraction == null ? 2 : fraction);
+    if (!progressWin.isDestroyed()) {
+      progressWin.webContents
+        .executeJavaScript(`setProgress(${fraction == null ? 'null' : fraction}, ${JSON.stringify(text)})`)
+        .catch(() => {});
+    }
+  };
+  const timer = setInterval(tick, 300);
+
+  runAction('downloadUpdate', '').then((result) => {
+    clearInterval(timer);
+    if (win && !win.isDestroyed()) win.setProgressBar(-1);
+    if (!progressWin.isDestroyed()) progressWin.close();
+
+    const status = readUpdateStatusFile() || {};
+    if (status.readyToInstall && status.readyVersion === latestVersion) {
+      // Asked for just now, so a "Later" from earlier in this launch
+      // doesn't count.
+      declinedInstallVersion = null;
+      maybeShowInstallPrompt();
+    } else {
+      dialog.showErrorBox("Couldn't download the update",
+        status.error || (result && result.why) || 'The download stopped without finishing.');
+    }
   });
 }
 
@@ -1495,9 +1574,13 @@ function maybeShowInstallPrompt() {
     return false;
   }
   if (status.readyVersion === declinedInstallVersion) return false;
+  // Already on screen (the 60-second timer and a finished download can
+  // both get here): counts as shown, but don't stack a second one.
+  if (installPromptOpen) return true;
 
   win.show();
   win.focus();
+  installPromptOpen = true;
   dialog.showMessageBox(win, {
     type: 'question',
     message: `Install ClassDash ${status.readyVersion}?`,
@@ -1506,6 +1589,7 @@ function maybeShowInstallPrompt() {
     buttons: ['Install & Relaunch', 'Later'],
     defaultId: 0,
   }).then(({ response }) => {
+    installPromptOpen = false;
     if (response === 0) {
       installReadyUpdate(status.downloadedPath);
     } else {
