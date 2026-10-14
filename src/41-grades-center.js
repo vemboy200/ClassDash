@@ -15,7 +15,7 @@
  *
  * ── Who sees the grades ──
  *
- * A local AI (Apple Intelligence, Ollama, LM Studio) keeps them on this
+ * A local AI (Apple Intelligence, Ollama, LM Studio, Foundry Local) keeps them on this
  * computer. A cloud one only once its id is in gradesAiAgreed: the box in
  * the sidebar saying the grades and teacher comments go to that company.
  * That's separate from aiAgreed (announcement text), since grades are more

@@ -337,6 +337,86 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
       w.args.every(a => /^".*"$/.test(a)) && w.args.includes('"gpt-5"'), JSON.stringify(w && { file: w.file, args: w.args }));
   }
 
+  // ── Foundry Local: its address asked of it, started when stopped, a model loaded when it isn't ──
+  {
+    const { EventEmitter } = require('events');
+    // A stand-in foundry command: status prints its address only once it's
+    // started (old-style output, colours and all), and load loads.
+    const make = ({ running = false, loaded = false, oldCli = false } = {}) => {
+      const state = { running, loaded, cmds: [] };
+      state.spawn = (file, args, options) => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+        child.stdin = { on() {}, end() {
+          const a = args.join(' ');
+          state.cmds.push(a);
+          let out = '', code = 0;
+          if (oldCli && args[0] === 'server') { code = 1; out = 'Unknown command server'; }
+          else if (/^(server|service) status$/.test(a)) out = state.running ? '\u001b[32m🟢 Model management service is running on http://127.0.0.1:5273/openai/status\u001b[0m\n' : 'Model management service is not running!\n';
+          else if (/^(server|service) start$/.test(a)) state.running = true;
+          else if (a === 'model load phi-4-mini-instruct-generic-cpu:1') state.loaded = true;
+          else code = 1;
+          setImmediate(() => { child.stdout.emit('data', out); child.emit('close', code); });
+        } };
+        child.kill = () => {};
+        return child;
+      };
+      state.fetch = fakeFetch(url => {
+        if (!state.running) return { throws: new Error('ECONNREFUSED') };
+        if (/\/v1\/models$/.test(url)) return { status: 200, json: { data: state.loaded ? [{ id: 'phi-4-mini-instruct-generic-cpu:1' }] : [] } };
+        return state.loaded ? chat('From Foundry') : { status: 404, json: { error: { message: 'Model phi-4-mini-instruct-generic-cpu:1 not loaded' } } };
+      });
+      return state;
+    };
+    const bin = path.join('/opt/homebrew/bin', 'foundry');
+    const deps = st => ({ platform: 'darwin', env: { PATH: '/usr/bin' }, exists: f => f === bin, home: '/Users/nobody', spawn: st.spawn, fetch: st.fetch.fetch });
+    const set = { aiProvider: 'foundry', aiModel: 'phi-4-mini-instruct-generic-cpu:1', aiLocalUrl: 'http://localhost:9999/v1' };
+
+    ok('its address, from what its status prints', ai.foundryAddress('\u001b[32mrunning on http://127.0.0.1:5273/openai/status\u001b[0m') === 'http://127.0.0.1:5273/v1' &&
+      ai.foundryAddress('Endpoint: http://localhost:52495/v1.') === 'http://localhost:52495/v1');
+    ok('...but never one that isn\'t this computer, or one with no port', ai.foundryAddress('see https://aka.ms/foundry-local-docs and http://192.168.1.5:5273') === null &&
+      ai.foundryAddress('http://localhost/v1') === null && ai.foundryAddress('not running') === null);
+    ok('local: no box to tick', ai.ready(ai.configFrom(set)).ok && ai.PROVIDERS.foundry.local);
+
+    let st = make();
+    let r = await ai.complete({ system: 'Be brief.', prompt: 'Hi?' }, set, deps(st));
+    ok('stopped: started, its address asked again, the saved address ignored, the model loaded and asked once more', r.ok && r.text === 'From Foundry' &&
+      JSON.stringify(st.cmds) === JSON.stringify(['server status', 'service status', 'server start', 'server status', 'model load phi-4-mini-instruct-generic-cpu:1']) &&
+      st.fetch.calls.length === 2 && st.fetch.calls.every(c => c.url === 'http://127.0.0.1:5273/v1/chat/completions') && st.fetch.calls[1].body.messages[0].content === 'Be brief.',
+      JSON.stringify({ r, cmds: st.cmds, urls: st.fetch.calls.map(c => c.url) }));
+    st = make({ running: true, loaded: true });
+    r = await ai.complete({ prompt: 'Hi?' }, set, deps(st));
+    ok('running and loaded: just its status, then the question', r.ok && JSON.stringify(st.cmds) === '["server status"]' && st.fetch.calls.length === 1);
+    st = make({ running: true, oldCli: true, loaded: true });
+    r = await ai.complete({ prompt: 'Hi?' }, set, deps(st));
+    ok('an older Foundry Local: "service status" instead', r.ok && JSON.stringify(st.cmds) === '["server status","service status"]', JSON.stringify(st.cmds));
+    st = make({ running: true });
+    r = await ai.complete({ prompt: 'Hi?' }, { ...set, aiModel: 'not-downloaded' }, deps(st));
+    ok('a model it can\'t load: says to download it', !r.ok && /foundry model download not-downloaded/.test(r.why), r.why);
+    r = await ai.complete({ prompt: 'Hi?' }, { ...set, aiModel: 'phi; rm -rf ~' }, deps(make({ running: true })));
+    ok('a model name with odd characters never reaches its command line', !r.ok && /model name/.test(r.why));
+    r = await ai.complete({ prompt: 'Hi?' }, set, { ...deps(make()), exists: () => false });
+    ok('not installed: says how to get it', !r.ok && /isn't installed.*winget install Microsoft\.FoundryLocal/.test(r.why), r.why);
+    st = make({ running: true });
+    r = await ai.test({ aiProvider: 'foundry' }, deps(st));
+    ok('Test with nothing loaded: says to download and load one', !r.ok && /no model loaded yet/.test(r.why), r.why);
+    st = make({ running: true, loaded: true });
+    r = await ai.test({ aiProvider: 'foundry' }, deps(st));
+    ok('Test with one loaded: picks it', r.ok && r.model === 'phi-4-mini-instruct-generic-cpu:1', JSON.stringify(r));
+
+    const nofetch = async () => { throw new Error('nothing'); };
+    st = make({ running: true, loaded: true });
+    let found = await ai.detect({}, { ...deps(st), fetch: (u, i) => /5273/.test(u) ? st.fetch.fetch(u, i) : nofetch() });
+    ok('detect: running, with its address and models', found.foundry && found.foundry.url === 'http://127.0.0.1:5273/v1' && JSON.stringify(found.foundry.models) === '["phi-4-mini-instruct-generic-cpu:1"]', JSON.stringify(found.foundry));
+    st = make();
+    found = await ai.detect({}, { ...deps(st), fetch: nofetch });
+    ok('...stopped: found, not started just to look', found.foundry && found.foundry.url === null && !st.cmds.some(c => /start/.test(c)));
+    found = await ai.detect({}, { ...deps(st), exists: () => false, fetch: nofetch });
+    ok('...not installed: null', found.foundry === null);
+    const win = path.join('C:\\Users\\kid\\AppData\\Local', 'Microsoft', 'WindowsApps', 'foundry.exe');
+    ok('Windows: found where winget puts it', ai.findFoundry({ platform: 'win32', env: { PATH: '', LOCALAPPDATA: 'C:\\Users\\kid\\AppData\\Local' }, exists: f => f === win }) === win);
+  }
+
   // ── detect: Codex installed, and whether it's signed in ──
   {
     const { EventEmitter } = require('events');
@@ -528,11 +608,12 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     ok('showing the AI section asks what\'s on this computer, once', posted.length === 1 && posted[0].action === 'aiDetect' && posted[0].arg === '');
     w.showSettingsSection('ai', null);
     ok('...not again while it\'s asking', posted.length === 1);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: { ok: true }, claudeCode: { ok: false, why: 'signedOut' }, cloud: null });
+    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: { ok: true }, claudeCode: { ok: false, why: 'signedOut' }, foundry: { url: null, models: [] }, cloud: null });
     const select = d.querySelector('[data-key="aiProvider"]');
     const label = v => select.querySelector(`option[value="${v}"]`).textContent;
     ok('found ones get a ✓, others don\'t', /✓$/.test(label('ollama')) && /✓$/.test(label('codex')) && !/✓/.test(label('lmstudio')) && !/✓/.test(label('openai')));
-    ok('...and a line says what was found', /Found: Ollama \(2 models\), ChatGPT \(through Codex\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
+    ok('...and a line says what was found', /Found: Ollama \(2 models\), Foundry Local \([^)]*\), ChatGPT \(through Codex\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
+    ok('Foundry Local stopped: ✓ anyway, saying ClassDash starts it', /✓$/.test(label('foundry')) && /Foundry Local \(not running, ClassDash starts it\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
     ok('Claude Code installed but signed out: no ✓, and a line saying to sign in', !/✓/.test(label('claudecode')) &&
       /not signed in: run "claude auth login"/.test(d.getElementById('ai-claudecode-status').textContent));
     ok('...but still listed as found, saying it isn\'t signed in', /Claude \(through Claude Code\) \(not signed in\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);

@@ -14,7 +14,7 @@
  *
  * What goes to a model is class text: announcements, class names, and
  * through class names often a teacher's name. On this computer (Apple's
- * on-device model, Ollama, LM Studio) it stays here; a cloud provider gets
+ * on-device model, Ollama, LM Studio, Foundry Local) it stays here; a cloud provider gets
  * a copy and keeps it under its own policy. So the local ones come first in
  * the panel and are the recommended ones, and the cloud ones work only
  * after the person has ticked that provider's own box (aiAgreed), which
@@ -39,6 +39,16 @@
  *   ollama,    their OpenAI-style API on this computer or the home network;
  *   lmstudio   only a local or private address is accepted, so "local" in
  *              the panel stays true.
+ *   foundry    Microsoft's Foundry Local (Windows, and Macs with Apple
+ *              silicon): the same OpenAI-style API, but on a port that
+ *              changes each time it starts, so the address is asked of its
+ *              own `foundry server status` before each use (`foundry
+ *              service status` on its older versions), and it's started
+ *              (`foundry server start`) when it isn't running: it stops
+ *              itself when idle. Only an address on this computer is used.
+ *              A model it hasn't loaded is loaded (`foundry model load`)
+ *              and asked again once. Built from Microsoft's docs, not yet
+ *              tried against the real thing.
  *   codex      the person's own `codex` command (`codex exec`), signed in
  *              with their ChatGPT plan (`codex login`), in a read-only
  *              sandbox in an empty folder.
@@ -69,6 +79,7 @@ const PROVIDERS = {
   apple: { local: true, label: 'Apple Intelligence', mac: true },
   ollama: { local: true, label: 'Ollama', url: 'http://localhost:11434/v1' },
   lmstudio: { local: true, label: 'LM Studio', url: 'http://localhost:1234/v1' },
+  foundry: { local: true, label: 'Foundry Local' },
   codex: {
     local: false, label: 'ChatGPT (Codex)', company: 'OpenAI', minAge: 13, parent: true,
     terms: 'https://openai.com/policies/terms-of-use/', privacy: 'https://openai.com/policies/privacy-policy/',
@@ -120,7 +131,8 @@ function configFrom(settings) {
   return {
     provider: id,
     model: String(settings.aiModel || '').trim() || (p && p.model) || '',
-    url: (String(settings.aiLocalUrl || '').trim() || (p && p.url) || '').replace(/\/+$/, ''),
+    // Foundry Local's address is asked of it each time (foundryUrl()).
+    url: id === 'foundry' ? '' : (String(settings.aiLocalUrl || '').trim() || (p && p.url) || '').replace(/\/+$/, ''),
     key: p && p.key ? String(settings[p.key] || '').trim() : '',
     agreed: Array.isArray(settings.aiAgreed) ? settings.aiAgreed : [],
   };
@@ -266,7 +278,7 @@ const NOT_CHAT = /embed|tts|whisper|dall-e|audio|realtime|image|transcribe|moder
 /** The models this provider offers this person, or null where there's no list. */
 async function listModels(config, deps) {
   const { provider: id, key, url } = config;
-  if (id === 'ollama' || id === 'lmstudio') {
+  if (id === 'ollama' || id === 'lmstudio' || id === 'foundry') {
     const json = await request(deps, `${url}/models`, { local: true });
     return (json.data || []).map(m => m.id).filter(m => m && !NOT_CHAT.test(m)).sort();
   }
@@ -322,7 +334,7 @@ async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, dep
       if (!/think/i.test(e && e.message)) throw e;
     }
   }
-  if (id === 'ollama' || id === 'lmstudio' || id === 'openai') {
+  if (id === 'ollama' || id === 'lmstudio' || id === 'foundry' || id === 'openai') {
     const base = id === 'openai' ? OPENAI : url;
     if (onPart) {
       const got = streamed(onPart);
@@ -451,7 +463,9 @@ function findCommand(deps, command) {
   const home = deps.home || os.homedir();
   const dirs = [
     ...String(env.PATH || env.Path || '').split(path.delimiter),
-    ...(win ? [path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm'), path.join(home, '.local', 'bin')]
+    // WindowsApps: where an app installed with winget (Foundry Local) puts its command.
+    ...(win ? [path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm'), path.join(home, '.local', 'bin'),
+      path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'Microsoft', 'WindowsApps')]
       : ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local', 'bin'), path.join(home, '.npm-global', 'bin'), path.join(home, '.claude', 'local')]),
   ].filter(Boolean);
   for (const dir of dirs) for (const n of names) {
@@ -462,6 +476,68 @@ function findCommand(deps, command) {
 }
 const findCodex = deps => findCommand(deps, 'codex');
 const findClaude = deps => findCommand(deps, 'claude');
+const findFoundry = deps => findCommand(deps, 'foundry');
+
+// Foundry Local's address, from its own status: the first address on this
+// computer it prints, as its /v1 API. Its colours are taken out first.
+function foundryAddress(text) {
+  const plain = String(text || '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
+  for (const m of plain.matchAll(/https?:\/\/[^\s"'<>()]+/g)) {
+    let u;
+    try { u = new URL(m[0].replace(/[.,;:]+$/, '')); } catch { continue; }
+    const host = u.hostname.replace(/^\[|\]$/g, '');
+    if (u.port && (host === 'localhost' || host === '127.0.0.1' || host === '::1')) return `${u.origin}/v1`;
+  }
+  return null;
+}
+
+/**
+ * Where Foundry Local answers right now: asks `foundry server status`
+ * (`foundry service status` on older versions) and, with start, starts it
+ * when neither prints an address. Throws in plain words when it's not
+ * installed or doesn't start.
+ */
+async function foundryUrl(deps, start) {
+  const bin = findFoundry(deps);
+  if (!bin) throw new Error('Foundry Local isn\'t installed (on Windows: winget install Microsoft.FoundryLocal)');
+  const quick = { ...deps, timeoutMs: 15000 };
+  const status = async () => {
+    for (const group of ['server', 'service']) {
+      try {
+        const { out, err } = await runCommand(quick, bin, [group, 'status'], '');
+        const url = foundryAddress(`${out}\n${err}`);
+        if (url) return url;
+      } catch { /* the other one, or not running */ }
+    }
+    return null;
+  };
+  let url = await status();
+  if (url || !start) return url;
+  for (const group of ['server', 'service']) {
+    try {
+      const { code } = await runCommand({ ...deps, timeoutMs: 60000 }, bin, [group, 'start'], '');
+      if (code === 0) break;
+    } catch { /* the other one */ }
+  }
+  url = await status();
+  if (!url) throw new Error('Foundry Local didn\'t start (try "foundry server start" in a terminal)');
+  return url;
+}
+
+// A model Foundry Local hasn't loaded is loaded with its own command, once.
+async function viaFoundry(config, ask, deps) {
+  if (config.model && !MODEL_NAME.test(config.model)) throw new Error('that model name has characters Foundry Local won\'t take');
+  const url = await foundryUrl(deps, true);
+  const asking = { ...config, url };
+  try {
+    return await viaHttp(asking, ask, deps);
+  } catch (e) {
+    if (!config.model || !/not found|not loaded|load/i.test(e && e.message)) throw e;
+    const { code } = await runCommand({ ...deps, timeoutMs: TIMEOUT_MS }, findFoundry(deps), ['model', 'load', config.model], '');
+    if (code !== 0) throw new Error(`Foundry Local couldn't load ${config.model} (download it first: foundry model download ${config.model})`);
+    return viaHttp(asking, ask, deps);
+  }
+}
 
 // A .cmd (npm's Windows launcher) only runs through the shell; every
 // argument given to one is a flag, a path or a fixed sentence, quoted for it.
@@ -559,6 +635,7 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
     const text = config.provider === 'apple' ? await viaApple(ask, d)
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
       : config.provider === 'claudecode' ? await viaClaudeCode(config, ask, d)
+      : config.provider === 'foundry' ? await viaFoundry(config, ask, d)
       : await viaHttp(config, ask, d);
     // Asked not to show it (think false): any thinking sent anyway is dropped.
     if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), ...(ask.think === false ? {} : { thinking: text.thinking }) };
@@ -579,10 +656,16 @@ async function test(settings, deps) {
   const can = ready(config, d.platform);
   if (!can.ok) return can;
   let models = null;
-  try { models = await listModels(config, d); } catch (e) {
+  try {
+    if (config.provider === 'foundry') config.url = await foundryUrl(d, true);
+    models = await listModels(config, d);
+  } catch (e) {
     return { ok: false, why: scrub(e && e.message, config.key) };
   }
   if (!config.model && models && models.length) config.model = models[0];
+  if (!config.model && config.provider === 'foundry') {
+    return { ok: false, why: 'no model loaded yet (for example: foundry model download qwen2.5-1.5b, then foundry model load qwen2.5-1.5b)', models: models || [] };
+  }
   if (!config.model && (config.provider === 'ollama' || config.provider === 'lmstudio')) {
     return { ok: false, why: 'no model downloaded yet', models: models || [] };
   }
@@ -603,7 +686,7 @@ async function test(settings, deps) {
  * (its box ticked and a key saved). Only lists are asked for: nothing of
  * the person's goes anywhere. Quick, so the panel isn't kept waiting.
  *
- * { ollama: {url, models} | null, lmstudio: …, apple: {ok, why} | null,
+ * { ollama: {url, models} | null, lmstudio: …, foundry: {url, models} (url null: not running) | null, apple: {ok, why} | null,
  *   codex: {ok, why} | null, claudeCode: {ok, why} | null, cloud: {provider, models} | {provider, why} | null }
  */
 async function detect(settings = require('./19-settings.js').read(), deps = {}) {
@@ -647,6 +730,15 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
       return JSON.parse(out).loggedIn === true ? { ok: true } : { ok: false, why: 'signedOut' };
     } catch { return { ok: false, why: 'signedOut' }; }
   };
+  // Foundry Local: installed, and where it's running with its models; not
+  // started just to look (it's started when it's used).
+  const foundry = async () => {
+    if (!findFoundry(d)) return null;
+    let url = null;
+    try { url = await foundryUrl(d, false); } catch { /* not running */ }
+    if (!url) return { url: null, models: [] };
+    try { return { url, models: await listModels({ provider: 'foundry', url }, d) }; } catch { return { url, models: [] }; }
+  };
   const cloud = async () => {
     const p = PROVIDERS[saved.provider];
     if (!p || p.local || !p.key || !ready(saved, d.platform).ok) return null;
@@ -654,8 +746,8 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
       return { provider: saved.provider, why: scrub(e && e.message, saved.key) };
     }
   };
-  const [ollama, lmstudio, appleResult, codexResult, claudeResult, cloudResult] = await Promise.all([local('ollama'), local('lmstudio'), apple(), codex(), claudeCode(), cloud()]);
-  return { ollama, lmstudio, apple: appleResult, codex: codexResult, claudeCode: claudeResult, cloud: cloudResult };
+  const [ollama, lmstudio, foundryResult, appleResult, codexResult, claudeResult, cloudResult] = await Promise.all([local('ollama'), local('lmstudio'), foundry(), apple(), codex(), claudeCode(), cloud()]);
+  return { ollama, lmstudio, foundry: foundryResult, apple: appleResult, codex: codexResult, claudeCode: claudeResult, cloud: cloudResult };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, appBinary, complete, test, detect };
+module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect };

@@ -1347,7 +1347,7 @@ ${p.freeTierTraining ? `          <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n`
         </div>`);
   }).join('\n');
 
-  const modelHint = id => id === 'ollama' || id === 'lmstudio' ? t('aiModelFirst')
+  const modelHint = id => id === 'ollama' || id === 'lmstudio' ? t('aiModelFirst') : id === 'foundry' ? t('aiModelFoundry')
     : id === 'codex' ? t('aiModelCodex') : t('aiModelDefault', P[id].model);
   const modelHints = ai.PROVIDER_IDS.filter(id => id !== 'apple')
     .map(id => `<span data-ai-for="${id}"${shown(id)}>${escapeHtml(modelHint(id))}</span>`).join('');
@@ -1379,6 +1379,7 @@ ${note(localIds.join(' '), escapeHtml(t('aiLocalNote')), 'field-hint ai-local-no
 ${note('apple', `${escapeHtml(t('aiAppleHint'))} <span id="ai-apple-status"></span>`)}
 ${note('ollama', escapeHtml(t('aiOllamaHint')))}
 ${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
+${note('foundry', escapeHtml(t('aiFoundryHint')))}
 ${note('codex', `${escapeHtml(t('aiCodexHint'))} <span id="ai-codex-status"></span>`)}
 ${note('claudecode', `${escapeHtml(t('aiClaudeCodeHint'))} <span id="ai-claudecode-status"></span>`)}
 ${cloud}
@@ -1399,7 +1400,7 @@ ${row(ai.PROVIDER_IDS.filter(id => id !== 'apple').join(' '), `      <label clas
         </span>
         <span class="field-hint">${modelHints}</span>
       </label>`)}
-${row('ollama lmstudio', `      <label class="setting-row">
+${row('ollama lmstudio foundry', `      <label class="setting-row">
         <span class="field-name">${escapeHtml(t('aiThinking'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="aiThinking"${s.aiThinking !== false ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('aiThinkingHint'))}</span>
@@ -3555,6 +3556,7 @@ const WORDS = ${JSON.stringify({
   aiModelDefaultOption: t('aiModelDefaultOption', '{m}'),
   aiModelMissing: t('aiModelMissing'),
   aiUnavailable: t('aiUnavailable'),
+  aiFoundryStopped: t('aiFoundryStopped'),
   aiClaudeCodeSignedOut: t('aiClaudeCodeSignedOut'),
   aiCodexSignedOut: t('aiCodexSignedOut'),
   aiNotSignedIn: t('aiNotSignedIn'),
@@ -4549,6 +4551,7 @@ function detectAi(then) {
     aiDetected = r;
     if (r.ollama) aiModels.ollama = r.ollama.models;
     if (r.lmstudio) aiModels.lmstudio = r.lmstudio.models;
+    if (r.foundry) aiModels.foundry = r.foundry.models;
     if (r.cloud && r.cloud.models) aiModels[r.cloud.provider] = r.cloud.models;
     markAiFound();
     showAiModels();
@@ -4563,6 +4566,8 @@ function markAiFound() {
   var count = function (n) { return n === 1 ? WORDS.aiModelOne : WORDS.aiModelsCount.split('{n}').join(String(n)); };
   if (r.ollama) found.ollama = count(r.ollama.models.length);
   if (r.lmstudio) found.lmstudio = count(r.lmstudio.models.length);
+  // Foundry Local stopped still gets its ✓: it's started when it's used.
+  if (r.foundry) found.foundry = r.foundry.url ? count(r.foundry.models.length) : WORDS.aiFoundryStopped;
   // Codex and Claude Code installed but not signed in are found, but get
   // no ✓: they can't answer until they're signed in.
   var signedOut = {};
@@ -4603,7 +4608,7 @@ function showAiModels() {
     input.hidden = false;
     return;
   }
-  var local = id === 'ollama' || id === 'lmstudio';
+  var local = id === 'ollama' || id === 'lmstudio' || id === 'foundry';
   var current = input.value;
   if (local && !current) current = models[0];
   input.value = current;
@@ -4628,6 +4633,8 @@ function fillAiAddress(always) {
   var id = document.querySelector('[data-key="aiProvider"]').value;
   var server = aiDetected && aiDetected[id];
   var address = document.querySelector('[data-key="aiLocalUrl"]');
+  // Foundry Local's address changes each time it starts: asked, not saved.
+  if (id === 'foundry') return server;
   if (server && server.url && (always || !address.value)) address.value = server.url;
   return server;
 }
