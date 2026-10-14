@@ -181,6 +181,7 @@ Almost everything below now has a control in the settings panel (gear icon on th
 | `aiOpenaiKey`, `aiAnthropicKey`, `aiGeminiKey` | API keys. **Credentials**, like `canvasToken`: masked, never logged, and scrubbed out of provider errors |
 | `aiAgreed` | the cloud providers whose box the person ticked (their age rule, and that class text goes to them). A cloud provider isn't sent anything until its id is here. Panel only: `/api/settings` refuses it |
 | `aiThinking` | `true` (default): a local AI (Ollama, LM Studio) shows its thinking in the Grades center, streamed as it writes; off is faster. A cloud AI always does. |
+| `aiSkipClasswork` | `false` (default). On: the announcement scan tells the AI to leave out work the announcement says or suggests is done in class, so only work for outside class becomes a reminder (`SKIP_CLASSWORK` in `38-announcement-scan.js`). |
 | `gradesProvider` | `none` (default) or `q`: Settings → Grades. Q's password is never a setting: it goes to the Keychain (Windows: `grades-secret.json`) through its own action. |
 | `gradesAddress`, `gradesUsername` | Q's portal address (the whole thing, with its path; only the part before `/Home/` is kept) and username. |
 | `gradesHidden` | `true` masks the grades on the Grades list (Hide), names kept. |

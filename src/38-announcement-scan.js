@@ -9,7 +9,8 @@
  *   1. AI: the model gets the announcement's text, its class name and the
  *      day it was posted, and answers with the work it asks
  *      for: a short title and a due date (it works out "Friday" from the
- *      posting day). One announcement per request: Apple's on-device model
+ *      posting day). With Skip classwork on (aiSkipClasswork), it's also
+ *      told to leave out work done in class. One announcement per request: Apple's on-device model
  *      only reads a little at a time.
  *   2. Plain logic from here on. The reminder's class is the announcement's
  *      own class (as shown, so class links count); the due date has to be
@@ -61,6 +62,15 @@ const SYSTEM = [
   'An empty list when it asks for nothing: news, a grade posted, a reminder of an event with nothing to prepare, a greeting.',
   'Never invent work that is not in the announcement.',
 ].join('\n');
+
+// Settings → AI → "Skip classwork": some teachers post the day's classwork
+// as an announcement too, and it isn't wrong to list it, but it's done in
+// class, so a reminder for it is noise for someone who only wants homework.
+const SKIP_CLASSWORK = 'Leave out classwork: anything the announcement says or suggests is done in class (classwork, an in-class activity or assignment, work done during the lesson), unless it says to finish or hand it in outside class. List only work for outside class.';
+
+function systemFor(settings) {
+  return settings && settings.aiSkipClasswork ? `${SYSTEM}\n${SKIP_CLASSWORK}` : SYSTEM;
+}
 
 // The same work worded differently ("Lab goggles" and "bring your safety
 // glasses"): plain logic can't tell, and a small model asked to skip
@@ -378,7 +388,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
     const others = existing();
     for (const a of todo) {
       const className = linkedName(a.class);
-      const answer = await complete({ system: SYSTEM, prompt: promptFor(a, className), maxTokens: 600 });
+      const answer = await complete({ system: systemFor(settings), prompt: promptFor(a, className), maxTokens: 600 });
       const record = { at: new Date().toISOString(), found: 0, kept: 0, steps: [] };
       if (answer.ok) record.answer = answer.text.slice(0, MAX_ANSWER);
       if (answer.ok && answer.thinking) record.thinking = String(answer.thinking).slice(0, MAX_THINKING);
@@ -436,7 +446,7 @@ function listForPage() {
       scanned: state.scanned[a.id] || null }));
 }
 
-module.exports = { SYSTEM, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, listForPage, STATE_FILE };
+module.exports = { SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, listForPage, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.

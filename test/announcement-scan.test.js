@@ -195,6 +195,21 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     process.chdir(here);
   }
 
+  // ── Skip classwork: the model is told to leave it out, only when it's on ──
+  {
+    const fresh = T.makeProject({ 'settings.json': { language: 'en', aiProvider: 'ollama', aiModel: 'm' }, 'messages.json': [ann('c1', 'Made-up Math', 'Classwork today: worksheet 3.')] });
+    const scanner = require(path.join(fresh, '38-announcement-scan.js'));
+    const here = process.cwd(); process.chdir(fresh);
+    const systems = [];
+    const seen = async ({ system }) => { if (system !== scanner.SAME_SYSTEM) systems.push(system); return { ok: true, text: '{"items":[]}' }; };
+    await scanner.scan({ ids: ['c1'] }, { complete: seen, settings: { aiProvider: 'ollama', aiSkipClasswork: true } });
+    await scanner.scan({ ids: ['c1'] }, { complete: seen, settings: { aiProvider: 'ollama', aiSkipClasswork: false } });
+    await scanner.scan({ ids: ['c1'] }, { complete: seen, settings: { aiProvider: 'ollama' } });
+    ok('on: the usual instructions plus the classwork line', systems[0] === `${scanner.SYSTEM}\n${scanner.SKIP_CLASSWORK}`);
+    ok('off, or never set: the usual instructions only', systems[1] === scanner.SYSTEM && systems[2] === scanner.SYSTEM);
+    process.chdir(here);
+  }
+
   // ── turning AI on, and the page's own create ──
   {
     const fresh = T.makeProject({ 'settings.json': { language: 'en' }, 'messages.json': [ann('b1', 'Made-up Math', 'Read chapter 1.')] });

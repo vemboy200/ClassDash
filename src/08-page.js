@@ -1420,6 +1420,7 @@ ${aiScanSection(chosen)}`;
  * be ticked and read now, with what the last scan found beside each.
  */
 function aiScanSection(chosen) {
+  const s = readSettings();
   const list = require('./38-announcement-scan.js').listForPage();
   const tag = scanned => !scanned ? '' : scanned.error ? t('aiScanTagFailed')
     : scanned.kept ? t('aiScanTagKept', scanned.kept) : t('aiScanTagNone');
@@ -1429,6 +1430,11 @@ function aiScanSection(chosen) {
   return `      <div id="ai-scan" data-ai-for="${require('./37-ai.js').PROVIDER_IDS.join(' ')}"${chosen === 'none' ? ' hidden' : ''}>
         <div class="settings-subhead">${escapeHtml(t('aiScanTitle'))}</div>
         <p class="field-hint">${escapeHtml(t('aiScanHint'))}</p>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('aiSkipClasswork'))}</span>
+          <input type="checkbox" class="toggle" data-bool-key="aiSkipClasswork"${s.aiSkipClasswork ? ' checked' : ''}>
+          <span class="field-hint">${escapeHtml(t('aiSkipClassworkHint'))}</span>
+        </label>
 ${list.length ? `        <div class="ai-scan-list" id="ai-scan-list">
 ${rows}
         </div>

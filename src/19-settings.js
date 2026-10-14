@@ -306,6 +306,9 @@ const DEFAULTS = {
   // (41-grades-center.js). Off is faster: Ollama skips thinking. A cloud
   // AI always shows its own.
   aiThinking: true,
+  // Announcement scan (38-announcement-scan.js): tell the AI to leave out
+  // classwork, so only work for outside class becomes a reminder.
+  aiSkipClasswork: false,
   aiOpenaiKey: '',
   aiAnthropicKey: '',
   aiGeminiKey: '',
@@ -348,7 +351,7 @@ const TYPES = {
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
-  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiAgreed: 'aiAgreed',
+  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
   gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
 };
