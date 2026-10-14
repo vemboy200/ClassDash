@@ -306,7 +306,30 @@ function schedulePayload(now = new Date()) {
   return { saved, days: dayTypes(addDays(now, -200), addDays(now, 400), sched, cal), view: scheduleView(now, sched, cal) };
 }
 
+/**
+ * When each class on the schedule meets next, after today: { 'Biology':
+ * ['YYYY-MM-DD', …], … }, up to `count` dates each, looking `days` ahead.
+ * A reminder's due date defaults to its class's next meeting (the page
+ * picks the first date after its own today, so a page left open overnight
+ * still picks right). Today itself is left out: work set today is due next
+ * time, not in an hour. Names are the schedule's, which are the linked
+ * class names (scheduleClassChoices in 08-page.js), the same ones the
+ * reminder form offers.
+ */
+function nextMeetings(now = new Date(), sched = readSchedule(), cal = calendar.readCalendar(), { count = 3, days = 45 } = {}) {
+  const out = {};
+  if (sched.type === 'none' || !(sched.classes || []).length) return out;
+  for (let i = 1; i <= days; i++) {
+    const d = addDays(asDate(now), i);
+    for (const c of classesOn(d, sched, cal)) {
+      const list = out[c.class] || (out[c.class] = []);
+      if (list.length < count) list.push(dayKey(d));
+    }
+  }
+  return out;
+}
+
 module.exports = {
   FILE, TYPES, readSchedule, saveSchedule, periodFromName, dayTypes, dayType, classesOn, previousSchoolDay,
-  headsUps, dueNotifications, markNotified, dismissHeadsUp, scheduleView, schedulePayload,
+  headsUps, dueNotifications, markNotified, dismissHeadsUp, scheduleView, schedulePayload, nextMeetings,
 };

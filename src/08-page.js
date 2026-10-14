@@ -529,11 +529,12 @@ function remindersSection(now) {
   const addForm = `      <div class="reminder-add">
         <input type="hidden" id="reminder-editing-id" value="">
         <input type="text" id="reminder-title" placeholder="${escapeHtml(t('reminderTitlePlaceholder'))}">
-        <input type="text" id="reminder-class" list="reminder-class-list" placeholder="${escapeHtml(t('reminderClassPlaceholder'))}">
+        <input type="text" id="reminder-class" list="reminder-class-list" placeholder="${escapeHtml(t('reminderClassPlaceholder'))}"
+               oninput="suggestNextClassDue()">
         <datalist id="reminder-class-list">${classOptions}</datalist>
         <span class="reminder-due-field">
           <input type="datetime-local" id="reminder-due" title="${escapeHtml(t('reminderDueHint'))}"
-                 oninput="document.getElementById('reminder-due-clear').hidden = !this.value">
+                 oninput="document.getElementById('reminder-due-clear').hidden = !this.value; if (this.value !== reminderDueFromClass) showNextClassNote(null)">
           <button type="button" class="mini-btn" id="reminder-due-clear" hidden
                   onclick="clearReminderDue()" title="${escapeHtml(t('reminderDueClear'))}">✕</button>
         </span>
@@ -542,6 +543,8 @@ function remindersSection(now) {
                 onclick="cancelEditReminder()">${escapeHtml(t('reminderCancelEdit'))}</button>
         <span class="result" id="reminders-result"></span>
       </div>
+      <p class="hint reminder-next-class" id="reminder-next-class" hidden></p>
+      <script type="application/json" id="reminder-next-meetings">${jsonForScript(schoolSchedule.nextMeetings(now))}</script>
       <p class="hint">${escapeHtml(t('reminderCaption'))}</p>`;
 
   // NOT data-has-items="yes" — that opts a section into recount()'s
@@ -3614,6 +3617,7 @@ const WORDS = ${JSON.stringify({
   reminderTitleRequired: t('reminderTitleRequired'),
   reminderAdding: t('reminderAdding'),
   reminderAdd: t('reminderAdd'),
+  reminderNextClass: t('reminderNextClass', '{date}'),
   reminderSave: t('reminderSave'),
   reminderSaving: t('reminderSaving'),
 })};
@@ -3910,6 +3914,69 @@ function clearReminderDue() {
   var field = document.getElementById('reminder-due');
   field.value = '';
   document.getElementById('reminder-due-clear').hidden = true;
+  showNextClassNote(null);
+}
+
+// A new reminder for a class on the schedule (Settings → Schedule) is due
+// at 11:59 PM the night before that class next meets after today, the
+// same rule the AI scan uses for an announcement with no date
+// (nextMeetingDue in 38-announcement-scan.js), unless a due date is
+// already filled in. The dates come from nextMeetings() in
+// 35-school-schedule.js; the first one after this page's own today is
+// used, so a page left open overnight still picks right. Editing a
+// reminder never changes its date this way.
+var reminderNextMeetings = JSON.parse((document.getElementById('reminder-next-meetings') || {}).textContent || '{}');
+
+function nextMeetingFor(name) {
+  var key = String(name || '').trim().toLowerCase();
+  if (!key) return null;
+  var today = new Date();
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  var todayKey = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+  for (var cls in reminderNextMeetings) {
+    if (cls.trim().toLowerCase() !== key) continue;
+    var dates = reminderNextMeetings[cls].filter(function (d) { return d > todayKey; });
+    return dates[0] || null;
+  }
+  return null;
+}
+
+function showNextClassNote(dateKey) {
+  var note = document.getElementById('reminder-next-class');
+  if (!note) return;
+  if (!dateKey) { note.hidden = true; note.textContent = ''; return; }
+  var p = dateKey.split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  note.textContent = WORDS.reminderNextClass.replace('{date}',
+    d.toLocaleDateString(WORDS.calendarLocale, { weekday: 'short', month: 'short', day: 'numeric' }));
+  note.hidden = false;
+}
+
+// The due field it filled itself, so picking another class moves it along
+// instead of keeping the first class's date.
+var reminderDueFromClass = '';
+
+function suggestNextClassDue() {
+  if (document.getElementById('reminder-editing-id').value) return;
+  var dueField = document.getElementById('reminder-due');
+  if (dueField.value && dueField.value !== reminderDueFromClass) return;
+  var date = nextMeetingFor(document.getElementById('reminder-class').value);
+  if (!date) {
+    if (reminderDueFromClass && dueField.value === reminderDueFromClass) {
+      dueField.value = '';
+      document.getElementById('reminder-due-clear').hidden = true;
+    }
+    reminderDueFromClass = '';
+    showNextClassNote(null);
+    return;
+  }
+  var p = date.split('-');
+  var before = new Date(+p[0], +p[1] - 1, +p[2] - 1);
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  dueField.value = before.getFullYear() + '-' + pad(before.getMonth() + 1) + '-' + pad(before.getDate()) + 'T23:59';
+  reminderDueFromClass = dueField.value;
+  document.getElementById('reminder-due-clear').hidden = false;
+  showNextClassNote(date);
 }
 
 // ISO (UTC) -> the local-time "YYYY-MM-DDTHH:mm" a datetime-local input
@@ -3952,6 +4019,7 @@ function cancelEditReminder() {
   document.getElementById('reminder-title').value = '';
   document.getElementById('reminder-class').value = '';
   clearReminderDue();
+  reminderDueFromClass = '';
   document.getElementById('reminder-save-btn').textContent = WORDS.reminderAdd;
   document.getElementById('reminder-cancel-edit-btn').hidden = true;
   var result = document.getElementById('reminders-result');

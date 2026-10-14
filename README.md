@@ -129,7 +129,7 @@ They don't do anything while you're typing or while Settings is open, and they f
 
 - **Locked Canvas work** (not open yet, or waiting on earlier work in a module) waits under **Ahead** with a note saying when it opens, and never counts as due soon. **Closed** work (its "available until" date passed) shows under Overdue; hide it, or **delete** it for good.
 - **Link assignments** when the same work shows up twice, like an Edpuzzle posted in Classroom too. Hover a card, click **Link**, then **Link here** on the other one: they become one card, done only when every part is. **Unlink** splits them. By default only assignments in the same class can be linked.
-- **Reminders** are for what a teacher only said out loud. Add one in the **Reminders** section with an optional class and due date, and **edit**, mark **done** (it clears itself a week later), **hide**, or **delete** it.
+- **Reminders** are for what a teacher only said out loud. Add one in the **Reminders** section with an optional class and due date, and **edit**, mark **done** (it clears itself a week later), **hide**, or **delete** it. Pick a class that's in Settings → **Schedule** and the due date fills itself in as 11:59 PM the night before that class next meets (the same rule the AI scan uses); change it or clear it if that's not right.
 
 ### Classes and sources
 
