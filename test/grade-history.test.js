@@ -73,7 +73,7 @@ fs.unlinkSync(H.FILE);
   ok('...and a recent drop of the other', trend('Made-up Biology') && trend('Made-up Biology').textContent === '▼2.8');
   ok('...inside the mark, so Hide masks it', trend('Made-up Math').parentElement.classList.contains('grade-mark'));
   const charts = d.querySelectorAll('#grades-center .gc-history-chart');
-  ok('the Grades center draws each class\'s history', charts.length === 2 && charts[0].querySelectorAll('circle').length >= 2, String(charts.length));
+  ok('the Grades center draws each class\'s history', charts.length === 2 && charts[0].querySelectorAll('rect').length >= 2, String(charts.length));
   ok('...with where it started and how often it changed', /Since .+: 84% → 85% \(2 changes\)/.test(d.querySelector('#grades-center').textContent.replace(/\s+/g, ' ')));
   const select = d.querySelector('select[data-key="gradeAlerts"]');
   ok('Settings → Grades has the alert choice, showing the saved one', select && select.value === 'drops' && select.options.length === 3);

@@ -1226,10 +1226,12 @@ function gradeHistoryChart(points, now = new Date()) {
   let d = `M${x(pts[0].at).toFixed(1)},${y(pts[0].percent).toFixed(1)}`;
   for (let i = 1; i < pts.length; i++) d += ` H${x(pts[i].at).toFixed(1)} V${y(pts[i].percent).toFixed(1)}`;
   d += ` H${(W - PAD).toFixed(1)}`;
-  const dots = pts.map(p => `<circle cx="${x(p.at).toFixed(1)}" cy="${y(p.percent).toFixed(1)}" r="2.5"><title>${escapeHtml(`${day(p.at)}: ${p.est ? '~' : ''}${num(p.percent)}%${p.grade ? ` (${p.grade})` : ''}`)}</title></circle>`).join('');
+  // Square dots on whole pixels, drawn without smoothing, like the rest of
+  // the page's pixel look.
+  const dots = pts.map(p => `<rect x="${Math.round(x(p.at)) - 2}" y="${Math.round(y(p.percent)) - 2}" width="5" height="5"><title>${escapeHtml(`${day(p.at)}: ${p.est ? '~' : ''}${num(p.percent)}%${p.grade ? ` (${p.grade})` : ''}`)}</title></rect>`).join('');
   const first = pts[0], last = pts[pts.length - 1];
   return `          <div class="gc-history">
-            <svg class="gc-history-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(t('gcHistoryLabel'))}"><path d="${d}" /><g>${dots}</g></svg>
+            <span class="gc-history-frame"><svg class="gc-history-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(t('gcHistoryLabel'))}"><path d="${d}" /><g>${dots}</g></svg></span>
             <span class="hint">${escapeHtml(t('gcHistory', day(first.at), num(first.percent), num(last.percent), pts.length - 1))}</span>
           </div>
 `;
@@ -2113,7 +2115,7 @@ function pixelCornerCss() {
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
   const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
     '.setting-row select, #schedule-settings select, #schedule-settings input, .reminder-add input[type="text"], ' +
-    '.reminder-add input[type="datetime-local"], .class-picker, .gc-weight-row input, #gc-question';
+    '.reminder-add input[type="datetime-local"], .class-picker, .gc-weight-row input, #gc-question, .gc-history-frame';
   const PILLS = '.count, .plat, .removed-badge, .lock-badge, .class-next-badge, .check-row .count-badge, .gc-flag';
   const CHECK = 'input[type="checkbox"]:not(.toggle)';
   const SLIDER = '.field-with-value input[type="range"]';
@@ -3160,9 +3162,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .grade-trend.grade-down { color: var(--hot); }
   .grade-trend.grade-up { color: var(--new); }
   .gc-history { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 8px; }
+  .gc-history-frame { display: inline-block; border-width: 2px; padding: 6px 8px; line-height: 0; max-width: 100%; }
   .gc-history-chart { max-width: 100%; height: auto; color: var(--text); }
   .gc-history-chart path { fill: none; stroke: currentColor; stroke-width: 1.5; }
-  .gc-history-chart circle { fill: var(--card); stroke: currentColor; stroke-width: 1.5; }
+  .gc-history-chart rect { fill: currentColor; shape-rendering: crispEdges; }
   .gc-history-note { margin: -2px 0 8px; }
   .grade-source { color: var(--dim); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
   .grades-problem { color: var(--hot); }
