@@ -48,8 +48,9 @@
  *              A gray area, said on the panel: Anthropic's Agent SDK docs
  *              say other apps may not offer Claude plan logins or rate
  *              limits without its approval. ClassDash never signs in or
- *              sees the login, like T3 Code, but the requests still count
- *              against the person's plan.
+ *              sees the login, like T3 Code, but the requests still use
+ *              the person's plan and its rate limits indirectly, through
+ *              Claude Code: gray, not clearly against the rules.
  *   openai,    their HTTP APIs with the person's own key.
  *   anthropic,
  *   gemini
