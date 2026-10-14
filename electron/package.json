@@ -23,7 +23,7 @@
     "nsis": {
       "artifactName": "ClassDash-v${version}.${ext}",
       "oneClick": false,
-      "perMachine": true,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true
     },
     "files": [

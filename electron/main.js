@@ -1470,6 +1470,17 @@ function offerToDownload(latestVersion) {
   });
 }
 
+// The installer asks "for all users" or "only for me" (only for me by
+// default), and only an all-users install needs administrator permission to
+// update. An all-users install goes to Program Files unless the person
+// picked another folder, so this can only be wrong about the wording of the
+// prompt below, never about whether the update works.
+function installedForAllUsers() {
+  const exe = process.execPath.toLowerCase();
+  return [process.env.ProgramFiles, process.env['ProgramFiles(x86)']]
+    .some((dir) => dir && exe.startsWith(dir.toLowerCase() + path.sep));
+}
+
 // Returns whether an install prompt was actually shown — checkForUpdatesManually()
 // below falls back to a real check whenever this is false, same reasoning
 // as the Mac fix that made maybeShowInstallPrompt() return Bool there: a
@@ -1490,8 +1501,8 @@ function maybeShowInstallPrompt() {
   dialog.showMessageBox(win, {
     type: 'question',
     message: `Install ClassDash ${status.readyVersion}?`,
-    detail: 'The update has already been downloaded. Installing will quit ClassDash and relaunch it as the new version. ' +
-      'Windows will ask for administrator permission first.',
+    detail: 'The update has already been downloaded. Installing will quit ClassDash and relaunch it as the new version.' +
+      (installedForAllUsers() ? ' Windows will ask for administrator permission first.' : ''),
     buttons: ['Install & Relaunch', 'Later'],
     defaultId: 0,
   }).then(({ response }) => {
@@ -1514,9 +1525,14 @@ function checkForUpdatesManually() {
 // once this process has actually exited.
 //
 // WHY THE ELEVATE.EXE STEP — THIS USED TO NEVER WORK, ON ANY MACHINE.
-// This build installs per-machine (electron/package.json's nsis.perMachine),
-// and NSIS marks a per-machine installer requireAdministrator (confirmed
-// in the released .exe's own manifest). spawn() is CreateProcess, which
+// Up to v2.5.0 this build installed per-machine only (electron/package.json's
+// nsis.perMachine), and NSIS marks a per-machine installer
+// requireAdministrator (confirmed in the released .exe's own manifest).
+// Newer installers let the person choose and run as a normal user, and an
+// update of an all-users install raises the consent prompt itself (the
+// UAC plugin, in electron-builder's installer.nsi), so spawn() shouldn't
+// hit EACCES any more. The elevate.exe fallback stays in case it ever
+// does. The history, because it explains EACCES: spawn() is CreateProcess, which
 // can't raise the consent prompt: Windows refuses to start an admin-only
 // program from a normal-user process with ERROR_ELEVATION_REQUIRED, and
 // libuv reports that as EACCES (src/win/error.c maps exactly that error

@@ -41,7 +41,7 @@ Go to the [Releases page](https://github.com/vemboy200/ClassDash/releases) and g
 > [!WARNING]
 > **macOS builds are not code-signed or notarized by Apple.** Gatekeeper will block the app by default and may say it's "damaged" or from an "unidentified developer" — that's expected, not a sign anything's actually wrong with it, it's just what happens without a paid Apple Developer account to sign builds with. To run it anyway: right-click (Control-click) the app → **Open** → **Open** again to confirm. If that doesn't work, go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** after your first blocked attempt. You only need to do this once; after that it opens normally.
 
-**Windows** — download the `.exe` and run it. It's a real installer (not one-click) that asks where to install, same as any other Windows program — defaults to `Program Files`, needs admin rights to install there.
+**Windows** — download the `.exe` and run it. It's a real installer (not one-click). It asks whether to install **only for you** (the default, no admin rights needed, goes in your own `AppData\Local\Programs`) or **for all users** (goes in `Program Files` and asks for admin rights), then where to install. The last page has a **Delete this installer** checkbox, on by default, that removes the downloaded `.exe` once the installer closes.
 
 > [!WARNING]
 > **Windows builds aren't code-signed either** (same reason as macOS — no paid certificate). SmartScreen will say "Windows protected your PC." Click **More info**, then **Run anyway**. Same one-time thing as Gatekeeper above, not a sign anything's actually wrong.
