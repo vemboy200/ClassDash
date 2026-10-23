@@ -828,9 +828,13 @@ if (require.main === module) {
   // bridge and 07-notifier.applescript's dispatch both read this
   // program's own answer instead of guessing from a bare exit code.
   // (importCalendarPdf answers with a promise; everything else at once.)
+  // Straight to stdout, not console.log: an action that loads the collector
+  // (05-playwright-draft.js, through the Home API's gather() for the Grades
+  // center's AI) has it put the time in front of every console line, and
+  // "12:01:20 {...}" isn't JSON, so the app never got the answer.
   Promise.resolve(result).catch(e => {
     logAction(`  CRASHED: ${e.message}`);
     process.exitCode = 1;
     return { ok: false, action, why: e.message };
-  }).then(answer => console.log(JSON.stringify(answer)));
+  }).then(answer => process.stdout.write(JSON.stringify(answer) + '\n'));
 }
