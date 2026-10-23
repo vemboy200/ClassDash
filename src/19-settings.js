@@ -313,6 +313,11 @@ const DEFAULTS = {
   aiAnthropicKey: '',
   aiGeminiKey: '',
   aiAgreed: [],
+  // ClassDash's tools as an MCP server for other AI apps the person adds it
+  // to themselves (48-mcp.js): off until they turn it on, and grades only
+  // with their own box too. The AI sidebar doesn't need either.
+  aiMcpExternal: false,
+  aiMcpGrades: false,
 
   // Grades (40-grades.js): off until a provider is picked. The only one so
   // far is Aequitas Q ('q'). The address is the whole address of the
@@ -354,7 +359,7 @@ const TYPES = {
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
-  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed',
+  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
   gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
   gradeAlerts: 'gradeAlerts',

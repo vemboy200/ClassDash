@@ -1476,7 +1476,8 @@ ${row('ollama lmstudio foundry', `      <label class="setting-row">
         </span>
         <span class="field-hint" id="ai-test-status"></span>
       </div>
-${aiScanSection(chosen)}`;
+${aiScanSection(chosen)}
+${aiMcpSection()}`;
 }
 
 /**
@@ -1496,6 +1497,44 @@ function aiScanSection(chosen) {
           <input type="checkbox" class="toggle" data-bool-key="aiSkipClasswork"${s.aiSkipClasswork ? ' checked' : ''}>
           <span class="field-hint">${escapeHtml(t('aiSkipClassworkHint'))}</span>
         </label>
+      </div>`;
+}
+
+/**
+ * Settings → AI → Other AI apps (48-mcp.js): ClassDash's tools for AI apps
+ * the person adds it to themselves (Antigravity, OpenCode, Claude
+ * Desktop...). Shown whatever AI is picked above: those apps bring their
+ * own. Off until switched on; grades with their own box.
+ */
+function aiMcpSection() {
+  const s = readSettings();
+  const c = require('./48-mcp.js').configs();
+  const block = (id, label, text) => `        <div class="setting-row wide">
+          <span class="field-name">${escapeHtml(label)}</span>
+          <span class="field-with-value">
+            <textarea readonly id="${id}" class="mcp-config" rows="${text.split('\n').length}" spellcheck="false">${escapeHtml(text)}</textarea>
+            <button type="button" class="mini-btn" onclick="copyFieldValue(this, '${id}')">${escapeHtml(t('settingsCopy'))}</button>
+          </span>
+        </div>`;
+  return `      <div id="ai-mcp">
+        <div class="settings-subhead">${escapeHtml(t('aiMcpTitle'))}</div>
+        <p class="field-hint">${escapeHtml(t('aiMcpHint'))}</p>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('aiMcpExternal'))}</span>
+          <input type="checkbox" class="toggle" data-bool-key="aiMcpExternal"${s.aiMcpExternal ? ' checked' : ''}
+                 onchange="document.getElementById('ai-mcp-more').hidden = !this.checked">
+          <span class="field-hint">${escapeHtml(t('aiMcpExternalHint'))}</span>
+        </label>
+        <div id="ai-mcp-more"${s.aiMcpExternal ? '' : ' hidden'}>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('aiMcpGrades'))}</span>
+          <input type="checkbox" class="toggle" data-bool-key="aiMcpGrades"${s.aiMcpGrades ? ' checked' : ''}>
+          <span class="field-hint">${escapeHtml(t('aiMcpGradesHint'))}</span>
+        </label>
+${block('mcp-config-most', t('aiMcpConfigMost'), c.mcpServers)}
+${block('mcp-config-opencode', t('aiMcpConfigOpencode'), c.opencode)}
+        <p class="field-hint">${escapeHtml(t('aiMcpConfigHint'))}</p>
+        </div>
       </div>`;
 }
 
@@ -3009,6 +3048,11 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .browser-path-control { flex-wrap: wrap; }
   .browser-path-control input[type="text"] { flex: 1 1 100%; }
   /* A heading inside a settings section, for a group of related rows. */
+  .mcp-config {
+    flex: 1 1 auto; min-width: 0; resize: vertical;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre; overflow-x: auto;
+  }
   .settings-subhead {
     color: var(--dim); font-size: 12px; text-transform: uppercase;
     letter-spacing: .06em; margin: 14px 0 8px; padding-top: 10px;
