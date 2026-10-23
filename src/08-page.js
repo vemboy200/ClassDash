@@ -3175,6 +3175,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .grades-buttons { display: flex; gap: 6px; }
   .grades-center { position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--text); overflow: auto; padding: 16px; box-sizing: border-box; }
   .grades-center[hidden] { display: none; }
+  /* The PDF workspace: its page fills the window, in a frame of its own (46-workspace.js). */
+  .workspace-panel { position: fixed; inset: 0; z-index: 61; background: var(--bg); }
+  .workspace-panel[hidden] { display: none; }
+  .workspace-panel iframe { width: 100%; height: 100%; border: 0; display: block; }
   .gc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 1200px; margin: 0 auto 12px; }
   .gc-head h2 { margin: 0; }
   .gc-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; max-width: 1200px; margin: 0 auto; align-items: start; }
@@ -3471,7 +3475,9 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
          id="refresh-button"
          title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named${progress ? ' running' : ''}"
          id="freshcheck-button"
-         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button><button class="reload"
+         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button><button class="reload named"
+         id="workspace-button" style="display: none" onclick="openWorkspace()"
+         title="${escapeHtml(t('wsButtonTitle'))}"><span class="reload-label">${escapeHtml(t('wsTitle'))}</span></button><button class="reload"
          id="settings-button" onclick="toggleSettingsPanel()"
          title="${escapeHtml(t('settingsTitle'))}"><span class="pixel-icon icon-settings"></span><span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
     <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
@@ -3490,6 +3496,7 @@ ${scheduleBanner}
 ${updateBanner}
 ${warning}
 ${gradesCenterPanel()}
+  <div class="workspace-panel" id="workspace-panel" hidden><iframe id="workspace-frame" title="${escapeHtml(t('wsTitle'))}"></iframe></div>
   <div class="columns">
   <div>
 ${settingsPanel()}
@@ -3743,6 +3750,75 @@ window.classdashBridgeResult = function (id, result) {
 // back at all. onResult, if given, is simply never called on this path
 // -- exactly the "fire it and hope" behavior this page has always had
 // there, unchanged.
+// ── The PDF workspace (46-workspace.js) ──
+//
+// A panel over the page like the Grades center, holding the workspace's own
+// page in a frame served from classdash-ws://app/ (a file:// page can't run
+// PDF.js). The frame can't reach the app's bridge, so it sends its actions
+// here with postMessage and this page passes them on: only these, and only
+// from that frame. Only the app has the address, so the button only shows
+// there. workspacePage writes workspace.html first, so it's always this
+// version's, in the current language.
+var WORKSPACE_ORIGIN = 'classdash-ws://app';
+var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport'];
+var workspaceDoc = '';
+var workspaceClosing = null;
+if (hasNativeBridge()) document.getElementById('workspace-button').style.display = '';
+
+function openWorkspace() {
+  var panel = document.getElementById('workspace-panel');
+  if (!panel || !hasNativeBridge() || !panel.hidden) return;
+  panel.hidden = false;
+  document.body.style.overflow = 'hidden';
+  dispatchAction('workspacePage', '', function () {
+    var frame = document.getElementById('workspace-frame');
+    frame.src = WORKSPACE_ORIGIN + '/workspace.html' + (workspaceDoc ? '?doc=' + workspaceDoc : '');
+    frame.focus();
+  });
+}
+
+function toWorkspace(message) {
+  var frame = document.getElementById('workspace-frame');
+  message.cd = 'ws';
+  if (frame && frame.contentWindow) frame.contentWindow.postMessage(message, WORKSPACE_ORIGIN);
+}
+
+// Close asks the frame to save first, and waits for it (2 s at most).
+function closeWorkspace() {
+  var panel = document.getElementById('workspace-panel');
+  if (!panel || panel.hidden || workspaceClosing) return;
+  workspaceClosing = setTimeout(finishClosingWorkspace, 2000);
+  toWorkspace({ type: 'flush' });
+}
+function finishClosingWorkspace() {
+  clearTimeout(workspaceClosing);
+  workspaceClosing = null;
+  document.getElementById('workspace-panel').hidden = true;
+  document.getElementById('workspace-frame').src = 'about:blank';
+  document.body.style.overflow = '';
+}
+
+// The app calls this before it quits: the frame sends its last save now.
+window.classdashWorkspaceFlush = function () {
+  var panel = document.getElementById('workspace-panel');
+  if (!panel || panel.hidden) return false;
+  toWorkspace({ type: 'flush' });
+  return true;
+};
+
+window.addEventListener('message', function (e) {
+  var frame = document.getElementById('workspace-frame');
+  var m = e.data;
+  if (!frame || e.source !== frame.contentWindow || e.origin !== WORKSPACE_ORIGIN || !m || m.cd !== 'ws') return;
+  if (m.type === 'action' && WORKSPACE_ACTIONS.indexOf(m.action) !== -1) {
+    dispatchAction(m.action, String(m.arg || ''), m.id === 'flush' ? null : function (result) {
+      toWorkspace({ type: 'result', id: m.id, result: result });
+    });
+  } else if (m.type === 'close') closeWorkspace();
+  else if (m.type === 'flushed') { if (workspaceClosing) finishClosingWorkspace(); }
+  else if (m.type === 'doc') workspaceDoc = /^[a-f0-9]{16}$/.test(m.doc || '') ? m.doc : '';
+});
+
 function dispatchAction(action, arg, onResult) {
   if (hasNativeBridge()) {
     // Unique across reloads, not just within this page: an answer can
@@ -6710,6 +6786,9 @@ function reloadWhenQuiet() {
   // Nor while the Grades center is open: it reloads once that's closed.
   var center = document.getElementById('grades-center');
   if (center && !center.hidden) return;
+  // Nor the PDF workspace.
+  var workspace = document.getElementById('workspace-panel');
+  if (workspace && !workspace.hidden) return;
   // Still waiting on an answer (an AI scan can take a minute): a reload now
   // would drop what it says.
   for (var waiting in bridgeCallbacks) { if (Object.prototype.hasOwnProperty.call(bridgeCallbacks, waiting)) return; }
@@ -6813,4 +6892,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, PIXEL_THEME };

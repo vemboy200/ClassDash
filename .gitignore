@@ -54,3 +54,5 @@ grades-secret.json
 grades-chat.json
 grade-history.json
 announcement-photos/
+workspace/
+workspace.html

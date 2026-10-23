@@ -781,6 +781,21 @@ function main(action, arg) {
       redraw();
       return { ok: true, action, entry: result.entry };
     }
+    // The PDF workspace (46-workspace.js). The app runs workspacePage
+    // before it opens the window, so the page is always this version's, in
+    // the current language. workspaceImport gets the path the app's file
+    // picker chose, percent-encoded.
+    case 'workspacePage':
+      require('./46-workspace.js').writeWorkspacePage();
+      return { ok: true, action };
+    case 'workspaceImport': {
+      const result = require('./46-workspace.js').importPdf(safeDecode(arg));
+      return { ...result, action };
+    }
+    case 'workspaceList':
+      return { ok: true, action, docs: require('./46-workspace.js').listDocs() };
+    case 'workspaceRemove':
+      return { ...require('./46-workspace.js').removeDoc(arg), action };
     default:
       console.error('unknown napominalka action:', action);
       process.exitCode = 1;

@@ -653,7 +653,131 @@ final class LiveStatePusher {
 }
 // END LiveStatePusher
 
-class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+// MARK: - PDF workspace (46-workspace.js)
+
+// THE WORKSPACE'S OWN ADDRESS, classdash-ws://app/.
+//
+// The workspace is a panel over the main page, like the Grades center, but
+// its page sits in a frame of its own: it loads PDF.js as a module, starts
+// its worker and fetch()es the PDF and what was written on it, and WebKit
+// allows none of that from a file:// page. Served from an address of its
+// own, all of it just works. The frame talks to the main page, which
+// passes its messages on through the bridge (see 46-workspace.js). It answers only these, never any other file in the project:
+//   /workspace.html                the page (written by 46-workspace.js)
+//   /pdf-lib.min.js                pdf-lib, for Export
+//   /pdfjs/pdf.min.mjs, /pdfjs/pdf.worker.min.mjs
+//   /doc/<id>/source.pdf | meta.json | ink.json
+let workspaceScheme = "classdash-ws"
+
+final class WorkspaceSchemeHandler: NSObject, WKURLSchemeHandler {
+    static func file(for path: String) -> (String, String)? {
+        let pdfjs = projectDir + "/node_modules/pdfjs-dist/legacy/build/"
+        switch path {
+        case "/workspace.html": return (projectDir + "/workspace.html", "text/html; charset=utf-8")
+        case "/pdf-lib.min.js": return (scriptPath("pdf-lib.min.js", in: projectDir), "text/javascript")
+        case "/pdfjs/pdf.min.mjs": return (pdfjs + "pdf.min.mjs", "text/javascript")
+        case "/pdfjs/pdf.worker.min.mjs": return (pdfjs + "pdf.worker.min.mjs", "text/javascript")
+        default: break
+        }
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 3, parts[0] == "doc", isWorkspaceId(parts[1]) else { return nil }
+        switch parts[2] {
+        case "source.pdf": return (projectDir + "/workspace/\(parts[1])/source.pdf", "application/pdf")
+        case "meta.json", "ink.json": return (projectDir + "/workspace/\(parts[1])/\(parts[2])", "application/json")
+        default: return nil
+        }
+    }
+
+    func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url else { return }
+        var status = 404
+        var body = Data()
+        var type = "text/plain"
+        if let (file, mime) = WorkspaceSchemeHandler.file(for: url.path),
+           let data = FileManager.default.contents(atPath: file) {
+            status = 200
+            body = data
+            type = mime
+        }
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": type,
+                                                      "Content-Length": String(body.count),
+                                                      "Cache-Control": "no-store"])!
+        task.didReceive(response)
+        task.didReceive(body)
+        task.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
+}
+
+func isWorkspaceId(_ id: String) -> Bool {
+    return id.count == 16 && id.allSatisfy { "0123456789abcdef".contains($0) }
+}
+
+// What the workspace page sends that the app writes itself (see
+// handleNativeSetupAction): a save and an export can be megabytes, far past
+// what a command line takes, so they never go to the actions script.
+enum WorkspaceFiles {
+    // {doc, ink} → workspace/<doc>/ink.json, whole or not at all.
+    static func save(_ arg: String) -> [String: Any] {
+        guard let data = arg.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let doc = payload["doc"] as? String, isWorkspaceId(doc),
+              let ink = payload["ink"] as? [String: Any] else { return ["ok": false, "why": "bad save"] }
+        let dir = projectDir + "/workspace/" + doc
+        guard FileManager.default.fileExists(atPath: dir + "/source.pdf") else { return ["ok": false, "why": "no such PDF"] }
+        do {
+            let out = try JSONSerialization.data(withJSONObject: ink)
+            try out.write(to: URL(fileURLWithPath: dir + "/ink.json"), options: .atomic)
+            return ["ok": true]
+        } catch {
+            return ["ok": false, "why": error.localizedDescription]
+        }
+    }
+
+    // {doc, name, data (base64)} → wherever the save panel says.
+    static func export(_ arg: String, window: NSWindow, done: @escaping ([String: Any]) -> Void) {
+        guard let raw = arg.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+              let b64 = payload["data"] as? String,
+              let pdf = Data(base64Encoded: b64) else { done(["ok": false, "why": "bad export"]); return }
+        let name = ((payload["name"] as? String) ?? "Export.pdf")
+            .replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = name
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { done(["ok": false, "cancelled": true]); return }
+            do {
+                try pdf.write(to: url, options: .atomic)
+                done(["ok": true])
+            } catch {
+                done(["ok": false, "why": error.localizedDescription])
+            }
+        }
+    }
+
+    // The file picker for Open a PDF…; the actions script copies it in.
+    static func pickPdf(window: NSWindow, done: @escaping (String?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = "Open a PDF"
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = false
+        panel.beginSheetModal(for: window) { response in
+            done(response == .OK ? panel.url?.path : nil)
+        }
+    }
+
+    static func json(_ result: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: result),
+              let text = String(data: data, encoding: .utf8) else { return "{\"ok\":false}" }
+        return text
+    }
+}
+// END Workspace
+
+class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
     var livePusher: LiveStatePusher?
@@ -894,6 +1018,7 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // created — adding it afterward doesn't work.
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "classdash")
+        config.setURLSchemeHandler(WorkspaceSchemeHandler(), forURLScheme: workspaceScheme)
 
         web = WKWebView(frame: window.contentView!.bounds, configuration: config)
         web.autoresizingMask = [.width, .height]
@@ -998,6 +1123,17 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // at the standard cut:/copy:/paste:/selectAll: is what makes the
         // shortcut route there at all, regardless of what ends up
         // handling it in the responder chain.
+        // File: the PDF workspace, and Close Window so Cmd-W works (nothing
+        // else in this menu bar offered it).
+        let fileMenuItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        let workspaceItem = fileMenu.addItem(withTitle: "Open Workspace", action: #selector(openWorkspaceFromMenu), keyEquivalent: "o")
+        workspaceItem.target = self
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileMenuItem.submenu = fileMenu
+        mainMenu.addItem(fileMenuItem)
+
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
@@ -1056,6 +1192,28 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         window.makeKeyAndOrderFront(nil)
         web.evaluateJavaScript("window.classdashShortcut && window.classdashShortcut('\(name)')",
                                completionHandler: nil)
+    }
+
+    // The same openWorkspace() the page's Workspace button calls.
+    @objc func openWorkspaceFromMenu() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        web.evaluateJavaScript("typeof openWorkspace === 'function' && openWorkspace()", completionHandler: nil)
+    }
+
+    // Quitting with the workspace open: its last change goes out first
+    // (classdashWorkspaceFlush in 08-page.js asks the panel to save now),
+    // with a moment for the save to land before the app goes.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard web != nil else { return .terminateNow }
+        web.evaluateJavaScript("window.classdashWorkspaceFlush ? window.classdashWorkspaceFlush() : false") { result, _ in
+            if (result as? Bool) == true {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sender.reply(toApplicationShouldTerminate: true) }
+            } else {
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
     }
 
     @objc func openSettings() {
@@ -1150,11 +1308,12 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
         // and the email included, so its payload is never written to the log
         // (the notifier's own log line for the same save lists which
         // settings were applied, by name).
-        logWindow(action == "config" ? "bridge: config (payload not logged)" : "bridge: \(action) \(arg)")
+        // Nor a workspace save or export: what was written on a PDF.
+        logWindow(["config", "wsSave", "wsExport"].contains(action) ? "bridge: \(action) (payload not logged)" : "bridge: \(action) \(arg)")
 
         // The setup actions need native dialogs (a file picker, alerts, a
         // browser window), so they never reach the notifier script.
-        if handleNativeSetupAction(action, requestId: requestId) { return }
+        if handleNativeSetupAction(action, arg, requestId: requestId) { return }
 
         runAction(action, arg) { [weak self] resultJSON in
             if action == "config" { DispatchQueue.main.async { self?.applyOpenAtLogin() } }
@@ -1198,8 +1357,28 @@ class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDeleg
     //                   "sign in again" banner (signIn) gets the same flow; the
     //                   notifier's own signIn has no Done button, so it's only
     //                   for a plain browser tab.
-    private func handleNativeSetupAction(_ action: String, requestId: String) -> Bool {
+    private func handleNativeSetupAction(_ action: String, _ arg: String, requestId: String) -> Bool {
         switch action {
+        // The workspace panel's save, export and file picker (WorkspaceFiles).
+        case "wsSave":
+            deliver(requestId: requestId, resultJSON: WorkspaceFiles.json(WorkspaceFiles.save(arg)))
+            return true
+        case "wsExport":
+            WorkspaceFiles.export(arg, window: window) { [weak self] result in
+                self?.deliver(requestId: requestId, resultJSON: WorkspaceFiles.json(result))
+            }
+            return true
+        case "wsImport":
+            WorkspaceFiles.pickPdf(window: window) { [weak self] path in
+                guard let self = self else { return }
+                guard let path = path else {
+                    self.deliver(requestId: requestId, resultJSON: "{\"ok\":false,\"cancelled\":true}")
+                    return
+                }
+                let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+                self.runAction("workspaceImport", encoded) { self.deliver(requestId: requestId, resultJSON: $0) }
+            }
+            return true
         case "setupBrowser", "pickBrowserApp":
             var chosen: String?
             browserPathSink = { chosen = $0 }

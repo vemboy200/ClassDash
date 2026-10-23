@@ -9,7 +9,7 @@
 // underlying logic those already-cross-platform files already own.
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, powerMonitor, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, powerMonitor, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -25,6 +25,13 @@ const { spawn, spawnSync } = require('child_process');
 app.setName('ClassDash');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'project-dir.json');
+
+// The PDF workspace's own address (see "PDF workspace" below). Has to be
+// declared before the app is ready.
+const WORKSPACE_SCHEME = 'classdash-ws';
+protocol.registerSchemesAsPrivileged([
+  { scheme: WORKSPACE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
 
 let win = null;
 let projectDir = null;
@@ -381,6 +388,10 @@ ipcMain.on('classdash-action', async (_event, body) => {
   if (!body || typeof body !== 'object') return;
   const { id, action, arg } = body;
   if (!id || !action) return;
+  if (WORKSPACE_NATIVE_ACTIONS.includes(action)) {
+    deliverResult(id, await runWorkspaceAction(action, arg));
+    return;
+  }
   // The setup actions need native dialogs (a file picker, message boxes, a
   // browser window), so they never reach the notifier script.
   if (NATIVE_SETUP_ACTIONS.includes(action)) {
@@ -492,6 +503,103 @@ function startLiveWatcher() {
   }
 }
 
+// ── PDF workspace (46-workspace.js) ──
+//
+// The workspace is a panel over the main page, like the Grades center, but
+// its page sits in a frame of its own: it loads PDF.js as a module, starts
+// its worker and fetch()es the PDF and what was written on it, which a
+// file:// page can't all do, so the frame is served from an address of its
+// own, classdash-ws://app/. That answers only these, never any other file
+// in the project (the same list as WorkspaceSchemeHandler in
+// 16-summary.swift):
+//   /workspace.html                the page (written by 46-workspace.js)
+//   /pdf-lib.min.js                pdf-lib, for Export
+//   /pdfjs/pdf.min.mjs, /pdfjs/pdf.worker.min.mjs
+//   /doc/<id>/source.pdf | meta.json | ink.json
+const isWorkspaceId = id => typeof id === 'string' && /^[a-f0-9]{16}$/.test(id);
+
+function workspaceFile(urlPath) {
+  const pdfjs = path.join(projectDir, 'node_modules', 'pdfjs-dist', 'legacy', 'build');
+  const fixed = {
+    '/workspace.html': [path.join(projectDir, 'workspace.html'), 'text/html; charset=utf-8'],
+    '/pdf-lib.min.js': [scriptPath('pdf-lib.min.js', projectDir), 'text/javascript'],
+    '/pdfjs/pdf.min.mjs': [path.join(pdfjs, 'pdf.min.mjs'), 'text/javascript'],
+    '/pdfjs/pdf.worker.min.mjs': [path.join(pdfjs, 'pdf.worker.min.mjs'), 'text/javascript'],
+  }[urlPath];
+  if (fixed) return fixed;
+  const m = /^\/doc\/([a-f0-9]{16})\/(source\.pdf|meta\.json|ink\.json)$/.exec(urlPath);
+  if (!m) return null;
+  return [path.join(projectDir, 'workspace', m[1], m[2]), m[2] === 'source.pdf' ? 'application/pdf' : 'application/json'];
+}
+
+function registerWorkspaceScheme() {
+  protocol.handle(WORKSPACE_SCHEME, async (request) => {
+    const found = workspaceFile(new URL(request.url).pathname);
+    try {
+      if (!found) throw new Error('not served');
+      const body = await fs.promises.readFile(found[0]);
+      return new Response(body, { headers: { 'Content-Type': found[1], 'Cache-Control': 'no-store' } });
+    } catch {
+      return new Response('', { status: 404 });
+    }
+  });
+}
+
+// What the workspace panel sends that this process does itself, through
+// the main page's bridge: a save and an export can be megabytes, far past
+// what a command line takes, and Open a PDF… needs a file picker.
+const WORKSPACE_NATIVE_ACTIONS = ['wsSave', 'wsExport', 'wsImport'];
+
+async function runWorkspaceAction(action, arg) {
+  if (action === 'wsSave') {
+    try {
+      const { doc, ink } = JSON.parse(arg);
+      const dir = path.join(projectDir, 'workspace', String(doc));
+      if (!isWorkspaceId(doc) || !ink || typeof ink !== 'object') throw new Error('bad save');
+      if (!fs.existsSync(path.join(dir, 'source.pdf'))) throw new Error('no such PDF');
+      // Whole or not at all: written beside it, then moved over it.
+      const tmp = path.join(dir, 'ink.json.tmp');
+      fs.writeFileSync(tmp, JSON.stringify(ink));
+      fs.renameSync(tmp, path.join(dir, 'ink.json'));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, why: e.message };
+    }
+  }
+  if (action === 'wsExport') {
+    let payload;
+    try { payload = JSON.parse(arg); } catch { return { ok: false, why: 'bad export' }; }
+    const name = String(payload.name || 'Export.pdf').replace(/[\\/:*?"<>|]/g, '-');
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: path.join(app.getPath('documents'), name),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, cancelled: true };
+    try {
+      fs.writeFileSync(result.filePath, Buffer.from(String(payload.data || ''), 'base64'));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, why: e.message };
+    }
+  }
+  // wsImport
+  const picked = await dialog.showOpenDialog(win, {
+    title: 'Open a PDF',
+    properties: ['openFile'],
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (picked.canceled || !picked.filePaths[0]) return { ok: false, cancelled: true };
+  return runAction('workspaceImport', encodeURIComponent(picked.filePaths[0]));
+}
+
+// The same openWorkspace() the page's Workspace button calls.
+function openWorkspace() {
+  if (!win || win.isDestroyed()) return;
+  win.show();
+  win.focus();
+  win.webContents.executeJavaScript("typeof openWorkspace === 'function' && openWorkspace()").catch(() => {});
+}
+
 // ── Window ──
 
 function loadSummary() {
@@ -544,6 +652,19 @@ function createWindow() {
   loadSummary();
 
   win.webContents.on('did-finish-load', pushLiveState);
+  // Closing (which quits, on Windows) with the workspace open: its last
+  // change goes out first (classdashWorkspaceFlush in 08-page.js asks the
+  // panel to save now), with a moment for the save to land.
+  let flushed = false;
+  win.on('close', (e) => {
+    if (flushed) return;
+    e.preventDefault();
+    const closing = win;
+    closing.webContents.executeJavaScript('window.classdashWorkspaceFlush ? window.classdashWorkspaceFlush() : false')
+      .catch(() => false)
+      .then(sent => new Promise(resolve => setTimeout(resolve, sent ? 500 : 0)))
+      .then(() => { flushed = true; if (!closing.isDestroyed()) closing.close(); });
+  });
   startLiveWatcher();
   win.once('closed', () => {
     if (liveWatcher) { liveWatcher.close(); liveWatcher = null; }
@@ -565,6 +686,7 @@ function buildMenu() {
       submenu: [
         { label: 'Check for Updates…', click: () => checkForUpdatesManually() },
         { label: 'Settings…', click: () => openSettings() },
+        { label: 'Open Workspace', accelerator: 'CmdOrCtrl+O', click: () => openWorkspace() },
         // "Choose Browser…" and "Sign In…" used to sit here, reachable any
         // time after the one-time wizard. They moved into Settings →
         // Account → Setup (see runNativeSetupAction()), next to the sources
@@ -1720,6 +1842,7 @@ if (!gotLock) {
     // API server; start it again now rather than at the next full check.
     runAction('ensureApi', '');
     applyOpenAtLogin();
+    registerWorkspaceScheme();
     buildMenu();
     createWindow();
     setupAutoFreshCheck();
