@@ -426,6 +426,173 @@ async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, dep
   throw new Error(`no such provider: ${id}`);
 }
 
+// ── with tools (the AI sidebar, 49-ai-sidebar.js) ──
+//
+// ask.tools is { list: [{ name, description, input }], call(name, args)
+// → { text, isError }, mcp: { command, args }, onUse(name)?, steps? }. A model
+// reached over HTTP is offered the list and asks for tools in its answer;
+// each is run with call() and its answer sent back, until it answers in
+// words or has used `steps` rounds (8), when it's asked without tools so it
+// has to answer with what it has. Codex and Claude Code are given the same
+// tools as the MCP server in mcp instead (48-mcp.js), and Apple's model
+// gets none: what it's asked has to carry what it needs.
+const TOOL_STEPS = 8;
+
+async function toolResult(ask, used, name, rawArgs) {
+  let args = rawArgs;
+  if (typeof args === 'string') {
+    try { args = args.trim() ? JSON.parse(args) : {}; } catch { return { text: JSON.stringify({ error: 'The arguments weren\'t valid JSON.' }), isError: true }; }
+  }
+  used.push(name);
+  try { if (ask.tools.onUse) ask.tools.onUse(name); } catch { /* showing it is a nicety */ }
+  return ask.tools.call(name, args && typeof args === 'object' ? args : {});
+}
+
+// OpenAI's way, which Ollama, LM Studio and Foundry Local answer too.
+async function openaiTools(config, ask, deps, used) {
+  const { provider: id, key, url, model } = config;
+  const base = id === 'openai' ? OPENAI : url;
+  const headers = id === 'openai' ? { Authorization: `Bearer ${key}` } : {};
+  const local = id !== 'openai';
+  const tools = ask.tools.list.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input } }));
+  const messages = [...(ask.system ? [{ role: 'system', content: ask.system }] : []), { role: 'user', content: ask.prompt }];
+  let before = '';
+  for (let step = 0; ; step++) {
+    const last = step >= (ask.tools.steps || TOOL_STEPS);
+    const body = { model, messages, ...(last ? {} : { tools }) };
+    let text = '', thinking = '', calls = [];
+    if (ask.onPart) {
+      const got = streamed(p => ask.onPart({ thinking: [before, p.thinking].filter(Boolean).join('\n\n'), text: p.text }));
+      await requestLines(deps, `${base}/chat/completions`, { key, local, headers, body: { ...body, stream: true } }, line => {
+        const part = dataLine(line);
+        const delta = part && part.choices && part.choices[0] && part.choices[0].delta;
+        if (!delta) return;
+        got.add('thinking', delta.reasoning !== undefined ? delta.reasoning : delta.reasoning_content);
+        got.add('text', delta.content);
+        for (const c of delta.tool_calls || []) {
+          const at = typeof c.index === 'number' ? c.index : calls.length;
+          const call = calls[at] || (calls[at] = { id: '', name: '', arguments: '' });
+          if (c.id) call.id = c.id;
+          if (c.function && c.function.name) call.name += c.function.name;
+          if (c.function && typeof c.function.arguments === 'string') call.arguments += c.function.arguments;
+          else if (c.function && c.function.arguments && typeof c.function.arguments === 'object') call.arguments = JSON.stringify(c.function.arguments);
+        }
+      });
+      const r = got.result();
+      if (typeof r === 'string') text = r; else { text = r.text; thinking = r.thinking; }
+    } else {
+      const json = await request(deps, `${base}/chat/completions`, { method: 'POST', key, local, headers, body });
+      const msg = (json.choices && json.choices[0] && json.choices[0].message) || {};
+      text = typeof msg.content === 'string' ? msg.content : '';
+      thinking = typeof msg.reasoning === 'string' ? msg.reasoning : typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+      text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_, t) => { thinking = (thinking ? thinking + '\n' : '') + t; return ''; });
+      calls = (msg.tool_calls || []).map(c => ({ id: c.id || '', name: (c.function && c.function.name) || '',
+        arguments: c.function && typeof c.function.arguments === 'object' ? JSON.stringify(c.function.arguments) : (c.function && c.function.arguments) || '' }));
+    }
+    thinking = String(thinking || '').trim();
+    calls = calls.filter(c => c && c.name);
+    if (!calls.length || last) {
+      const all = [before, thinking].filter(Boolean).join('\n\n');
+      return all ? { text, thinking: all } : text;
+    }
+    if (thinking) before = [before, thinking].filter(Boolean).join('\n\n');
+    calls.forEach((c, i) => { if (!c.id) c.id = `call_${step}_${i}`; });
+    messages.push({ role: 'assistant', content: text || null, tool_calls: calls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } })) });
+    for (const c of calls) {
+      const r = await toolResult(ask, used, c.name, c.arguments);
+      messages.push({ role: 'tool', tool_call_id: c.id, content: r.text });
+    }
+  }
+}
+
+async function anthropicTools(config, ask, deps, used) {
+  const { key, model } = config;
+  const tools = ask.tools.list.map(t => ({ name: t.name, description: t.description, input_schema: t.input }));
+  const messages = [{ role: 'user', content: ask.prompt }];
+  let think = !!ask.think, before = '';
+  for (let step = 0; ; step++) {
+    const last = step >= (ask.tools.steps || TOOL_STEPS);
+    const body = () => ({ model, ...(ask.system ? { system: ask.system } : {}), messages, ...(last ? {} : { tools }),
+      ...(think ? { max_tokens: Math.max(ask.maxTokens || 0, 16000), thinking: { type: 'adaptive', display: 'summarized' } } : { max_tokens: ask.maxTokens || 2048 }) });
+    let json;
+    try {
+      json = await request(deps, `${ANTHROPIC}/messages`, { method: 'POST', key, headers: anthropicHeaders(key), body: body() });
+    } catch (e) {
+      // An older model that can't think that way refuses it: asked without.
+      if (!think || !/think|adaptive|display/i.test(e && e.message)) throw e;
+      think = false;
+      json = await request(deps, `${ANTHROPIC}/messages`, { method: 'POST', key, headers: anthropicHeaders(key), body: body() });
+    }
+    const blocks = json.content || [];
+    const text = blocks.filter(b => b.type === 'text').map(b => b.text).join('');
+    const thinking = blocks.filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('\n').trim();
+    if (thinking) before = [before, thinking].filter(Boolean).join('\n\n');
+    if (ask.onPart) { try { ask.onPart({ thinking: before, text }); } catch {} }
+    const calls = blocks.filter(b => b.type === 'tool_use');
+    if (json.stop_reason !== 'tool_use' || !calls.length || last) return before ? { text, thinking: before } : text;
+    // The whole answer goes back as it was, thinking (and its signature) included.
+    messages.push({ role: 'assistant', content: blocks });
+    const results = [];
+    for (const c of calls) {
+      const r = await toolResult(ask, used, c.name, c.input);
+      results.push({ type: 'tool_result', tool_use_id: c.id, content: r.text, ...(r.isError ? { is_error: true } : {}) });
+    }
+    messages.push({ role: 'user', content: results });
+  }
+}
+
+async function geminiTools(config, ask, deps, used) {
+  const { key, model } = config;
+  // Gemini takes no parameters at all rather than an object with none.
+  const declarations = ask.tools.list.map(t => ({ name: t.name, description: t.description,
+    ...(t.input && t.input.properties && Object.keys(t.input.properties).length ? { parameters: t.input } : {}) }));
+  const contents = [{ role: 'user', parts: [{ text: ask.prompt }] }];
+  const at = `${GEMINI}/models/${encodeURIComponent(model)}:generateContent`;
+  let thoughts = !!ask.think, before = '';
+  for (let step = 0; ; step++) {
+    const last = step >= (ask.tools.steps || TOOL_STEPS);
+    const body = () => ({
+      ...(ask.system ? { systemInstruction: { parts: [{ text: ask.system }] } } : {}),
+      contents, ...(last ? {} : { tools: [{ functionDeclarations: declarations }] }),
+      ...(thoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
+    });
+    let json;
+    try {
+      json = await request(deps, at, { method: 'POST', key, headers: { 'x-goog-api-key': key }, body: body() });
+    } catch (e) {
+      if (!thoughts || !/think|thought/i.test(e && e.message)) throw e;
+      thoughts = false;
+      json = await request(deps, at, { method: 'POST', key, headers: { 'x-goog-api-key': key }, body: body() });
+    }
+    const content = (json.candidates && json.candidates[0] && json.candidates[0].content) || { role: 'model', parts: [] };
+    const parts = content.parts || [];
+    const text = parts.filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join('');
+    const thinking = parts.filter(p => p.thought && p.text).map(p => p.text).join('\n').trim();
+    if (thinking) before = [before, thinking].filter(Boolean).join('\n\n');
+    if (ask.onPart) { try { ask.onPart({ thinking: before, text }); } catch {} }
+    const calls = parts.filter(p => p.functionCall && p.functionCall.name);
+    if (!calls.length || last) return before ? { text, thinking: before } : text;
+    // Its turn goes back whole: newer models check their thought signatures.
+    contents.push({ role: 'model', parts });
+    const answers = [];
+    for (const c of calls) {
+      const r = await toolResult(ask, used, c.functionCall.name, c.functionCall.args || {});
+      let response;
+      try { response = JSON.parse(r.text); } catch { response = { text: r.text }; }
+      if (!response || typeof response !== 'object' || Array.isArray(response)) response = { result: response };
+      answers.push({ functionResponse: { name: c.functionCall.name, response } });
+    }
+    contents.push({ role: 'user', parts: answers });
+  }
+}
+
+async function viaHttpTools(config, ask, deps, used) {
+  const id = config.provider;
+  if (id === 'anthropic') return anthropicTools(config, ask, deps, used);
+  if (id === 'gemini') return geminiTools(config, ask, deps, used);
+  return openaiTools(config, ask, deps, used);
+}
+
 /** Runs a program with `input` on stdin; resolves with what it printed. */
 function run(deps, file, args, input, options = {}) {
   return new Promise((resolve, reject) => {
@@ -528,17 +695,18 @@ async function foundryUrl(deps, start) {
 }
 
 // A model Foundry Local hasn't loaded is loaded with its own command, once.
-async function viaFoundry(config, ask, deps) {
+async function viaFoundry(config, ask, deps, used) {
   if (config.model && !MODEL_NAME.test(config.model)) throw new Error('that model name has characters Foundry Local won\'t take');
   const url = await foundryUrl(deps, true);
   const asking = { ...config, url };
+  const via = c => ask.tools ? viaHttpTools(c, ask, deps, used) : viaHttp(c, ask, deps);
   try {
-    return await viaHttp(asking, ask, deps);
+    return await via(asking);
   } catch (e) {
     if (!config.model || !/not found|not loaded|load/i.test(e && e.message)) throw e;
     const { code } = await runCommand({ ...deps, timeoutMs: TIMEOUT_MS }, findFoundry(deps), ['model', 'load', config.model], '');
     if (code !== 0) throw new Error(`Foundry Local couldn't load ${config.model} (download it first: foundry model download ${config.model})`);
-    return viaHttp(asking, ask, deps);
+    return via(asking);
   }
 }
 
@@ -546,27 +714,32 @@ async function viaFoundry(config, ask, deps) {
 // argument given to one is a flag, a path or a fixed sentence, quoted for it.
 function runCommand(deps, bin, args, input, options) {
   const shell = /\.cmd$/i.test(bin);
-  return run(deps, shell ? `"${bin}"` : bin, shell ? args.map(a => `"${a}"`) : args, input, { ...options, shell });
+  return run(deps, shell ? `"${bin}"` : bin, shell ? args.map(a => `"${String(a).replace(/"/g, '\\"')}"`) : args, input, { ...options, shell });
 }
 
 // With no address saved, LM Studio's older port, then its newer one (also
 // Bionic's) when nothing answers there.
-async function viaUsualAddress(config, settings, ask, deps) {
+async function viaUsualAddress(config, settings, ask, deps, used) {
   const p = PROVIDERS[config.provider];
   const others = String(settings.aiLocalUrl || '').trim() || !p || !p.also ? [] : p.also;
+  const via = c => ask.tools ? viaHttpTools(c, ask, deps, used) : viaHttp(c, ask, deps);
   for (const url of others) {
-    try { return await viaHttp(config, ask, deps); } catch (e) {
+    try { return await via(config); } catch (e) {
       if (!/couldn't connect/.test(e && e.message)) throw e;
       config = { ...config, url };
     }
   }
-  return viaHttp(config, ask, deps);
+  return via(config);
 }
 
 // A model name goes on Codex's command line, so only a plain one.
 const MODEL_NAME = /^[A-Za-z0-9._:\/-]+$/;
 
-async function viaCodex(config, { system, prompt }, deps) {
+// A string or list for one of Codex's -c settings, which it reads as TOML
+// (a JSON string is a TOML one too).
+const toml = v => Array.isArray(v) ? `[${v.map(x => JSON.stringify(String(x))).join(', ')}]` : JSON.stringify(String(v));
+
+async function viaCodex(config, { system, prompt, tools }, deps) {
   const bin = findCodex(deps);
   if (!bin) throw new Error('Codex isn\'t installed (install it, then run "codex login" once)');
   if (config.model && !MODEL_NAME.test(config.model)) throw new Error('that model name has characters Codex won\'t take');
@@ -576,7 +749,11 @@ async function viaCodex(config, { system, prompt }, deps) {
   const outFile = path.join(dir, 'answer.txt');
   try {
     const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--ephemeral',
-      '--output-last-message', outFile, ...(config.model ? ['-m', config.model] : []), '-'];
+      '--output-last-message', outFile, ...(config.model ? ['-m', config.model] : []),
+      // ClassDash's tools, for this run only (none of the person's own servers are touched).
+      ...(tools && tools.mcp ? ['-c', `mcp_servers.classdash.command=${toml(tools.mcp.command)}`, '-c', `mcp_servers.classdash.args=${toml(tools.mcp.args)}`,
+        ...Object.entries(tools.mcp.env || {}).flatMap(([k, v]) => ['-c', `mcp_servers.classdash.env.${k}=${toml(v)}`])] : []),
+      '-'];
     const { code, err } = await runCommand(deps, bin, args, (system ? `${system}\n\n` : '') + prompt, { cwd: dir });
     let text = '';
     try { text = fs.readFileSync(outFile, 'utf8'); } catch { /* none: said below */ }
@@ -594,7 +771,7 @@ async function viaCodex(config, { system, prompt }, deps) {
 // it, and ClassDash's instructions go first in the message, like Codex's.
 const CLAUDE_SYSTEM = 'Follow the instructions in the message. Answer with text only.';
 
-async function viaClaudeCode(config, { system, prompt }, deps) {
+async function viaClaudeCode(config, { system, prompt, tools }, deps) {
   const bin = findClaude(deps);
   if (!bin) throw new Error('Claude Code isn\'t installed (install it, then run "claude auth login" once)');
   if (config.model && !MODEL_NAME.test(config.model)) throw new Error('that model name has characters Claude Code won\'t take');
@@ -604,6 +781,13 @@ async function viaClaudeCode(config, { system, prompt }, deps) {
   try {
     const args = ['-p', '--output-format', 'text', '--tools', '', '--setting-sources', '', '--strict-mcp-config',
       '--no-session-persistence', '--system-prompt', CLAUDE_SYSTEM, ...(config.model ? ['--model', config.model] : [])];
+    // With tools: ClassDash's MCP server and nothing else (none of its own
+    // tools, none of the person's servers), allowed without asking.
+    if (tools && tools.mcp) {
+      const file = path.join(dir, 'mcp.json');
+      fs.writeFileSync(file, JSON.stringify({ mcpServers: { classdash: { command: tools.mcp.command, args: tools.mcp.args, ...(tools.mcp.env ? { env: tools.mcp.env } : {}) } } }), { mode: 0o600 });
+      args.push('--mcp-config', file, '--allowedTools', 'mcp__classdash');
+    }
     // Started from inside a Claude Code session (a developer's), it would
     // think it's nested.
     const env = { ...(deps.env || process.env) };
@@ -638,8 +822,11 @@ function withDefaults(deps = {}) {
  * to think and drops any that comes; left out, nothing changes. onPart,
  * where the provider can stream (all but Apple, Codex and Claude Code), is called with
  * { thinking, text } so far as the answer is written.
- * Resolves { ok: true, text, thinking? } or { ok: false, why }; never
- * throws. `thinking` is the model's reasoning, only when it sent one.
+ * tools (see "with tools" above) lets it look things up as it answers.
+ * Resolves { ok: true, text, thinking?, used? } or { ok: false, why }; never
+ * throws. `thinking` is the model's reasoning, only when it sent one; `used`,
+ * when it was given tools, the names of the ones it used over HTTP (Codex
+ * and Claude Code don't say).
  */
 async function complete(ask, settings = require('./19-settings.js').read(), deps) {
   const d = withDefaults(deps);
@@ -648,15 +835,17 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
   const config = configFrom(settings);
   const can = ready(config, d.platform);
   if (!can.ok) return can;
+  const used = [];
   try {
     const text = config.provider === 'apple' ? await viaApple(ask, d)
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
       : config.provider === 'claudecode' ? await viaClaudeCode(config, ask, d)
-      : config.provider === 'foundry' ? await viaFoundry(config, ask, d)
-      : await viaUsualAddress(config, settings, ask, d);
+      : config.provider === 'foundry' ? await viaFoundry(config, ask, d, used)
+      : await viaUsualAddress(config, settings, ask, d, used);
+    const tools = ask.tools ? { used } : {};
     // Asked not to show it (think false): any thinking sent anyway is dropped.
-    if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), ...(ask.think === false ? {} : { thinking: text.thinking }) };
-    return { ok: true, text: String(text || '').trim() };
+    if (text && typeof text === 'object') return { ok: true, text: String(text.text || '').trim(), ...(ask.think === false ? {} : { thinking: text.thinking }), ...tools };
+    return { ok: true, text: String(text || '').trim(), ...tools };
   } catch (e) {
     return { ok: false, why: scrub(e && e.message, config.key) || 'failed' };
   }

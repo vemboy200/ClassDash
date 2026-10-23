@@ -3814,7 +3814,7 @@ window.classdashBridgeResult = function (id, result) {
 // there. workspacePage writes workspace.html first, so it's always this
 // version's, in the current language.
 var WORKSPACE_ORIGIN = 'classdash-ws://app';
-var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport'];
+var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport', 'workspaceAsk', 'workspaceChat', 'workspaceChatClear', 'workspaceChatHints'];
 var workspaceDoc = '';
 var workspaceClosing = null;
 if (hasNativeBridge()) document.getElementById('workspace-button').style.display = '';
@@ -3865,13 +3865,37 @@ window.addEventListener('message', function (e) {
   var m = e.data;
   if (!frame || e.source !== frame.contentWindow || e.origin !== WORKSPACE_ORIGIN || !m || m.cd !== 'ws') return;
   if (m.type === 'action' && WORKSPACE_ACTIONS.indexOf(m.action) !== -1) {
+    // The AI sidebar's answer as it's written: the frame can't load
+    // chat-live/answer.js from its own address, so it's read here and passed on.
+    var watching = m.action === 'workspaceAsk' && typeof m.live === 'string' ? watchWorkspaceAnswer(m.live) : null;
     dispatchAction(m.action, String(m.arg || ''), m.id === 'flush' ? null : function (result) {
+      if (watching) watching();
       toWorkspace({ type: 'result', id: m.id, result: result });
     });
   } else if (m.type === 'close') closeWorkspace();
   else if (m.type === 'flushed') { if (workspaceClosing) finishClosingWorkspace(); }
   else if (m.type === 'doc') workspaceDoc = /^[a-f0-9]{16}$/.test(m.doc || '') ? m.doc : '';
 });
+
+// Reads chat-live/answer.js (41-grades-center.js liveWriter) every quarter
+// second for the workspace's question with this id, and posts each new
+// version to the frame. Answers a function that stops it.
+function watchWorkspaceAnswer(id) {
+  var timer = null, last = '';
+  var tick = function () {
+    loadLiveFile('answer.js', function (ok) {
+      if (timer === null) return;
+      var live = ok && window.classdashGradesLive;
+      if (live && live.id === id) {
+        var seen = JSON.stringify(live);
+        if (seen !== last) { last = seen; toWorkspace({ type: 'live', live: { id: id, using: live.using || '', thinking: live.thinking || '', text: live.text || '' } }); }
+      }
+      timer = setTimeout(tick, 250);
+    }, 'chat-live');
+  };
+  timer = setTimeout(tick, 250);
+  return function () { clearTimeout(timer); timer = null; window.classdashGradesLive = null; };
+}
 
 function dispatchAction(action, arg, onResult) {
   if (hasNativeBridge()) {

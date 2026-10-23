@@ -316,8 +316,8 @@ function main(action, arg) {
   // email included, so its payload is never logged — the "applied:" line
   // below says which settings took, by name, which is all a log needs.
   // The Q password (saveGradesPassword) never is either, obviously.
-  // Nor a question to the Grades center's AI: it's about the person's grades.
-  logAction(action === 'config' || action === 'saveGradesPassword' || action === 'gradesAsk' ? `${action} (payload not logged)` : `${action} ${arg}`);
+  // Nor a question to the Grades center's AI or the workspace's.
+  logAction(action === 'config' || action === 'saveGradesPassword' || action === 'gradesAsk' || action === 'workspaceAsk' ? `${action} (payload not logged)` : `${action} ${arg}`);
   switch (action) {
     case 'config': {
       const { applyBatch } = require('./19-settings.js');
@@ -796,6 +796,36 @@ function main(action, arg) {
       return { ok: true, action, docs: require('./46-workspace.js').listDocs() };
     case 'workspaceRemove':
       return { ...require('./46-workspace.js').removeDoc(arg), action };
+    // The workspace's AI sidebar (49-ai-sidebar.js): a question, as
+    // base64url JSON {doc, page, question, hints, live}. Logs only whether
+    // it worked, never the question or the answer.
+    case 'workspaceAsk': {
+      let payload;
+      try {
+        payload = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) || {};
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      return require('./49-ai-sidebar.js').ask(payload.question, { doc: payload.doc, page: payload.page, hints: payload.hints, live: payload.live }).then(result => {
+        logAction(result.ok ? '  workspace question answered' : `  workspace question not answered: ${result.why}${result.detail ? ' (' + result.detail + ')' : ''}`);
+        const { t } = require('./18-language.js');
+        return result.ok ? { ...result, action } : { ...result, action, why: t('wsAiWhy_' + result.why) + (result.detail ? ' ' + result.detail : '') };
+      });
+    }
+    // A PDF's chat, and whether the sidebar can ask (and why not).
+    case 'workspaceChat': {
+      const side = require('./49-ai-sidebar.js');
+      const can = side.canAsk();
+      const { t } = require('./18-language.js');
+      return { ok: true, ...side.readChat(arg), can: can.ok ? { ok: true, label: can.label, tools: can.tools } : { ok: false, why: t('wsAiWhy_' + can.why) }, action };
+    }
+    case 'workspaceChatClear':
+      return { ...require('./49-ai-sidebar.js').clearChat(arg), action };
+    // "<doc>:1" or "<doc>:0": Hints only for that PDF.
+    case 'workspaceChatHints': {
+      const [doc, on] = String(arg).split(':');
+      return { ...require('./49-ai-sidebar.js').setHints(doc, on === '1'), action };
+    }
     default:
       console.error('unknown napominalka action:', action);
       process.exitCode = 1;
@@ -830,8 +860,9 @@ if (require.main === module) {
   // (importCalendarPdf answers with a promise; everything else at once.)
   // Straight to stdout, not console.log: an action that loads the collector
   // (05-playwright-draft.js, through the Home API's gather() for the Grades
-  // center's AI) has it put the time in front of every console line, and
-  // "12:01:20 {...}" isn't JSON, so the app never got the answer.
+  // center's or the workspace's AI) has it put the time in front of every
+  // console line, and "12:01:20 {...}" isn't JSON, so the app never got the
+  // answer.
   Promise.resolve(result).catch(e => {
     logAction(`  CRASHED: ${e.message}`);
     process.exitCode = 1;

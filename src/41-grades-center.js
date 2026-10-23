@@ -179,11 +179,16 @@ function liveWriter(id) {
       fs.renameSync(LIVE_FILE + '.tmp', LIVE_FILE);
     } catch { /* the page just shows it when it's done */ }
   };
+  const soon = () => { if (!timer) timer = setTimeout(write, Math.max(0, 200 - (Date.now() - last))); };
   return {
     part(p) {
-      latest = { thinking: p.thinking || '', text: p.text || '' };
-      if (timer) return;
-      timer = setTimeout(write, Math.max(0, 200 - (Date.now() - last)));
+      latest = { ...(latest && latest.using ? { using: latest.using } : {}), thinking: p.thinking || '', text: p.text || '' };
+      soon();
+    },
+    // The tool it's using now (the workspace's AI, 49-ai-sidebar.js).
+    use(name) {
+      latest = { thinking: '', text: '', ...latest, using: name };
+      soon();
     },
     end() {
       if (timer) clearTimeout(timer);
@@ -267,4 +272,4 @@ async function ask(question, { s = settings(), complete, write, live, now = new 
   return { ok: true, answer: text, messages: messages.slice(-MAX_SAVED), ...(saved ? { savedWeights: saved } : {}) };
 }
 
-module.exports = { centerData, gradesText, canAsk, promptFor, ask, takeWeights, readChat, clearChat, SYSTEM, CHAT_FILE, LIVE_FILE };
+module.exports = { centerData, gradesText, canAsk, promptFor, ask, takeWeights, readChat, clearChat, liveWriter, SYSTEM, CHAT_FILE, LIVE_FILE };
