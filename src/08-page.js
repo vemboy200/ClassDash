@@ -1390,6 +1390,7 @@ function aiSettings(s, field) {
   const shown = ids => chosen && ids.split(' ').includes(chosen) ? '' : ' hidden';
   const row = (ids, html) => `      <div data-ai-for="${ids}"${shown(ids)}>\n${html}\n      </div>`;
   const note = (ids, text, cls = 'field-hint') => row(ids, `        <p class="${cls}">${text}</p>`);
+  const tip = (ids, html) => row(ids, `        <div class="tip"><span class="tip-title">${escapeHtml(t('tipTitle'))}</span>${html}</div>`);
   const link = (href, text) => `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
   const agreed = Array.isArray(s.aiAgreed) ? s.aiAgreed : [];
   const KEY_WHERE = { openai: 'platform.openai.com/api-keys', anthropic: 'console.anthropic.com', gemini: 'aistudio.google.com/apikey' };
@@ -1440,7 +1441,11 @@ ${note('ollama', escapeHtml(t('aiOllamaHint')))}
 ${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
 ${note('foundry', escapeHtml(t('aiFoundryHint')))}
 ${note('codex', `${escapeHtml(t('aiCodexHint'))} <span id="ai-codex-status"></span>`)}
+${note('codex', `${escapeHtml(t('aiCodexPlan'))}`)}
+${tip('codex', `${escapeHtml(t('aiCodexTraining'))} ${link('https://chatgpt.com/#settings/DataControls', t('aiCodexTrainingLink'))}`)}
 ${note('claudecode', `${escapeHtml(t('aiClaudeCodeHint'))} <span id="ai-claudecode-status"></span>`)}
+${note('claudecode', `${escapeHtml(t('aiClaudeCodePlan'))}`)}
+${tip('claudecode', `${escapeHtml(t('aiClaudeCodeTraining'))} ${link('https://claude.ai/settings/data-privacy-controls', t('aiClaudeCodeTrainingLink'))}`)}
 ${cloud}
 ${row('ollama lmstudio', `      <label class="setting-row wide">
         <span class="field-name">${escapeHtml(t('aiAddress'))}</span>
@@ -2021,8 +2026,8 @@ ${CHECK_STATUS_ENTRIES.map(([k, l]) => row(k, l)).join('\n')}
 // SVG in a border-image can't read CSS variables, so the two have to be
 // generated from the same place or they'd drift apart.
 const PIXEL_THEME = {
-  light: { bg: '#f6f7f9', card: '#ffffff', line: '#e5e7eb', dim: '#6b7280', warnbg: '#fffaeb', ink: '#101018', new: '#0004ff', hot: '#d40000', amber: '#f2b600' },
-  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', ink: '#66718a', new: '#00ffff', hot: '#ff6b6b', amber: '#ffd23f' },
+  light: { bg: '#f6f7f9', card: '#ffffff', line: '#e5e7eb', dim: '#6b7280', warnbg: '#fffaeb', tipbg: '#dafbe1', ink: '#101018', new: '#0004ff', hot: '#d40000', amber: '#f2b600' },
+  dark:  { bg: '#16181c', card: '#1f2226', line: '#2f3338', dim: '#9aa0a6', warnbg: '#2a2314', tipbg: '#12261a', ink: '#66718a', new: '#00ffff', hot: '#ff6b6b', amber: '#ffd23f' },
 };
 
 // A corner is described the way pixel artists draw a round one: for each
@@ -2109,7 +2114,7 @@ function rasterSprite(N, shapeAt, edge, fill) {
 /** The stepped-corner rules — shared geometry once, then the sprite each
  *  kind of element uses, generated for both themes. */
 function pixelCornerCss() {
-  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .gc-class, .gc-ai';
+  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai';
   const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, ' +
     '.settings-actions button, .show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
@@ -2137,6 +2142,7 @@ function pixelCornerCss() {
     return `
   ${TILES} { ${src('large', 'ink', 'card')} }
   .warn { ${src('large', 'ink', 'warnbg')} }
+  .tip { ${src('large', 'ink', 'tipbg')} }
   .item.overdue-item { ${src('large', 'hot', 'card')} }
   a.item:hover, .post:hover { ${src('large', 'new', 'card')} }
   ${BUTTONS} { ${src('medium', 'ink', 'card')} }
@@ -2460,13 +2466,13 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
      (ru) needs. */
   :root {
     --bg: ${PIXEL_THEME.light.bg}; --bg2: #eceef2; --card: ${PIXEL_THEME.light.card}; --text: #1a1c1e; --dim: ${PIXEL_THEME.light.dim};
-    --line: ${PIXEL_THEME.light.line}; --hot: ${PIXEL_THEME.light.hot}; --new: ${PIXEL_THEME.light.new}; --warn: #6b3a00;
+    --line: ${PIXEL_THEME.light.line}; --hot: ${PIXEL_THEME.light.hot}; --new: ${PIXEL_THEME.light.new}; --warn: #6b3a00; --tip: #1a7f37; --tipbg: ${PIXEL_THEME.light.tipbg};
     --warnbg: ${PIXEL_THEME.light.warnbg}; --ink: ${PIXEL_THEME.light.ink}; --shadow: #101018;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: ${PIXEL_THEME.dark.bg}; --bg2: #1c1f24; --card: ${PIXEL_THEME.dark.card}; --text: #e8eaed; --dim: ${PIXEL_THEME.dark.dim};
-      --line: ${PIXEL_THEME.dark.line}; --hot: ${PIXEL_THEME.dark.hot}; --new: ${PIXEL_THEME.dark.new}; --warn: #ffff55;
+      --line: ${PIXEL_THEME.dark.line}; --hot: ${PIXEL_THEME.dark.hot}; --new: ${PIXEL_THEME.dark.new}; --warn: #ffff55; --tip: #3fb950; --tipbg: ${PIXEL_THEME.dark.tipbg};
       --warnbg: ${PIXEL_THEME.dark.warnbg}; --ink: ${PIXEL_THEME.dark.ink}; --shadow: #000;
     }
   }
@@ -3091,6 +3097,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .setting-row.stacked { grid-template-columns: minmax(0, 1fr); }
   /* Settings → AI: what a cloud provider gets, and its age rule. */
   .warn.ai-notice { margin: 4px 0 12px; font-size: 13px; line-height: 1.45; }
+  /* A tip, in GitHub's Tip colors (green), framed like a warning. */
+  .tip { background: var(--tipbg); color: var(--tip); padding: 10px 14px; margin: 4px 0 12px; font-size: 13px; line-height: 1.45; }
+  .tip a { color: inherit; text-decoration: underline; }
+  .tip-title { display: block; font-weight: 600; margin-bottom: 2px; }
   .ai-notice p { margin: 0 0 8px; }
   .ai-notice .ai-gray { font-weight: 600; }
   .ai-notice a { color: inherit; text-decoration: underline; }

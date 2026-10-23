@@ -78,8 +78,9 @@ const TIMEOUT_MS = 120 * 1000;
 const PROVIDERS = {
   apple: { local: true, label: 'Apple Intelligence', mac: true },
   ollama: { local: true, label: 'Ollama', url: 'http://localhost:11434/v1' },
-  // LM Studio Bionic, LM Studio's agent app on the same engine, serves on
-  // 1235 (seen on a real install; one of the two runs at a time).
+  // Older LM Studio versions serve on 1234 and newer ones on 1235 (found on
+  // a real install), as does LM Studio Bionic, its agent app on the same
+  // engine; one of them runs at a time.
   lmstudio: { local: true, label: 'LM Studio', url: 'http://localhost:1234/v1', also: ['http://localhost:1235/v1'] },
   foundry: { local: true, label: 'Foundry Local' },
   codex: {
@@ -548,8 +549,8 @@ function runCommand(deps, bin, args, input, options) {
   return run(deps, shell ? `"${bin}"` : bin, shell ? args.map(a => `"${a}"`) : args, input, { ...options, shell });
 }
 
-// With no address saved, LM Studio's usual one, then Bionic's when nothing
-// answers there.
+// With no address saved, LM Studio's older port, then its newer one (also
+// Bionic's) when nothing answers there.
 async function viaUsualAddress(config, settings, ask, deps) {
   const p = PROVIDERS[config.provider];
   const others = String(settings.aiLocalUrl || '').trim() || !p || !p.also ? [] : p.also;
