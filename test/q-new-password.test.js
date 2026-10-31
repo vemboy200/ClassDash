@@ -43,16 +43,20 @@ const pages = {
   ok('a request shown over the portal does', ask(pages.portalAsked).message === 'You need to set a new password before you can view your grades.');
 
   // ── signing in, with a stand-in browser ──
+  const timeout = (what, ms = 0) => new Promise((_, no) => setTimeout(() => { const e = new Error(`${what}: Timeout 30000ms exceeded.`); e.name = 'TimeoutError'; no(e); }, ms));
   const fakeChromium = (scene, visited) => ({
     launch: async () => ({
       close: async () => {},
       newContext: async () => ({ newPage: async () => ({
         setDefaultTimeout() {},
         goto: async u => { visited.push(u.replace('https://q.made-up.example/Production/StudentPortal', '')); },
-        waitForSelector: sel => sel === '#Pin' ? Promise.resolve() : new Promise(() => {}),
+        // Playwright's own timeout, as it throws it.
+        waitForSelector: sel => sel === '#Pin' ? (scene === 'noLoginPage' ? timeout('page.waitForSelector') : Promise.resolve())
+          : scene === 'slowPortal' ? timeout('page.waitForSelector') : new Promise(() => {}),
         fill: async () => {}, click: async () => {}, waitForTimeout: async () => {},
-        waitForURL: () => scene === 'changePage' ? new Promise(() => {}) : Promise.resolve(),
-        waitForFunction: () => scene === 'changePage' ? Promise.resolve(true) : new Promise(() => {}),
+        waitForURL: () => scene === 'changePage' ? new Promise(() => {}) : scene === 'neverIn' ? timeout('page.waitForURL', 30)
+          : scene === 'slowPortal' ? new Promise(r => setTimeout(r, 60)) : Promise.resolve(),
+        waitForFunction: () => scene === 'changePage' ? Promise.resolve(true) : scene === 'slowPortal' ? timeout('page.waitForFunction') : new Promise(() => {}),
         evaluate: async fn => fn === grades.newPasswordMessage
           ? (scene === 'changePage' ? { message: SAID } : scene === 'overPortal' ? { message: 'You need a new password.' } : null)
           : [],
@@ -75,6 +79,12 @@ const pages = {
   ok('asked over the portal: the same', r.e instanceof grades.NewPasswordNeeded && r.e.message === 'You need a new password.');
   r = await read('normal');
   ok('a normal sign-in carries on to the grades', !r.e && Array.isArray(r.r), r.e && r.e.message);
+  r = await read('slowPortal');
+  ok('Q slow to sign in: the error and new-password watchers giving up first doesn\'t end the wait', !r.e && Array.isArray(r.r), r.e && r.e.message);
+  r = await read('neverIn');
+  ok('...and if it never signs in, it says so in words, as Q being slow', r.e instanceof grades.Slow && /didn't finish signing in within a minute/.test(r.e.message), r.e && r.e.message);
+  r = await read('noLoginPage');
+  ok('the sign-in page not loading says so too', r.e instanceof grades.Slow && /sign-in page didn't load in time/.test(r.e.message), r.e && r.e.message);
 
   // ── what a check does with it ──
   let tries = 0;

@@ -57,6 +57,10 @@ const SERVICE = 'ClassDash Q grades';
 const ACCOUNT = 'q-password';
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 const STEP_TIMEOUT_MS = 30000;
+// Signing in can take Q longer than a step, on a busy evening.
+const SIGN_IN_TIMEOUT_MS = 60000;
+// Q being slow is usually over in a moment: one more try after this.
+const RETRY_WAIT_MS = 15000;
 
 const settings = () => require('./19-settings.js').read();
 
@@ -247,6 +251,11 @@ class Rejected extends Error {}
 // new one is the person's to do, on Q's own site; ClassDash only says so,
 // with Q's own words.
 class NewPasswordNeeded extends Rejected {}
+// Q took too long at some step: busy or down for a while, nothing wrong with
+// the username or password. Worth one more try, and said in words, not as
+// Playwright's "page.waitForSelector: Timeout 30000ms exceeded".
+class Slow extends Error {}
+const timedOut = e => e && (e instanceof Slow || e.name === 'TimeoutError');
 
 /**
  * Runs in the page, after signing in: whether Q is asking for a new
@@ -307,19 +316,31 @@ async function read({ base, username, password, s = settings(), chromium = requi
   try {
     const page = await (await browser.newContext()).newPage();
     page.setDefaultTimeout(STEP_TIMEOUT_MS);
-    await page.goto(base + '/');
-    await page.waitForSelector('#Pin');
+    try {
+      await page.goto(base + '/');
+      await page.waitForSelector('#Pin');
+    } catch (e) {
+      if (timedOut(e)) throw new Slow('Q\'s sign-in page didn\'t load in time (Q may be busy or down)');
+      throw e;
+    }
     await page.fill('#Pin', username);
     await page.fill('#Password', password);
     await page.click('#LoginButton');
-    // Either the portal opens, or the login form says why not.
+    // Either the portal opens, or the login form says why not. Only the
+    // portal opening decides when it's taken too long: the other two
+    // watchers giving up first used to end the wait with their timeout
+    // ("page.waitForSelector: Timeout 30000ms exceeded") when Q was only
+    // slow to sign in, so theirs just never answers.
+    const never = () => new Promise(() => {});
     const outcome = await Promise.race([
-      page.waitForURL(/\/Home\/PortalMainPage/i).then(() => 'in'),
+      page.waitForURL(/\/Home\/PortalMainPage/i, { timeout: SIGN_IN_TIMEOUT_MS }).then(() => 'in', e => {
+        throw timedOut(e) ? new Slow('Q didn\'t finish signing in within a minute (Q may be busy)') : e;
+      }),
       // Any one of them showing: they're all on the page from the start,
       // hidden, and waitForSelector alone would only ever watch the first.
-      page.waitForSelector('#loginerrormsg .error >> visible=true').then(() => 'refused'),
+      page.waitForSelector('#loginerrormsg .error >> visible=true', { timeout: SIGN_IN_TIMEOUT_MS }).then(() => 'refused', never),
       // Signed in, but sent to change the password first.
-      page.waitForFunction(newPasswordMessage, null, { polling: 500 }).then(() => 'newPassword'),
+      page.waitForFunction(newPasswordMessage, null, { polling: 500, timeout: SIGN_IN_TIMEOUT_MS }).then(() => 'newPassword', never),
     ]);
     if (outcome === 'refused') {
       const msg = await page.$eval('#loginerrormsg', el => [...el.querySelectorAll('.error, #msgmessage')].filter(e => e.offsetParent).map(e => e.textContent.trim()).join(' ')).catch(() => '');
@@ -405,7 +426,7 @@ async function addReport(page, base, id, c, now) {
  * last good grades stay when a check fails; the failure is saved beside
  * them, for the page to say.
  */
-async function check({ force = false, now = new Date(), reader = read } = {}) {
+async function check({ force = false, now = new Date(), reader = read, retryWaitMs = RETRY_WAIT_MS } = {}) {
   const s = settings();
   const password = passwordStore().get();
   const saved = readGrades();
@@ -418,12 +439,22 @@ async function check({ force = false, now = new Date(), reader = read } = {}) {
   delete next.rejected;
   delete next.newPassword;
   try {
-    const classes = await reader({ base, username, password, s, now });
+    let classes;
+    try {
+      classes = await reader({ base, username, password, s, now });
+    } catch (e) {
+      if (!timedOut(e)) throw e;
+      // Slow, not wrong: once more after a pause, then give up till next time.
+      await new Promise(r => setTimeout(r, retryWaitMs));
+      classes = await reader({ base, username, password, s, now });
+    }
     if (!classes.length) throw new Error('signed in, but found no classes under Assignments');
     Object.assign(next, { ok: true, why: null, checkedAt: now.toISOString(), classes });
   } catch (e) {
     next.ok = false;
-    next.why = String(e.message || e).split('\n')[0].slice(0, 200);
+    next.why = e.name === 'TimeoutError' && !(e instanceof Slow)
+      ? 'Q took too long to answer (Q may be busy or down)'
+      : String(e.message || e).split('\n')[0].slice(0, 200);
     if (e instanceof Rejected) next.rejected = fingerprint(username, password, base);
     if (e instanceof NewPasswordNeeded) next.newPassword = true;
   }
@@ -703,7 +734,7 @@ let startCheckNow = () => {
 
 module.exports = {
   portalBase, parseAssignments, canvasGrade, canvasAssignment, canvasWeighting, estimateGrade, typedEstimate, qName, canvasHiddenTest, saveCanvasGrades, readCanvasGrades, savePassword, hasPassword, readiness, due, check, read, gradesView, readGrades,
-  takeLock, dropLock, keychainStore, fileStore, quoted, Rejected, NewPasswordNeeded, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
+  takeLock, dropLock, keychainStore, fileStore, quoted, Rejected, NewPasswordNeeded, Slow, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
   _setStore: s => { storeOverride = s; },
   startCheckNow: () => startCheckNow(),
   _setStartCheck: f => { startCheckNow = f; },

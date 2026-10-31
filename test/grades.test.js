@@ -97,6 +97,13 @@ const FRAGMENT = `<div id="SP_Assignments"><input id="schedreccount" type="hidde
   const afterFail = JSON.parse(fs.readFileSync(file, 'utf8'));
   ok('a failed check keeps the last grades and says why', !r.ok && afterFail.classes.length === 4 && afterFail.why === 'Q answered 500 for Assignments');
 
+  let slowTries = 0;
+  r = await grades.check({ force: true, now: new Date(now + 130000), retryWaitMs: 10, reader: async args => { if (++slowTries === 1) throw new grades.Slow('Q didn\'t finish signing in within a minute (Q may be busy)'); return grades.parseAssignments(doc); } });
+  ok('Q being slow gets one more try, a moment later', r.ok && slowTries === 2);
+  slowTries = 0;
+  const pwTimeout = () => { const e = new Error('page.waitForSelector: Timeout 30000ms exceeded.'); e.name = 'TimeoutError'; return e; };
+  r = await grades.check({ force: true, now: new Date(now + 140000), retryWaitMs: 10, reader: async () => { slowTries++; throw pwTimeout(); } });
+  ok('...only one, and then it says so in words, not Playwright\'s', !r.ok && slowTries === 2 && r.why === 'Q took too long to answer (Q may be busy or down)' && JSON.parse(fs.readFileSync(file, 'utf8')).classes.length === 4, r.why);
   r = await grades.check({ force: true, now: new Date(now + 180000), reader: async () => { throw new grades.Rejected('Invalid PIN or password'); } });
   ok('Q turning the password down is remembered', !r.ok && !!JSON.parse(fs.readFileSync(file, 'utf8')).rejected);
   r = await grades.check({ force: true, now: new Date(now + 4 * 3600000), reader: good });
