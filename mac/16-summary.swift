@@ -1791,6 +1791,13 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         }
     }
 
+    // The page reloading or going elsewhere (⌘R, Refresh) takes the
+    // workspace with it, so its web pages go too: they're views of their own
+    // over the page, and would stay on screen with no workspace under them.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if webView === web { _ = webPanes?.handle("{\"op\":\"closeAll\"}") }
+    }
+
     // A page that has just finished loading missed everything pushed before it
     // existed, so it's told the current state straight away.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
