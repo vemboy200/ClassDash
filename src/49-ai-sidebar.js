@@ -100,7 +100,7 @@ function setHints(doc, on) {
  */
 function canAsk(s = settings()) {
   const ai = require('./37-ai.js');
-  const id = s.aiProvider;
+  const id = ai.chatSettings(s).aiProvider;
   if (!id || id === 'none' || !ai.PROVIDERS[id]) return { ok: false, why: 'off' };
   const p = ai.PROVIDERS[id];
   if (!p.local && !(s.aiAgreed || []).includes(id)) return { ok: false, why: 'agree', company: p.company };
@@ -138,6 +138,7 @@ async function ask(question, { doc, page, hints, live, s = settings(), complete,
   try { meta = JSON.parse(fs.readFileSync(path.join(W.DIR, doc, 'meta.json'), 'utf8')); } catch { return { ok: false, why: 'nodoc' }; }
   const can = canAsk(s);
   if (!can.ok) return { ok: false, why: can.why };
+  s = require('./37-ai.js').chatSettings(s);
   const chat = readChat(doc);
   if (typeof hints === 'boolean') chat.hints = hints;
   const ctx = await pageContext(doc, Math.max(1, Math.floor(Number(page) || 1)));

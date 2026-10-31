@@ -151,7 +151,7 @@ function strings() {
     'wsAiTool_list_assignments', 'wsAiTool_get_assignment', 'wsAiTool_list_classes', 'wsAiTool_list_announcements',
     'wsAiTool_list_pdfs', 'wsAiTool_read_pdf_pages', 'wsAiTool_get_grades'];
   const out = { locale: t('locale'), guide: GUIDE_URL };
-  for (const k of keys) out[k] = t(k);
+  for (const k of [...keys, ...require('./51-model-picker.js').STRING_KEYS]) out[k] = t(k);
   return out;
 }
 
@@ -236,6 +236,7 @@ function pageHtml() {
   #ai-status { color: var(--hot); font-size: 12px; padding: 0 10px; }
   #ai-status:empty { display: none; }
   .ai-form { display: flex; gap: 6px; padding: 8px 10px 10px; align-items: flex-end; }
+  .ai-foot { padding: 0 10px 8px; }
   #ai-q { flex: 1; min-height: 38px; max-height: 140px; resize: vertical; font: inherit; color: var(--text); background: var(--card); border: 2px solid var(--ink); padding: 6px 8px; }
   .ai-gate { position: absolute; inset: 0; z-index: 3; background: var(--bg); overflow-y: auto; padding: 20px 18px; display: flex; flex-direction: column; gap: 12px; }
   .ai-gate img { width: 68px; height: 80px; image-rendering: pixelated; align-self: center; }
@@ -244,6 +245,7 @@ function pageHtml() {
   .ai-gate .ok { align-self: center; }
   .ai-gate a { color: var(--accent); font-size: 13px; text-align: center; }
   [hidden] { display: none !important; }
+${require('./51-model-picker.js').CSS}
 </style>
 </head>
 <body>
@@ -255,6 +257,7 @@ function pageHtml() {
 </div>
 <div id="panes"></div>
 <script>
+${require('./51-model-picker.js').SCRIPT}
 ${PAGE_SCRIPT.replace('__STRINGS__', () => JSON.stringify(L).replace(/</g, '\\u003c')).replace('__WARNING__', () => WARNING_B64)}
 </script>
 </body>
@@ -845,7 +848,7 @@ function makeAi(body) {
   body.innerHTML = '<div class="ai-head"><span class="about"></span>' +
     '<label><input type="checkbox" id="ai-hints" checked> <span></span></label><button class="small" id="ai-clear"></button></div>' +
     '<div id="ai-chat"></div><div id="ai-status"></div>' +
-    '<div class="ai-form"><textarea id="ai-q" rows="2"></textarea><button id="ai-ask"></button></div>';
+    '<div class="ai-form"><textarea id="ai-q" rows="2"></textarea><button id="ai-ask"></button></div><div class="ai-foot"></div>';
   body.querySelector('label').title = L.wsAiHintsTip;
   body.querySelector('label span').textContent = L.wsAiHints;
   body.querySelector('#ai-clear').textContent = L.wsAiClear;
@@ -853,6 +856,8 @@ function makeAi(body) {
   body.querySelector('#ai-ask').textContent = L.wsAiAsk;
   ai.el = body;
   ai.doc = null;
+  // A new pick: the chat asks again whether it can, with that AI.
+  modelPicker(body.querySelector('.ai-foot'), { ask: bridge, words: L, onPick: () => { ai.doc = null; aiTargetChanged(); } });
   if (!desk.aiOk) aiGate(body);
   $('ai-ask').onclick = askAi;
   $('ai-q').addEventListener('keydown', e => {

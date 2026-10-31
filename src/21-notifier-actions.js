@@ -506,12 +506,18 @@ function main(action, arg) {
       }
       return refreshIcs(url).then(result => ({ ...result, action, calendar: calendarPayload(store) }));
     }
-    // Settings → AI's Test button, for the provider as saved (the page saves
-    // first, so no key ever travels in this action's argument, which the
-    // apps write to their logs). Logs only whether it worked: the answer
-    // and the models aren't the log's business.
+    // Settings → AI's Test button beside one AI, its id the argument, with
+    // its settings as saved (the page saves first, so no key ever travels
+    // in this action's argument, which the apps write to their logs). The
+    // announcement scan's own model when it's that one, else its first or
+    // default. Logs only whether it worked: the answer and the models
+    // aren't the log's business.
     case 'aiTest': {
-      return require('./37-ai.js').test(require('./19-settings.js').read()).then(result => {
+      const s = require('./19-settings.js').read();
+      const ai = require('./37-ai.js');
+      const id = ai.PROVIDER_IDS.includes(arg) ? arg : s.aiProvider;
+      const same = id === s.aiProvider;
+      return ai.test({ ...s, aiProvider: id, aiModel: same ? s.aiModel : '', aiLocalUrl: same ? s.aiLocalUrl : '' }).then(result => {
         logAction(result.ok ? `  AI test: ok (${result.ms} ms)` : `  AI test failed: ${result.why}`);
         return { ...result, action };
       });
@@ -521,6 +527,35 @@ function main(action, arg) {
     // that it ran.
     case 'aiDetect': {
       return require('./37-ai.js').detect().then(result => ({ ok: true, action, ...result }));
+    }
+    // A chat's model picker (51-model-picker.js) opening: every provider,
+    // whether the chats can use it and its models. Logs nothing.
+    case 'aiChoices': {
+      return require('./37-ai.js').choices(require('./19-settings.js').read()).then(result => ({ ok: true, action, ...result }));
+    }
+    // A model picked in one, as base64url JSON {for, provider, model, url}:
+    // for "scan", the announcement scan's AI (aiProvider, aiModel,
+    // aiLocalUrl; provider "none" turns it off), otherwise the chats'
+    // (37-ai.js chatSettings). Only those settings can be written this way.
+    case 'aiPick': {
+      let pick;
+      try {
+        pick = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) || {};
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      const scan = pick.for === 'scan';
+      const values = scan
+        ? { aiProvider: String(pick.provider || 'none'), aiModel: String(pick.model || ''), aiLocalUrl: String(pick.url || '') }
+        : { aiChatProvider: String(pick.provider || ''), aiChatModel: String(pick.model || ''), aiChatUrl: String(pick.url || '') };
+      const settings = require('./19-settings.js');
+      // All three or none.
+      const bad = Object.keys(values).map(k => settings.validate(k, values[k])).find(v => !v.ok);
+      if (bad) return { ok: false, action, why: bad.why };
+      settings.applyBatch(Buffer.from(JSON.stringify(values)).toString('base64'));
+      logAction(scan ? '  announcement AI picked' : '  chat model picked');
+      if (scan) redraw();
+      return { ok: true, action };
     }
     // The AI button beside an announcement: the announcements picked, as a
     // base64url JSON list of ids. Answers with what was kept, and redraws

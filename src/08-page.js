@@ -1120,14 +1120,6 @@ function browserLabelFor(browserPath) {
 }
 
 /**
- * Settings → AI (37-ai.js). One picker, local ones first and recommended;
- * under it only the rows the picked one uses (data-ai-for, kept true by
- * updateAiRows in the page's script). A cloud provider shows what it gets
- * and its own age rule, with a box that has to be ticked before anything
- * is sent to it (aiAgreed). Every provider's rows are on the page, hidden
- * or not, so switching back and forth doesn't lose a key.
- */
-/**
  * Settings → Grades: which system (only Aequitas Q so far), its address,
  * the username, and the password, which has a button of its own: it goes
  * to the keychain through its own action (saveGradesPassword), never into
@@ -1360,12 +1352,14 @@ ${x.assignments.length ? workTable(x.assignments) : ''}
           </details>`).join('\n')}
         </details>`;
   const ai = require('./37-ai.js');
-  const cloud = s.aiProvider && ai.PROVIDERS[s.aiProvider] && !ai.PROVIDERS[s.aiProvider].local ? ai.PROVIDERS[s.aiProvider] : null;
+  // The AI the chat asks with: its picker's, or Settings → AI's.
+  const asking = ai.chatSettings(s).aiProvider;
+  const cloud = asking && ai.PROVIDERS[asking] && !ai.PROVIDERS[asking].local ? ai.PROVIDERS[asking] : null;
   const notice = can.ok ? `<p class="hint gc-ai-who">${escapeHtml(t(can.local ? 'gcAiLocal' : 'gcAiCloud', can.label, can.company))}</p>`
     : can.why === 'off' ? `<p class="hint gc-ai-who">${escapeHtml(t('gcAiOff'))}</p>`
     : `<div class="warn gc-agree">
           <p>${escapeHtml(t('gcAgreeText', cloud.company))}</p>
-          <label class="check-row"><input type="checkbox" id="gc-agree-box" data-provider="${escapeHtml(s.aiProvider)}" data-agreed="${escapeHtml(JSON.stringify(s.gradesAiAgreed || []))}" onchange="agreeGradesAi(this)"><span class="label-text">${escapeHtml(t('gcAgreeBox', cloud.company))}</span></label>
+          <label class="check-row"><input type="checkbox" id="gc-agree-box" data-provider="${escapeHtml(asking)}" data-agreed="${escapeHtml(JSON.stringify(s.gradesAiAgreed || []))}" onchange="agreeGradesAi(this)"><span class="label-text">${escapeHtml(t('gcAgreeBox', cloud.company))}</span></label>
         </div>`;
   return `  <div class="grades-center" id="grades-center" hidden role="dialog" aria-label="${escapeHtml(t('gcTitle'))}" data-weights="${escapeHtml(JSON.stringify(typed))}">
     <div class="gc-head">
@@ -1387,46 +1381,78 @@ ${classes.length ? classes.filter(c => !c.superseded).map(c => classBlock(c, cla
           <button type="button" class="mini-btn" onclick="clearGradesChat()">${escapeHtml(t('gcClear'))}</button>
           <span class="hint" id="gc-status"></span>
         </div>
+        <div id="gc-pick"></div>
       </aside>
     </div>
   </div>`;
 }
 
+/**
+ * Settings → AI (37-ai.js): setting AIs up, not picking one. Every AI is a
+ * row that opens (local ones first, recommended), with its state beside
+ * its name from the aiChoices action (refreshAiStates in the page's
+ * script): what's needed to use it, its key or address, and a Test. A
+ * cloud one shows what it gets and its own age rule, with a box that has
+ * to be ticked before anything is sent to it (aiAgreed). Which AI is used
+ * is picked where it's used: the chats' picker, and the announcement
+ * scan's under Announcements (51-model-picker.js).
+ */
 function aiSettings(s, field) {
   const ai = require('./37-ai.js');
   const P = ai.PROVIDERS;
-  const chosen = ai.PROVIDER_IDS.includes(s.aiProvider) && !(P[s.aiProvider].mac && process.platform !== 'darwin') ? s.aiProvider : 'none';
   const label = id => id === 'apple' ? t('aiApple') : id === 'codex' ? t('aiCodex') : id === 'claudecode' ? t('aiClaudeCode') : P[id].label;
-  const option = id => `<option value="${id}" data-label="${escapeHtml(label(id))}"${P[id].model ? ` data-default-model="${escapeHtml(P[id].model)}"` : ''}${P[id].url ? ` data-default-url="${escapeHtml(P[id].url)}"` : ''}` +
-    `${P[id].local ? '' : ' data-cloud'}${chosen === id ? ' selected' : ''}>${escapeHtml(label(id))}</option>`;
-  const localIds = ai.PROVIDER_IDS.filter(id => P[id].local && !(P[id].mac && process.platform !== 'darwin'));
-  const cloudIds = ai.PROVIDER_IDS.filter(id => !P[id].local);
-  const shown = ids => chosen && ids.split(' ').includes(chosen) ? '' : ' hidden';
-  const row = (ids, html) => `      <div data-ai-for="${ids}"${shown(ids)}>\n${html}\n      </div>`;
-  const note = (ids, text, cls = 'field-hint') => row(ids, `        <p class="${cls}">${text}</p>`);
-  const tip = (ids, html) => row(ids, `        <div class="tip"><span class="tip-title">${escapeHtml(t('tipTitle'))}</span>${html}</div>`);
+  const ids = ai.PROVIDER_IDS.filter(id => !(P[id].mac && process.platform !== 'darwin'));
   const link = (href, text) => `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+  const note = (text, cls = 'field-hint') => `          <p class="${cls}">${text}</p>`;
+  const tip = html => `          <div class="tip"><span class="tip-title">${escapeHtml(t('tipTitle'))}</span>${html}</div>`;
   const agreed = Array.isArray(s.aiAgreed) ? s.aiAgreed : [];
   const KEY_WHERE = { openai: 'platform.openai.com/api-keys', anthropic: 'console.anthropic.com', gemini: 'aistudio.google.com/apikey' };
 
-  const cloud = cloudIds.map(id => {
+  const notice = id => {
     const p = P[id];
     const age = p.minAge === 13 ? t('aiAge13', p.company) : p.company === 'Anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
     const agree = (p.minAge === 13 ? t('aiAgree13', p.company) : t('aiAgree18', p.company)) + (p.grayZone ? ' ' + t('aiAgreeGrayZone') : '');
-    return row(id, `        <div class="warn ai-notice">
-${p.grayZone ? `          <p class="ai-gray">${escapeHtml(t('aiGrayZone'))}</p>\n` : ''}          <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
-${p.freeTierTraining ? `          <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n` : ''}          <p>${escapeHtml(age)} ${link(p.terms, t('aiTerms'))} · ${link(p.privacy, t('aiPrivacy'))}</p>
-          <p>${escapeHtml(t('aiForSomeoneElse'))}</p>
-          <label class="check-row ai-agree"><input type="checkbox" data-key="aiAgreed" value="${id}"${agreed.includes(id) ? ' checked' : ''}><span class="label-text">${escapeHtml(agree)}</span></label>
-        </div>`);
-  }).join('\n');
-
-  const modelHint = id => id === 'ollama' || id === 'lmstudio' ? t('aiModelFirst') : id === 'foundry' ? t('aiModelFoundry')
-    : id === 'codex' ? t('aiModelCodex') : t('aiModelDefault', P[id].model);
-  const modelHints = ai.PROVIDER_IDS.filter(id => id !== 'apple')
-    .map(id => `<span data-ai-for="${id}"${shown(id)}>${escapeHtml(modelHint(id))}</span>`).join('');
-  const addressHints = ['ollama', 'lmstudio']
-    .map(id => `<span data-ai-for="${id}"${shown(id)}>${escapeHtml(t('aiAddressHint', P[id].url))}</span>`).join('');
+    return `          <div class="warn ai-notice">
+${p.grayZone ? `            <p class="ai-gray">${escapeHtml(t('aiGrayZone'))}</p>\n` : ''}            <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
+${p.freeTierTraining ? `            <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n` : ''}            <p>${escapeHtml(age)} ${link(p.terms, t('aiTerms'))} · ${link(p.privacy, t('aiPrivacy'))}</p>
+            <p>${escapeHtml(t('aiForSomeoneElse'))}</p>
+            <label class="check-row ai-agree"><input type="checkbox" data-key="aiAgreed" value="${id}"${agreed.includes(id) ? ' checked' : ''}><span class="label-text">${escapeHtml(agree)}</span></label>
+          </div>`;
+  };
+  // An address only for a server somewhere other than its usual one; an
+  // old one typed for the announcement scan's AI is shown as its own.
+  const address = id => {
+    const key = P[id].urlKey;
+    const value = s[key] || (s.aiProvider === id && s.aiLocalUrl && s.aiLocalUrl.replace(/\/+$/, '') !== P[id].url ? s.aiLocalUrl : '');
+    return `          <label class="setting-row wide">
+            <span class="field-name">${escapeHtml(t('aiAddress'))}</span>
+            <input type="text" data-key="${key}" value="${escapeHtml(value)}" spellcheck="false">
+            <span class="field-hint">${escapeHtml(t('aiAddressHint', P[id].url))}</span>
+          </label>`;
+  };
+  const body = id => [
+    id === 'apple' ? note(escapeHtml(t('aiAppleHint'))) : '',
+    id === 'ollama' ? note(escapeHtml(t('aiOllamaHint'))) : '',
+    id === 'lmstudio' ? note(escapeHtml(t('aiLmstudioHint'))) : '',
+    id === 'foundry' ? note(escapeHtml(t('aiFoundryHint'))) : '',
+    id === 'codex' ? [note(escapeHtml(t('aiCodexHint'))), note(escapeHtml(t('aiCodexPlan'))),
+      tip(`${escapeHtml(t('aiCodexTraining'))} ${link('https://chatgpt.com/#settings/DataControls', t('aiCodexTrainingLink'))}`)].join('\n') : '',
+    id === 'claudecode' ? [note(escapeHtml(t('aiClaudeCodeHint'))), note(escapeHtml(t('aiClaudeCodePlan'))),
+      tip(`${escapeHtml(t('aiClaudeCodeTraining'))} ${link('https://claude.ai/settings/data-privacy-controls', t('aiClaudeCodeTrainingLink'))}`)].join('\n') : '',
+    P[id].local ? '' : notice(id),
+    P[id].urlKey ? address(id) : '',
+    P[id].key ? field(P[id].key, t('aiKey'), s[P[id].key] || '', t('aiKeyHint', KEY_WHERE[id]), true) : '',
+    `          <div class="ai-test-row">
+            <button type="button" class="mini-btn ai-test" data-provider="${id}" onclick="testAi(this)">${escapeHtml(t('aiTest'))}</button>
+            <span class="field-hint ai-test-status"></span>
+          </div>`,
+  ].filter(Boolean).join('\n');
+  const row = id => `        <details class="ai-prov" data-ai="${id}">
+          <summary><span class="ai-prov-name">${escapeHtml(label(id))}</span> <span class="ai-state"></span></summary>
+${body(id)}
+        </details>`;
+  const group = (title, list) => `      <div class="settings-subhead">${escapeHtml(title)}</div>
+${list.map(row).join('\n')}`;
 
   return `
       <p class="hint">${escapeHtml(t('aiIntro'))}</p>
@@ -1440,72 +1466,31 @@ ${p.freeTierTraining ? `          <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n`
         </ul>
         <p>${escapeHtml(t('aiGuideNoPlans'))}</p>
       </details>
-      <label class="setting-row wide">
-        <span class="field-name">${escapeHtml(t('aiProvider'))}</span>
-        <span class="ai-select"><select data-key="aiProvider" data-saved="${chosen}" onchange="updateAiRows()">
-          <option value="none"${chosen === 'none' ? ' selected' : ''}>${escapeHtml(t('aiOff'))}</option>
-          <optgroup label="${escapeHtml(t('aiGroupLocal'))}">${localIds.map(option).join('')}</optgroup>
-          <optgroup label="${escapeHtml(t('aiGroupCloud'))}">${cloudIds.map(option).join('')}</optgroup>
-        </select></span>
-        <span class="field-hint" id="ai-found"></span>
-      </label>
-${note(localIds.join(' '), escapeHtml(t('aiLocalNote')), 'field-hint ai-local-note')}
-${note('apple', `${escapeHtml(t('aiAppleHint'))} <span id="ai-apple-status"></span>`)}
-${note('ollama', escapeHtml(t('aiOllamaHint')))}
-${note('lmstudio', escapeHtml(t('aiLmstudioHint')))}
-${note('foundry', escapeHtml(t('aiFoundryHint')))}
-${note('codex', `${escapeHtml(t('aiCodexHint'))} <span id="ai-codex-status"></span>`)}
-${note('codex', `${escapeHtml(t('aiCodexPlan'))}`)}
-${tip('codex', `${escapeHtml(t('aiCodexTraining'))} ${link('https://chatgpt.com/#settings/DataControls', t('aiCodexTrainingLink'))}`)}
-${note('claudecode', `${escapeHtml(t('aiClaudeCodeHint'))} <span id="ai-claudecode-status"></span>`)}
-${note('claudecode', `${escapeHtml(t('aiClaudeCodePlan'))}`)}
-${tip('claudecode', `${escapeHtml(t('aiClaudeCodeTraining'))} ${link('https://claude.ai/settings/data-privacy-controls', t('aiClaudeCodeTrainingLink'))}`)}
-${cloud}
-${row('ollama lmstudio', `      <label class="setting-row wide">
-        <span class="field-name">${escapeHtml(t('aiAddress'))}</span>
-        <span class="field-with-value">
-          <input type="text" data-key="aiLocalUrl" data-saved-url="${escapeHtml(s.aiLocalUrl || '')}" value="${escapeHtml(s.aiLocalUrl || '')}" spellcheck="false">
-          <button type="button" class="mini-btn" id="ai-find" onclick="findAi(this)">${escapeHtml(t('aiFind'))}</button>
-        </span>
-        <span class="field-hint">${addressHints} <span id="ai-find-status"></span></span>
-      </label>`)}
-${['openai', 'anthropic', 'gemini'].map(id => row(id, field(P[id].key, t('aiKey'), s[P[id].key] || '', t('aiKeyHint', KEY_WHERE[id]), true))).join('\n')}
-${row(ai.PROVIDER_IDS.filter(id => id !== 'apple').join(' '), `      <label class="setting-row wide">
-        <span class="field-name">${escapeHtml(t('aiModel'))}</span>
-        <span class="field-with-value">
-          <span class="ai-select" id="ai-model-wrap" hidden><select id="ai-model-select" onchange="aiModelPicked(this)"></select></span>
-          <input type="text" data-key="aiModel" data-saved-model="${escapeHtml(s.aiModel || '')}" value="${escapeHtml(s.aiModel || '')}" spellcheck="false">
-        </span>
-        <span class="field-hint">${modelHints}</span>
-      </label>`)}
-${row('ollama lmstudio foundry', `      <label class="setting-row">
+      <div class="ai-look"><button type="button" class="mini-btn" id="ai-look" onclick="refreshAiStates(true)">${escapeHtml(t('aiLookAgain'))}</button> <span class="field-hint" id="ai-found"></span></div>
+${group(t('aiGroupLocal'), ids.filter(id => P[id].local))}
+      <p class="field-hint ai-local-note">${escapeHtml(t('aiLocalNote'))}</p>
+${group(t('aiGroupCloud'), ids.filter(id => !P[id].local))}
+      <label class="setting-row">
         <span class="field-name">${escapeHtml(t('aiThinking'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="aiThinking"${s.aiThinking !== false ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('aiThinkingHint'))}</span>
-      </label>`)}
-      <div class="setting-row" id="ai-test-row"${chosen === 'none' ? ' hidden' : ''}>
-        <span class="field-name"></span>
-        <span class="field-with-value">
-          <button type="button" class="mini-btn" id="ai-test" onclick="testAi(this)">${escapeHtml(t('aiTest'))}</button>
-        </span>
-        <span class="field-hint" id="ai-test-status"></span>
-      </div>
-${aiScanSection(chosen)}
+      </label>
+${aiScanSection()}
 ${aiMcpSection()}`;
 }
 
-/**
- * Settings → AI → Announcements (38-announcement-scan.js): new ones are
- * read for homework after each check by themselves; here any of them can
- * be ticked and read now, with what the last scan found beside each.
- */
-// Settings → AI → Announcements: what the scan does, and Skip classwork.
-// Reading one now is the AI scan button beside the announcement itself.
-function aiScanSection(chosen) {
+// Settings → AI → Announcements: which AI reads them (the same picker as
+// the chats', with Off), what the scan does, and Skip classwork. Reading
+// one now is the AI scan button beside the announcement itself.
+function aiScanSection() {
   const s = readSettings();
-  return `      <div id="ai-scan" data-ai-for="${require('./37-ai.js').PROVIDER_IDS.join(' ')}"${chosen === 'none' ? ' hidden' : ''}>
+  return `      <div id="ai-scan">
         <div class="settings-subhead">${escapeHtml(t('aiScanTitle'))}</div>
         <p class="field-hint">${escapeHtml(t('aiScanHint'))}</p>
+        <div class="setting-row wide">
+          <span class="field-name">${escapeHtml(t('aiScanWith'))}</span>
+          <div id="ai-scan-pick"></div>
+        </div>
         <label class="setting-row">
           <span class="field-name">${escapeHtml(t('aiSkipClasswork'))}</span>
           <input type="checkbox" class="toggle" data-bool-key="aiSkipClasswork"${s.aiSkipClasswork ? ' checked' : ''}>
@@ -3173,7 +3158,15 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .ai-select::after { content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--dim); }
   [data-section="ai"] .setting-row.wide .field-with-value { display: flex; gap: 8px; align-items: center; min-width: 0; }
   [data-section="ai"] .setting-row.wide .field-with-value input { flex: 1 1 auto; min-width: 0; }
-  #ai-test-row[hidden] { display: none; }
+  .ai-look { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
+  .ai-prov { border: 2px solid var(--line); margin: 0 0 6px; padding: 0 10px; }
+  .ai-prov[open] { padding-bottom: 10px; }
+  .ai-prov > summary { cursor: pointer; padding: 8px 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .ai-prov-name { font-weight: 600; }
+  .ai-state { color: var(--dim); font-size: 13px; }
+  .ai-state.ready { color: var(--text); }
+  .ai-test-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #ai-scan-pick { min-width: 0; }
   .reminder-from { color: var(--dim); }
   .ai-why { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: var(--dim); }
   .ai-why summary { cursor: pointer; color: var(--text); font-weight: 600; }
@@ -3316,7 +3309,8 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   #gc-question:disabled { opacity: .6; }
   .gc-ai-buttons { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .gc-agree p { margin: 0 0 6px; }
-  @media (max-width: 760px) { .gc-body { grid-template-columns: minmax(0, 1fr); } .gc-ai { position: static; max-height: none; } }
+  #gc-pick { margin-top: -4px; }
+${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { grid-template-columns: minmax(0, 1fr); } .gc-ai { position: static; max-height: none; } }
   .grades-hidden .grade-mark > * { display: none; }
   .grades-hidden .grade-mark::after { content: '•••'; color: var(--dim); letter-spacing: 2px; }
   .schedule-line { display: flex; flex-direction: column; gap: 2px; font-size: 13px; margin: 0 0 10px; }
@@ -3682,6 +3676,7 @@ const WORDS = ${JSON.stringify({
   gradesCheckNow: t('gradesCheckNow'),
   gradesHide: t('gradesHide'),
   gcThinking: t('gcThinking'),
+  ...Object.fromEntries(require('./51-model-picker.js').STRING_KEYS.map(k => [k, t(k)])),
   gcThought: t('aiPostThinking'),
   gcAskFailed: t('gcAskFailed'),
   gcWeightsBad: t('gcWeightsBad'),
@@ -3701,24 +3696,16 @@ const WORDS = ${JSON.stringify({
   aiTestNeedsApp: t('aiTestNeedsApp'),
   aiAgreeFirst: t('aiAgreeFirst'),
   aiLooking: t('aiLooking'),
-  aiFound: t('aiFound'),
-  aiFoundNone: t('aiFoundNone'),
+  aiReady: t('aiReady'),
   aiModelsCount: t('aiModelsCount', '{n}'),
   aiModelOne: t('aiModelOne'),
-  aiModelDefaultOption: t('aiModelDefaultOption', '{m}'),
-  aiModelMissing: t('aiModelMissing'),
   aiUnavailable: t('aiUnavailable'),
   aiFoundryStopped: t('aiFoundryStopped'),
   aiClaudeCodeSignedOut: t('aiClaudeCodeSignedOut'),
   aiCodexSignedOut: t('aiCodexSignedOut'),
-  aiNotSignedIn: t('aiNotSignedIn'),
-  aiFind: t('aiFind'),
   aiScanningButton: t('aiScanningButton'),
   aiPostScan: t('aiPostScan'),
   aiPostRunning: t('aiPostRunning'),
-  aiFinding: t('aiFinding'),
-  aiNotFoundHere: t('aiNotFoundHere', '{name}', '{url}'),
-  aiFoundAt: t('aiFoundAt', '{name}', '{url}'),
   calendarErrors: { noText: t('calendarErrorNoText'), noMonths: t('calendarErrorNoMonths'), unreadable: t('calendarErrorUnreadable') },
   calendarConfirmRemove: t('calendarConfirmRemove'),
   calendarReadAnother: t('calendarReadAnother'),
@@ -3843,7 +3830,7 @@ window.classdashBridgeResult = function (id, result) {
 // (classdashWebPane).
 var WORKSPACE_ORIGIN = 'classdash-ws://app';
 var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport', 'workspaceAsk', 'workspaceChat', 'workspaceChatClear', 'workspaceChatHints',
-  'workspaceDesk', 'workspaceDeskSave', 'webCaps', 'webPane'];
+  'workspaceDesk', 'workspaceDeskSave', 'webCaps', 'webPane', 'aiChoices', 'aiPick'];
 var workspaceDoc = '';
 var workspaceClosing = null;
 if (hasNativeBridge()) document.getElementById('workspace-button').style.display = '';
@@ -4677,7 +4664,7 @@ function showSettingsSection(name, btn) {
   var buttons = document.querySelectorAll('.settings-nav-btn');
   for (var j = 0; j < buttons.length; j++) buttons[j].classList.remove('active');
   if (btn) btn.classList.add('active');
-  if (name === 'ai') detectAi();
+  if (name === 'ai') refreshAiStates();
 }
 
 // Reveals a masked field (email, Canvas address) the same way a password
@@ -4869,212 +4856,100 @@ function importCalendarPdf(button) {
 
 // The feed: Save fetches it at once (an empty link removes it), Read again
 // fetches it again. Both answer with the whole calendar to draw.
-// Settings → AI fills itself in: what aiDetect found (Ollama and LM Studio
-// with their models, Apple Intelligence, Codex, Claude Code, the saved cloud provider's
-// models) marks the picker with ✓ and turns the model field into a
-// dropdown. Asked once, the first time the AI section is shown.
-var aiModels = {};
-var aiDetected = null;
-var aiDetecting = false;
-
-function detectAi(then) {
-  if (aiDetected || aiDetecting || !hasNativeBridge()) return;
-  aiDetecting = true;
+// Settings → AI fills itself in: each AI's state beside its name (ready,
+// with how many models; or what it still needs), from the same aiChoices
+// the model pickers ask. Asked the first time the section is shown, after
+// Look again and after a Test; the scan's picker is made then too.
+var aiChoicesAsking = null;
+function askAiChoices() {
+  // The picker and the states open together: one look for both.
+  if (!aiChoicesAsking) {
+    aiChoicesAsking = new Promise(function (done) { dispatchAction('aiChoices', '', done); });
+    aiChoicesAsking.then(function () { aiChoicesAsking = null; });
+  }
+  return aiChoicesAsking;
+}
+var aiScanPicker = null;
+var aiStatesShown = false;
+function refreshAiStates(again) {
+  if (!hasNativeBridge() || (aiStatesShown && !again)) return;
+  aiStatesShown = true;
   var found = document.getElementById('ai-found');
+  var look = document.getElementById('ai-look');
   found.textContent = WORDS.aiLooking;
-  dispatchAction('aiDetect', '', function (r) {
-    aiDetecting = false;
-    if (typeof then === 'function') then(r);
-    if (!r || !r.ok) { found.textContent = ''; return; }
-    aiDetected = r;
-    if (r.ollama) aiModels.ollama = r.ollama.models;
-    if (r.lmstudio) aiModels.lmstudio = r.lmstudio.models;
-    if (r.foundry) aiModels.foundry = r.foundry.models;
-    if (r.cloud && r.cloud.models) aiModels[r.cloud.provider] = r.cloud.models;
-    markAiFound();
-    showAiModels();
+  look.disabled = true;
+  if (!aiScanPicker) {
+    aiScanPicker = modelPicker(document.getElementById('ai-scan-pick'), {
+      words: WORDS, which: 'scan', off: true, down: true,
+      ask: function (action, arg) { return action === 'aiChoices' ? askAiChoices() : new Promise(function (done) { dispatchAction(action, arg, done); }); },
+    });
+  } else if (again) aiScanPicker.reload();
+  askAiChoices().then(function (r) {
+    look.disabled = false;
+    found.textContent = '';
+    if (!r || !r.ok) return;
+    var count = function (n) { return n === 1 ? WORDS.aiModelOne : WORDS.aiModelsCount.split('{n}').join(String(n)); };
+    r.providers.forEach(function (p) {
+      var state = document.querySelector('.ai-prov[data-ai="' + p.id + '"] .ai-state');
+      if (!state) return;
+      state.textContent = p.ok ? '✓ ' + (p.stopped ? WORDS.aiFoundryStopped : p.models.length && p.local ? count(p.models.length) : WORDS.aiReady)
+        : p.why === 'signedOut' ? WORDS[p.id === 'codex' ? 'aiCodexSignedOut' : 'aiClaudeCodeSignedOut']
+        : p.why === 'unavailable' ? WORDS.aiUnavailable + ' ' + p.detail
+        : WORDS['mpWhy_' + p.why] || '';
+      state.classList.toggle('ready', !!p.ok);
+    });
   });
 }
 
-function markAiFound() {
-  var r = aiDetected;
-  var select = document.querySelector('[data-key="aiProvider"]');
-  var found = {};
-  if (r.apple && r.apple.ok) found.apple = '';
-  var count = function (n) { return n === 1 ? WORDS.aiModelOne : WORDS.aiModelsCount.split('{n}').join(String(n)); };
-  if (r.ollama) found.ollama = count(r.ollama.models.length);
-  if (r.lmstudio) found.lmstudio = count(r.lmstudio.models.length);
-  // Foundry Local stopped still gets its ✓: it's started when it's used.
-  if (r.foundry) found.foundry = r.foundry.url ? count(r.foundry.models.length) : WORDS.aiFoundryStopped;
-  // Codex and Claude Code installed but not signed in are found, but get
-  // no ✓: they can't answer until they're signed in.
-  var signedOut = {};
-  if (r.codex) { if (r.codex.ok) found.codex = ''; else signedOut.codex = WORDS.aiNotSignedIn; }
-  if (r.claudeCode) { if (r.claudeCode.ok) found.claudecode = ''; else signedOut.claudecode = WORDS.aiNotSignedIn; }
-  var names = [];
-  for (var i = 0; i < select.options.length; i++) {
-    var o = select.options[i];
-    var base = o.getAttribute('data-label');
-    if (!base) continue;
-    var is = Object.prototype.hasOwnProperty.call(found, o.value);
-    var out = Object.prototype.hasOwnProperty.call(signedOut, o.value);
-    o.textContent = base + (is ? ' ✓' : '');
-    if (is || out) names.push(base + ((is ? found : signedOut)[o.value] ? ' (' + (is ? found : signedOut)[o.value] + ')' : ''));
-  }
-  document.getElementById('ai-found').textContent = names.length ? WORDS.aiFound + ' ' + names.join(', ') : WORDS.aiFoundNone;
-  var apple = document.getElementById('ai-apple-status');
-  if (apple) apple.textContent = r.apple && !r.apple.ok ? WORDS.aiUnavailable + ' ' + r.apple.why + '.' : '';
-  var codex = document.getElementById('ai-codex-status');
-  if (codex) codex.textContent = r.codex && !r.codex.ok ? WORDS.aiCodexSignedOut : '';
-  var claude = document.getElementById('ai-claudecode-status');
-  if (claude) claude.textContent = r.claudeCode && !r.claudeCode.ok ? WORDS.aiClaudeCodeSignedOut : '';
-}
-
-// The model as a dropdown wherever there's a list; a text field otherwise
-// (Codex, or before anything is known). A local server's model is filled
-// in with the first one downloaded; a cloud one starts on its default.
-function showAiModels() {
-  var select = document.querySelector('[data-key="aiProvider"]');
-  var id = select.value;
-  var input = document.querySelector('[data-key="aiModel"]');
-  var list = document.getElementById('ai-model-select');
-  var wrap = document.getElementById('ai-model-wrap');
-  var models = aiModels[id];
-  fillAiAddress(false);
-  if (!models || !models.length || id === 'codex' || id === 'apple' || id === 'none') {
-    wrap.hidden = true;
-    input.hidden = false;
-    return;
-  }
-  var local = id === 'ollama' || id === 'lmstudio' || id === 'foundry';
-  var current = input.value;
-  if (local && !current) current = models[0];
-  input.value = current;
-  list.innerHTML = '';
-  var add = function (value, text) {
-    var o = document.createElement('option');
-    o.value = value;
-    o.textContent = text;
-    list.appendChild(o);
-  };
-  if (!local) add('', WORDS.aiModelDefaultOption.split('{m}').join(select.options[select.selectedIndex].getAttribute('data-default-model') || ''));
-  if (current && models.indexOf(current) === -1) add(current, current + ' ' + WORDS.aiModelMissing);
-  for (var i = 0; i < models.length; i++) add(models[i], models[i]);
-  list.value = current;
-  wrap.hidden = false;
-  input.hidden = true;
-}
-
-// Ollama's or LM Studio's address, filled in from what was found when the
-// field is empty (or always, from the Find button).
-function fillAiAddress(always) {
-  var id = document.querySelector('[data-key="aiProvider"]').value;
-  var server = aiDetected && aiDetected[id];
-  var address = document.querySelector('[data-key="aiLocalUrl"]');
-  // Foundry Local's address changes each time it starts: asked, not saved.
-  if (id === 'foundry') return server;
-  if (server && server.url && (always || !address.value)) address.value = server.url;
-  return server;
-}
-
-// The Find button: looks again (a server started since, say) and fills in
-// the address and the models for the provider picked.
-function findAi(button) {
-  var select = document.querySelector('[data-key="aiProvider"]');
-  var status = document.getElementById('ai-find-status');
-  var name = select.options[select.selectedIndex].getAttribute('data-label');
-  if (!hasNativeBridge()) { status.textContent = WORDS.aiTestNeedsApp; return; }
-  aiDetected = null;
-  aiDetecting = false;
-  button.textContent = WORDS.aiFinding;
-  button.disabled = true;
-  status.textContent = '';
-  detectAi(function (r) {
-    button.textContent = WORDS.aiFind;
-    button.disabled = false;
-    var server = r && r.ok && r[select.value];
-    if (server) {
-      aiDetected = r;
-      fillAiAddress(true);
-      status.textContent = WORDS.aiFoundAt.split('{name}').join(name).split('{url}').join(server.url);
-    } else {
-      var address = document.querySelector('[data-key="aiLocalUrl"]').value;
-      var usual = select.options[select.selectedIndex].getAttribute('data-default-url') || '';
-      status.textContent = WORDS.aiNotFoundHere.split('{name}').join(name).split('{url}').join(address || usual);
-    }
-  });
-}
-
-function aiModelPicked(list) {
-  document.querySelector('[data-key="aiModel"]').value = list.value;
-}
-
-// Settings → AI: only the rows the picked provider uses. A model and an
-// address belong to their provider, so switching starts the new one on its
-// own saved ones (or empty, filled in from what was found).
-function updateAiRows() {
-  var select = document.querySelector('[data-key="aiProvider"]');
-  if (!select) return;
-  var id = select.value;
-  var input = document.querySelector('[data-key="aiModel"]');
-  var same = id === select.getAttribute('data-saved');
-  input.value = same ? input.getAttribute('data-saved-model') : '';
-  var address = document.querySelector('[data-key="aiLocalUrl"]');
-  address.value = same ? address.getAttribute('data-saved-url') : '';
-  var rows = document.querySelectorAll('[data-ai-for]');
-  for (var i = 0; i < rows.length; i++) {
-    rows[i].hidden = rows[i].getAttribute('data-ai-for').split(' ').indexOf(id) === -1;
-  }
-  document.getElementById('ai-test-row').hidden = id === 'none';
-  var status = document.getElementById('ai-test-status');
-  status.textContent = '';
-  status.classList.remove('calendar-error');
-  document.getElementById('ai-find-status').textContent = '';
-  showAiModels();
-  detectAi();
-}
-
-// The Test button. It saves first and then tests what was saved, so the
-// key never travels in the test's own message (the apps log those), and
-// the test is of exactly what will be used.
-// Test and Scan both work on what's saved, so they save the panel first
-// (and refuse a cloud provider whose box isn't ticked). show() says what
-// went wrong; then() runs once it's saved, with the provider saved.
-function aiSaveFirst(show, then) {
+// Test and its saving first: the panel is saved, then the AI asked, so
+// the key never travels in the test's own message (the apps log those)
+// and what's tested is what will be used. A cloud AI whose box isn't
+// ticked isn't saved or asked. show() says what went wrong; then() runs
+// once it's saved, with whether it was.
+function aiSaveFirst(id, show, then) {
   if (!hasNativeBridge()) { show(WORDS.aiTestNeedsApp, true); return false; }
-  var select = document.querySelector('[data-key="aiProvider"]');
-  var picked = select.options[select.selectedIndex];
-  if (picked && picked.hasAttribute('data-cloud')) {
-    var box = document.querySelector('[data-key="aiAgreed"][value="' + select.value + '"]');
-    if (!box || !box.checked) { show(WORDS.aiAgreeFirst, true); return false; }
-  }
+  var box = document.querySelector('[data-key="aiAgreed"][value="' + id + '"]');
+  if (box && !box.checked) { show(WORDS.aiAgreeFirst, true); return false; }
   var sent = JSON.stringify(collectSettings());
   dispatchAction('config', toBase64Url(sent), function (res) {
     if (!res || !res.ok || (res.rejected && res.rejected.length)) {
       var why = res && (res.why || (res.rejected && res.rejected.join('; ')));
       show(WORDS.saveFailed + (why ? ': ' + why : ''), true);
-      then(null);
+      then(false);
       return;
     }
     settingsBaseline = sent;
-    select.setAttribute('data-saved', select.value);
-    var input = document.querySelector('[data-key="aiModel"]');
-    input.setAttribute('data-saved-model', input.value);
-    var address = document.querySelector('[data-key="aiLocalUrl"]');
-    address.setAttribute('data-saved-url', address.value);
-    then(select.value);
+    then(true);
   });
   return true;
 }
 
 // ── The Grades center ──
 
+${require('./51-model-picker.js').SCRIPT}
 function toggleGradesCenter(open) {
   var panel = document.getElementById('grades-center');
   if (!panel) return;
   panel.hidden = !open;
   document.body.style.overflow = open ? 'hidden' : '';
-  if (open) { drawGradesChat(); var q = document.getElementById('gc-question'); if (q && !q.disabled) q.focus(); }
+  if (open) { drawGradesChat(); gradesPicker(); var q = document.getElementById('gc-question'); if (q && !q.disabled) q.focus(); }
+}
+// The chat's model picker (51-model-picker.js), made the first time the
+// center opens. A pick reloads the page, so whether the chat can ask (and
+// a cloud AI's grades box) is drawn for the new AI.
+var gradesPickerMade = false;
+function gradesPicker() {
+  var host = document.getElementById('gc-pick');
+  if (gradesPickerMade || !host || !hasNativeBridge()) return;
+  gradesPickerMade = true;
+  modelPicker(host, {
+    words: WORDS,
+    ask: function (action, arg) { return new Promise(function (done) { dispatchAction(action, arg, done); }); },
+    onPick: function () {
+      try { sessionStorage.setItem('classdash-open-grades-center', '1'); } catch (e) {}
+      location.reload();
+    },
+  });
 }
 document.addEventListener('keydown', function (e) {
   var panel = document.getElementById('grades-center');
@@ -5328,21 +5203,18 @@ function checkGradesNow(button) {
 }
 
 function testAi(button) {
-  var status = document.getElementById('ai-test-status');
+  var id = button.getAttribute('data-provider');
+  var status = button.parentNode.querySelector('.ai-test-status');
   var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
-  var select = document.querySelector('[data-key="aiProvider"]');
   var done = function () { button.textContent = WORDS.aiTest; button.disabled = false; };
   show('', false);
-  var started = aiSaveFirst(show, function (tested) {
-    if (!tested) { done(); return; }
-    dispatchAction('aiTest', '', function (r) {
+  var started = aiSaveFirst(id, show, function (saved) {
+    if (!saved) { done(); return; }
+    dispatchAction('aiTest', id, function (r) {
       done();
-      if (r && r.models) {
-        aiModels[tested] = r.models;
-        if (select.value === tested) showAiModels();
-      }
       if (r && r.ok) show(WORDS.aiTestOk.split('{s}').join((r.ms / 1000).toFixed(1)) + (r.model ? ' (' + r.model + ')' : ''), false);
       else show(WORDS.aiTestFailed + ' ' + ((r && r.why) || ''), true);
+      refreshAiStates(true);
     });
   });
   if (started) { button.textContent = WORDS.aiTesting; button.disabled = true; }

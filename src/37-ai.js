@@ -77,11 +77,13 @@ const TIMEOUT_MS = 120 * 1000;
 
 const PROVIDERS = {
   apple: { local: true, label: 'Apple Intelligence', mac: true },
-  ollama: { local: true, label: 'Ollama', url: 'http://localhost:11434/v1' },
+  // urlKey: the setting with an address typed in Settings → AI, for a
+  // server somewhere other than its usual one.
+  ollama: { local: true, label: 'Ollama', url: 'http://localhost:11434/v1', urlKey: 'aiOllamaUrl' },
   // Older LM Studio versions serve on 1234 and newer ones on 1235 (found on
   // a real install), as does LM Studio Bionic, its agent app on the same
   // engine; one of them runs at a time.
-  lmstudio: { local: true, label: 'LM Studio', url: 'http://localhost:1234/v1', also: ['http://localhost:1235/v1'] },
+  lmstudio: { local: true, label: 'LM Studio', url: 'http://localhost:1234/v1', also: ['http://localhost:1235/v1'], urlKey: 'aiLmstudioUrl' },
   foundry: { local: true, label: 'Foundry Local' },
   codex: {
     local: false, label: 'ChatGPT (Codex)', company: 'OpenAI', minAge: 13, parent: true,
@@ -135,7 +137,7 @@ function configFrom(settings) {
     provider: id,
     model: String(settings.aiModel || '').trim() || (p && p.model) || '',
     // Foundry Local's address is asked of it each time (foundryUrl()).
-    url: id === 'foundry' ? '' : (String(settings.aiLocalUrl || '').trim() || (p && p.url) || '').replace(/\/+$/, ''),
+    url: id === 'foundry' ? '' : (String(settings.aiLocalUrl || '').trim() || (p && p.urlKey ? String(settings[p.urlKey] || '').trim() : '') || (p && p.url) || '').replace(/\/+$/, ''),
     key: p && p.key ? String(settings[p.key] || '').trim() : '',
     agreed: Array.isArray(settings.aiAgreed) ? settings.aiAgreed : [],
   };
@@ -275,8 +277,9 @@ const ANTHROPIC = 'https://api.anthropic.com/v1';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const anthropicHeaders = key => ({ 'x-api-key': key, 'anthropic-version': '2023-06-01' });
 
-// Chat models only: OpenAI's list also holds speech, image and embedding ones.
-const NOT_CHAT = /embed|tts|whisper|dall-e|audio|realtime|image|transcribe|moderation|search|sora|computer-use|rerank/;
+// Chat models only: OpenAI's list also holds speech, image and embedding
+// ones, and LM Studio's speech models (phonon, a 40M one, was seen there).
+const NOT_CHAT = /embed|tts|whisper|dall-e|audio|realtime|image|transcribe|moderation|search|sora|computer-use|rerank|phonon|speech|kokoro|parakeet/;
 
 /** The models this provider offers this person, or null where there's no list. */
 async function listModels(config, deps) {
@@ -885,7 +888,7 @@ async function test(settings, deps) {
   }
   const started = Date.now();
   const answer = await complete({ prompt: 'Reply with just the word OK.', maxTokens: 20 },
-    { ...settings, aiModel: config.model }, deps);
+    { ...settings, aiModel: config.model, ...(config.provider !== 'foundry' && config.url ? { aiLocalUrl: config.url } : {}) }, deps);
   if (!answer.ok) return { ...answer, ...(models ? { models } : {}) };
   return { ok: true, model: config.model, reply: answer.text.slice(0, 60), ms: Date.now() - started, ...(models ? { models } : {}) };
 }
@@ -907,7 +910,8 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
   const d = withDefaults({ timeoutMs: 2500, ...deps });
   const saved = configFrom(settings);
   const local = async id => {
-    const urls = [...new Set([saved.provider === id ? saved.url : null, PROVIDERS[id].url, ...(PROVIDERS[id].also || [])].filter(Boolean))]
+    const typed = String(settings[PROVIDERS[id].urlKey] || '').trim().replace(/\/+$/, '');
+    const urls = [...new Set([typed, saved.provider === id ? saved.url : null, PROVIDERS[id].url, ...(PROVIDERS[id].also || [])].filter(Boolean))]
       .filter(localAddress);
     for (const url of urls) {
       try { return { url, models: await listModels({ provider: id, url }, d) }; } catch { /* not there */ }
@@ -964,4 +968,64 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
   return { ollama, lmstudio, foundry: foundryResult, apple: appleResult, codex: codexResult, claudeCode: claudeResult, cloud: cloudResult };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect };
+// Claude Code's names for its current models (its own default first);
+// Codex has no list, so it's its default or a name typed in.
+const CLAUDE_CODE_MODELS = ['haiku', 'sonnet', 'opus'];
+
+/**
+ * The settings the chats ask with (the AI pane, the Grades center): the
+ * model picked in a chat's picker (aiChatProvider, aiChatModel,
+ * aiChatUrl), or Settings → AI's when none was picked. Everything else,
+ * like the announcement scan, keeps using Settings → AI's.
+ */
+function chatSettings(settings) {
+  const id = settings.aiChatProvider;
+  if (!id || !PROVIDERS[id]) return settings;
+  const same = id === settings.aiProvider;
+  return { ...settings, aiProvider: id, aiModel: settings.aiChatModel || '',
+    aiLocalUrl: settings.aiChatUrl || (same ? settings.aiLocalUrl : '') };
+}
+
+/**
+ * Every provider for the model pickers (the chats', and the announcement
+ * scan's in Settings → AI), in Settings → AI's order, which also shows
+ * each one's state from it:
+ * { providers: [{ id, label, local, ok, why?, url?, models, model, stopped? }],
+ *   current: { provider, model } (the chats'), scan: { provider, model } }. ok is whether the chat can use it now;
+ * why, when not, is 'notFound' (not on this computer or not running),
+ * 'signedOut', 'key' (no API key), 'agree' (its box in Settings → AI not
+ * ticked), 'mac', or for Apple Intelligence 'unavailable' with its detail. The Grades center's own box is asked for there, once
+ * it's picked. model is the one it uses when
+ * none is picked; models the ones to pick from (empty: only the default,
+ * or one typed in). A cloud API's list is asked of it only once it may
+ * be asked.
+ */
+async function choices(settings = require('./19-settings.js').read(), deps = {}) {
+  const d = withDefaults({ timeoutMs: 2500, ...deps });
+  const found = await detect(chatSettings(settings), deps);
+  const chat = configFrom(chatSettings(settings));
+  const one = async id => {
+    const p = PROVIDERS[id];
+    const out = { id, label: p.label, local: !!p.local, ok: true, models: [], model: p.model || '' };
+    const no = why => ({ ...out, ok: false, why });
+    if (id === 'apple') return d.platform !== 'darwin' ? no('mac') : !found.apple ? no('notFound') : found.apple.ok ? out : { ...no('unavailable'), detail: found.apple.why };
+    if (id === 'ollama' || id === 'lmstudio') return found[id] ? { ...out, url: found[id].url, models: found[id].models } : no('notFound');
+    // Foundry Local stopped still works: it's started when it's asked.
+    if (id === 'foundry') return !found.foundry ? no('notFound') : found.foundry.url ? { ...out, models: found.foundry.models } : { ...out, stopped: true };
+    const signedIn = id === 'codex' ? found.codex : id === 'claudecode' ? found.claudeCode : { ok: true };
+    if (!signedIn) return no('notFound');
+    if (!signedIn.ok) return no('signedOut');
+    if (!(settings.aiAgreed || []).includes(id)) return no('agree');
+    if (id === 'codex') return out;
+    if (id === 'claudecode') return { ...out, models: CLAUDE_CODE_MODELS };
+    const config = configFrom({ ...settings, aiProvider: id, aiModel: '' });
+    if (!config.key) return no('key');
+    if (found.cloud && found.cloud.provider === id && found.cloud.models) return { ...out, models: found.cloud.models };
+    try { return { ...out, models: await listModels(config, d) || [] }; } catch { return out; }
+  };
+  const providers = await Promise.all(PROVIDER_IDS.map(one));
+  const scan = configFrom(settings);
+  return { providers, current: { provider: chat.provider, model: chat.model }, scan: { provider: scan.provider, model: scan.model } };
+}
+
+module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect, chatSettings, choices };

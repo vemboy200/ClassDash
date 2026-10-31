@@ -525,90 +525,9 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     ok('the aiTest action answers with the test result', t.action === 'aiTest' && !t.ok && /off/.test(t.why), JSON.stringify(t));
   }
 
-  // ── Settings → AI on the page ──
-  {
-    fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ language: 'en', aiOpenaiKey: KEY }));
-    T.redraw(proj);
-    const html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
-    const { JSDOM, VirtualConsole } = T.jsdom();
-    const posted = [];
-    const vc = new VirtualConsole();
-    const dom = new JSDOM(html, {
-      runScripts: 'dangerously', pretendToBeVisual: true, url: 'file:///summary.html', virtualConsole: vc,
-      beforeParse(w) { w.webkit = { messageHandlers: { classdash: { postMessage: m => posted.push(m) } } }; w.setTimeout = () => 0; },
-    });
-    const w = dom.window, d = w.document;
-    const select = d.querySelector('[data-key="aiProvider"]');
-    const groups = [...select.querySelectorAll('optgroup')];
-    ok('an AI section with the picker, off', !!d.querySelector('[data-section="ai"]') && select.value === 'none');
-    ok('local ones first, then cloud', /computer/.test(groups[0].label) && /Cloud/.test(groups[1].label) &&
-      [...groups[1].children].every(o => o.hasAttribute('data-cloud')) && ![...groups[0].children].some(o => o.hasAttribute('data-cloud')));
-    ok('Apple Intelligence only offered on a Mac', !!select.querySelector('option[value="apple"]') === (process.platform === 'darwin'));
-    // Only the AI rows' own hiding: the panel itself is closed in this test.
-    const visible = () => [...d.querySelectorAll('[data-ai-for]')].filter(e => !e.hidden).map(e => e.getAttribute('data-ai-for'));
-    ok('off: none of the provider rows', visible().length === 0 && d.getElementById('ai-test-row').hidden);
-
-    select.value = 'openai'; w.updateAiRows();
-    const notice = [...d.querySelectorAll('[data-ai-for="openai"] .ai-notice')].find(e => !e.closest('[data-ai-for][hidden]'));
-    ok('OpenAI picked: what it gets, its age rule and its links', notice && /OpenAI gets a copy/.test(notice.textContent) && /13 or older/.test(notice.textContent) &&
-      [...notice.querySelectorAll('a')].map(a => a.href).join() === 'https://openai.com/policies/terms-of-use/,https://openai.com/policies/privacy-policy/', notice && notice.textContent);
-    ok('...its key row, masked, and no other provider\'s', !d.querySelector('[data-key="aiOpenaiKey"]').closest('[data-ai-for][hidden]') &&
-      d.querySelector('[data-key="aiOpenaiKey"]').type === 'password' && !!d.querySelector('[data-key="aiAnthropicKey"]').closest('[data-ai-for][hidden]'));
-    ok('...and not the local note', !!d.querySelector('.ai-local-note').closest('[data-ai-for][hidden]'));
-
-    select.value = 'anthropic'; w.updateAiRows();
-    const anth = d.querySelector('[data-ai-for="anthropic"] .ai-notice').textContent;
-    ok('Anthropic: 18 or older, about the student, with a note for parents', /18 or older/.test(anth) && /The student this ClassDash is for is 18 or older/.test(anth) && /your child/.test(anth));
-    const why = [...d.querySelectorAll('[data-section="ai"] .ai-why')];
-    ok('one "which to pick" fold-out at the top, whatever is picked: local first, the age rules, Claude Code\'s gray area and why no Google plan',
-      why.length === 1 && !why[0].closest('[data-ai-for]') && why[0] === d.querySelector('[data-section="ai"] .hint').nextElementSibling &&
-      /A local one if you can/.test(why[0].textContent) && /13 or older/.test(why[0].textContent) && /18 or older/.test(why[0].textContent) &&
-      /Claude through Claude Code a gray area/.test(why[0].textContent) && /Google AI Pro/.test(why[0].textContent) && /with a key is the sure way/.test(why[0].textContent));
-    select.value = 'claudecode'; w.updateAiRows();
-    const cc = d.querySelector('[data-ai-for="claudecode"] .ai-notice');
-    ok('Claude Code: the gray area first, 18 or older, and its box says both',
-      cc.querySelector('p').classList.contains('ai-gray') && /A gray area/.test(cc.querySelector('p').textContent) && /18 or older/.test(cc.textContent) &&
-      /18 or older.*gray area in Anthropic's terms/.test(cc.querySelector('.ai-agree').textContent) && /claude auth login/.test(d.querySelector('[data-ai-for="claudecode"] .field-hint').textContent));
-    ok('...and only the Anthropic API\'s box has no gray area', !/gray area/.test(d.querySelector('[data-ai-for="anthropic"] .ai-notice').textContent));
-    select.value = 'gemini'; w.updateAiRows();
-    const gem = d.querySelector('[data-ai-for="gemini"] .ai-notice').textContent;
-    ok('Gemini: 18 or older, and the free tier\'s training', /18 or older/.test(gem) && /free tier/.test(gem));
-    select.value = 'ollama'; w.updateAiRows();
-    ok('Ollama: the local note, address and model, no age box', !d.querySelector('.ai-local-note').closest('[data-ai-for][hidden]') &&
-      !d.querySelector('[data-key="aiLocalUrl"]').closest('[data-ai-for][hidden]') && !d.querySelector('[data-key="aiModel"]').closest('[data-ai-for][hidden]') &&
-      d.querySelectorAll('.ai-notice').length === [...d.querySelectorAll('.ai-notice')].filter(e => e.closest('[data-ai-for][hidden]')).length);
-
-    // Switching providers asked once what's on this computer; covered below.
-    ok('picking a provider asks once what\'s on this computer', posted.filter(m => m.action === 'aiDetect').length === 1 && posted.length === 1);
-    posted.length = 0;
-
-    // Test with the box unticked: nothing sent.
-    select.value = 'openai'; w.updateAiRows();
-    const button = d.getElementById('ai-test');
-    w.testAi(button);
-    ok('Test with the box unticked: asks for it, sends nothing', posted.length === 0 && /Tick the box/.test(d.getElementById('ai-test-status').textContent));
-
-    d.querySelector('[data-key="aiAgreed"][value="openai"]').checked = true;
-    w.testAi(button);
-    const sent = JSON.parse(Buffer.from(posted[0].arg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
-    ok('ticked: saves first, the box in aiAgreed', posted[0].action === 'config' && sent.aiProvider === 'openai' && JSON.stringify(sent.aiAgreed) === '["openai"]', JSON.stringify(sent.aiAgreed));
-    w.classdashBridgeResult(posted[0].id, { ok: true, accepted: [], rejected: [] });
-    ok('...then tests what it saved, with no key in the test\'s own message', posted[1] && posted[1].action === 'aiTest' && posted[1].arg === '' && !JSON.stringify(posted[1]).includes(KEY), JSON.stringify(posted[1]));
-    w.classdashBridgeResult(posted[1].id, { ok: true, model: 'gpt-5-mini', ms: 1234, reply: 'OK', models: ['gpt-4.1', 'gpt-5-mini'] });
-    const modelList = d.getElementById('ai-model-select');
-    ok('...and says it works, the model now a dropdown: the default, then the list', /Works: answered in 1\.2 s\. \(gpt-5-mini\)/.test(d.getElementById('ai-test-status').textContent) &&
-      !d.getElementById('ai-model-wrap').hidden && d.querySelector('[data-key="aiModel"]').hidden &&
-      JSON.stringify([...modelList.options].map(o => o.value)) === '["","gpt-4.1","gpt-5-mini"]' && /Default \(gpt-5-mini\)/.test(modelList.options[0].textContent),
-      d.getElementById('ai-test-status').textContent + ' ' + [...modelList.options].map(o => o.value));
-    ok('saved means closing the panel doesn\'t save again', w.settingsDirty() === false);
-    modelList.value = 'gpt-4.1'; w.aiModelPicked(modelList);
-    ok('picking from the dropdown is what gets saved', w.collectSettings().aiModel === 'gpt-4.1');
-    w.close();
-  }
-
-  // ── the panel filling itself in ──
-  {
-    fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ language: 'en' }));
+  // ── Settings → AI on the page: setting each AI up ──
+  const page = settingsJson => {
+    fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify(settingsJson));
     T.redraw(proj);
     const html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
     const { JSDOM, VirtualConsole } = T.jsdom();
@@ -617,45 +536,81 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
       runScripts: 'dangerously', pretendToBeVisual: true, url: 'file:///summary.html', virtualConsole: new VirtualConsole(),
       beforeParse(w) { w.webkit = { messageHandlers: { classdash: { postMessage: m => posted.push(m) } } }; w.setTimeout = () => 0; },
     });
-    const w = dom.window, d = w.document;
-    w.showSettingsSection('ai', null);
-    ok('showing the AI section asks what\'s on this computer, once', posted.length === 1 && posted[0].action === 'aiDetect' && posted[0].arg === '');
-    w.showSettingsSection('ai', null);
-    ok('...not again while it\'s asking', posted.length === 1);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: { url: 'http://localhost:11434/v1', models: ['big:8b', 'small:1b'] }, lmstudio: null, apple: { ok: false, why: 'Apple Intelligence is off (turn it on in System Settings)' }, codex: { ok: true }, claudeCode: { ok: false, why: 'signedOut' }, foundry: { url: null, models: [] }, cloud: null });
-    const select = d.querySelector('[data-key="aiProvider"]');
-    const label = v => select.querySelector(`option[value="${v}"]`).textContent;
-    ok('found ones get a ✓, others don\'t', /✓$/.test(label('ollama')) && /✓$/.test(label('codex')) && !/✓/.test(label('lmstudio')) && !/✓/.test(label('openai')));
-    ok('...and a line says what was found', /Found: Ollama \(2 models\), Foundry Local \([^)]*\), ChatGPT \(through Codex\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
-    ok('Foundry Local stopped: ✓ anyway, saying ClassDash starts it', /✓$/.test(label('foundry')) && /Foundry Local \(not running, ClassDash starts it\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
-    ok('Claude Code installed but signed out: no ✓, and a line saying to sign in', !/✓/.test(label('claudecode')) &&
-      /not signed in: run "claude auth login"/.test(d.getElementById('ai-claudecode-status').textContent));
-    ok('...but still listed as found, saying it isn\'t signed in', /Claude \(through Claude Code\) \(not signed in\)/.test(d.getElementById('ai-found').textContent), d.getElementById('ai-found').textContent);
-    ok('Codex signed in: no sign-in line', d.getElementById('ai-codex-status').textContent === '');
-    if (process.platform === 'darwin') ok('Apple Intelligence that can\'t be used says why', /Not available here: Apple Intelligence is off/.test(d.getElementById('ai-apple-status').textContent));
-    select.value = 'ollama'; w.updateAiRows();
-    const list = d.getElementById('ai-model-select');
-    ok('picking Ollama fills in its first model, as a dropdown', !d.getElementById('ai-model-wrap').hidden && list.value === 'big:8b' && w.collectSettings().aiModel === 'big:8b' &&
-      JSON.stringify([...list.options].map(o => o.value)) === '["big:8b","small:1b"]');
-    ok('...and fills in the address it was found at', w.collectSettings().aiLocalUrl === 'http://localhost:11434/v1');
-    select.value = 'codex'; w.updateAiRows();
-    ok('Codex: no list, so a text field, and Ollama\'s model doesn\'t follow', d.getElementById('ai-model-wrap').hidden && !d.querySelector('[data-key="aiModel"]').hidden && w.collectSettings().aiModel === '');
-    select.value = 'lmstudio'; w.updateAiRows();
-    ok('LM Studio not found: a text field', d.getElementById('ai-model-wrap').hidden);
+    return { w: dom.window, d: dom.window.document, posted };
+  };
+  const tick = () => new Promise(r => setImmediate(r));
+  {
+    const { w, d, posted } = page({ language: 'en', aiOpenaiKey: KEY });
+    const row = id => d.querySelector(`[data-section="ai"] .ai-prov[data-ai="${id}"]`);
+    const rows = [...d.querySelectorAll('[data-section="ai"] .ai-prov')].map(e => e.getAttribute('data-ai'));
+    ok('a row for every AI, local ones first, then cloud', rows.join() === ai.PROVIDER_IDS.filter(id => id !== 'apple' || process.platform === 'darwin').join(), rows.join());
+    ok('...no picking one here: no AI dropdown, no Model field', !d.querySelector('[data-key="aiProvider"]') && !d.querySelector('[data-key="aiModel"]'));
+    ok('...the announcement scan\'s picker is under Announcements', !!d.querySelector('#ai-scan #ai-scan-pick'));
+    const notice = row('openai').querySelector('.ai-notice');
+    ok('OpenAI: what it gets, its age rule and its links', /OpenAI gets a copy/.test(notice.textContent) && /13 or older/.test(notice.textContent) &&
+      [...notice.querySelectorAll('a')].map(a => a.href).join() === 'https://openai.com/policies/terms-of-use/,https://openai.com/policies/privacy-policy/', notice.textContent);
+    ok('...its key, masked, in its own row', row('openai').querySelector('[data-key="aiOpenaiKey"]').type === 'password' && !row('openai').querySelector('[data-key="aiAnthropicKey"]'));
+    const anth = row('anthropic').querySelector('.ai-notice').textContent;
+    ok('Anthropic: 18 or older, about the student, with a note for parents', /18 or older/.test(anth) && /The student this ClassDash is for is 18 or older/.test(anth) && /your child/.test(anth));
+    const why = [...d.querySelectorAll('[data-section="ai"] .ai-why')];
+    ok('one "which to pick" fold-out at the top: local first, the age rules, Claude Code\'s gray area and why no Google plan',
+      why.length === 1 && !why[0].closest('.ai-prov') && why[0] === d.querySelector('[data-section="ai"] .hint').nextElementSibling &&
+      /A local one if you can/.test(why[0].textContent) && /13 or older/.test(why[0].textContent) && /18 or older/.test(why[0].textContent) &&
+      /Claude through Claude Code a gray area/.test(why[0].textContent) && /Google AI Pro/.test(why[0].textContent) && /with a key is the sure way/.test(why[0].textContent));
+    const cc = row('claudecode').querySelector('.ai-notice');
+    ok('Claude Code: the gray area first, 18 or older, and its box says both',
+      cc.querySelector('p').classList.contains('ai-gray') && /A gray area/.test(cc.querySelector('p').textContent) && /18 or older/.test(cc.textContent) &&
+      /18 or older.*gray area in Anthropic's terms/.test(cc.querySelector('.ai-agree').textContent) && /claude auth login/.test(row('claudecode').querySelector('.field-hint').textContent));
+    ok('...and only the Anthropic API\'s box has no gray area', !/gray area/.test(row('anthropic').querySelector('.ai-notice').textContent));
+    const gem = row('gemini').querySelector('.ai-notice').textContent;
+    ok('Gemini: 18 or older, and the free tier\'s training', /18 or older/.test(gem) && /free tier/.test(gem));
+    ok('Ollama and LM Studio: an address of their own, no age box', !!row('ollama').querySelector('[data-key="aiOllamaUrl"]') && !!row('lmstudio').querySelector('[data-key="aiLmstudioUrl"]') &&
+      !row('ollama').querySelector('.ai-notice') && !row('foundry').querySelector('[data-key$="Url"]'));
+    ok('nothing asked until the section is shown', posted.length === 0);
 
-    // Find: looks again and fills in the address.
+    // Test with the box unticked: nothing sent.
+    const button = row('openai').querySelector('.ai-test');
+    const status = row('openai').querySelector('.ai-test-status');
+    w.testAi(button);
+    ok('Test with the box unticked: asks for it, sends nothing', posted.length === 0 && /Tick the box/.test(status.textContent));
+    row('openai').querySelector('[data-key="aiAgreed"]').checked = true;
+    w.testAi(button);
+    const sent = JSON.parse(Buffer.from(posted[0].arg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    ok('ticked: saves first, the box in aiAgreed', posted[0].action === 'config' && JSON.stringify(sent.aiAgreed) === '["openai"]' && !('aiProvider' in sent) && !('aiModel' in sent), JSON.stringify(sent));
+    w.classdashBridgeResult(posted[0].id, { ok: true, accepted: [], rejected: [] });
+    ok('...then tests that AI, with no key in the test\'s own message', posted[1] && posted[1].action === 'aiTest' && posted[1].arg === 'openai' && !JSON.stringify(posted[1]).includes(KEY), JSON.stringify(posted[1]));
+    w.classdashBridgeResult(posted[1].id, { ok: true, model: 'gpt-5-mini', ms: 1234, reply: 'OK' });
+    ok('...says it works, in its own row', /Works: answered in 1\.2 s\. \(gpt-5-mini\)/.test(status.textContent), status.textContent);
+    ok('...and looks again at every AI\'s state', posted.some(m => m.action === 'aiChoices'));
+    ok('saved means closing the panel doesn\'t save again', w.settingsDirty() === false);
+    w.close();
+  }
+
+  // ── the states, and the announcement scan's picker ──
+  {
+    const { w, d, posted } = page({ language: 'en' });
+    w.showSettingsSection('ai', null);
+    w.showSettingsSection('ai', null);
+    const asks = posted.filter(m => m.action === 'aiChoices');
+    ok('showing the AI section looks once, for the states and the scan\'s picker together', asks.length === 1 && posted.length === 1, JSON.stringify(posted.map(m => m.action)));
+    const p = (id, extra) => ({ id, label: ai.PROVIDERS[id].label, local: !!ai.PROVIDERS[id].local, ok: true, models: [], model: ai.PROVIDERS[id].model || '', ...extra });
+    w.classdashBridgeResult(asks[0].id, { ok: true, providers: [
+      p('apple', { ok: false, why: 'unavailable', detail: 'Apple Intelligence is off (turn it on in System Settings)' }),
+      p('ollama', { models: ['big:8b', 'small:1b'], url: 'http://localhost:11434/v1' }), p('lmstudio', { ok: false, why: 'notFound' }),
+      p('foundry', { stopped: true }), p('codex'), p('claudecode', { ok: false, why: 'signedOut' }),
+      p('openai', { ok: false, why: 'agree' }), p('anthropic', { ok: false, why: 'agree' }), p('gemini', { ok: false, why: 'agree' }),
+    ], current: { provider: 'none', model: '' }, scan: { provider: 'none', model: '' } });
+    await tick();
+    const state = id => (d.querySelector(`.ai-prov[data-ai="${id}"] .ai-state`) || {}).textContent;
+    ok('ready ones say so, local ones with their models', state('ollama') === '✓ 2 models' && state('codex') === '✓ ready', state('ollama') + ' | ' + state('codex'));
+    ok('Foundry Local stopped: ready anyway, saying ClassDash starts it', /✓ not running, ClassDash starts it/.test(state('foundry')));
+    ok('not found, and signed out with the command to sign in', /Not on this computer/.test(state('lmstudio')) && /claude auth login/.test(state('claudecode')));
+    ok('a cloud one not ticked says so', /Tick its box/.test(state('openai')));
+    if (process.platform === 'darwin') ok('Apple Intelligence that can\'t be used says why', /Not available here: Apple Intelligence is off/.test(state('apple')));
+    ok('the scan\'s picker shows it\'s off', /Off ▾/.test(d.querySelector('#ai-scan-pick .mp-trigger').textContent));
     posted.length = 0;
-    const find = d.getElementById('ai-find');
-    w.findAi(find);
-    ok('Find asks again', posted.length === 1 && posted[0].action === 'aiDetect' && find.disabled);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: null, lmstudio: null, apple: null, codex: null, cloud: null });
-    ok('...not running: says where it looked and asks whether it\'s running', /LM Studio isn't at http:\/\/localhost:1234\/v1\. Is its server running\?/.test(d.getElementById('ai-find-status').textContent) && !find.disabled,
-      d.getElementById('ai-find-status').textContent);
-    posted.length = 0;
-    w.findAi(find);
-    w.classdashBridgeResult(posted[0].id, { ok: true, ollama: null, lmstudio: { url: 'http://localhost:1234/v1', models: ['qwen-x'] }, apple: null, codex: null, cloud: null });
-    ok('...started since: fills in the address and the model dropdown', w.collectSettings().aiLocalUrl === 'http://localhost:1234/v1' && w.collectSettings().aiModel === 'qwen-x' &&
-      !d.getElementById('ai-model-wrap').hidden && /Found LM Studio at http:\/\/localhost:1234\/v1/.test(d.getElementById('ai-find-status').textContent));
+    w.refreshAiStates(true);
+    ok('Look again asks again', posted.filter(m => m.action === 'aiChoices').length === 1 && d.getElementById('ai-look').disabled);
     w.close();
   }
 })();

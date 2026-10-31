@@ -147,7 +147,7 @@ function gradesText(classes) {
  *  'agree' (a cloud AI whose grades box isn't ticked). */
 function canAsk(s = settings()) {
   const ai = require('./37-ai.js');
-  const id = s.aiProvider;
+  const id = ai.chatSettings(s).aiProvider;
   if (!id || id === 'none' || !ai.PROVIDERS[id]) return { ok: false, why: 'off' };
   const p = ai.PROVIDERS[id];
   if (!p.local && !(s.gradesAiAgreed || []).includes(id)) return { ok: false, why: 'agree', company: p.company };
@@ -241,9 +241,10 @@ async function ask(question, { s = settings(), complete, write, live, now = new 
   const can = canAsk(s);
   if (!can.ok) return { ok: false, why: can.why };
   const classes = centerData(s);
+  const asking = require('./37-ai.js').chatSettings(s);
   if (!classes.length) return { ok: false, why: 'nograde' };
   const history = readChat();
-  const run = complete || (a => require('./37-ai.js').complete(a, s));
+  const run = complete || (a => require('./37-ai.js').complete(a, asking));
   const shown = typeof live === 'string' && /^[a-z0-9]{1,40}$/i.test(live) ? liveWriter(live) : null;
   let answer;
   try {

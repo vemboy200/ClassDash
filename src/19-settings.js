@@ -302,6 +302,17 @@ const DEFAULTS = {
   aiProvider: 'none',
   aiModel: '',
   aiLocalUrl: '',
+  // aiProvider, aiModel and aiLocalUrl are the announcement scan's AI,
+  // picked under Settings → AI → Announcements (aiLocalUrl: the address it
+  // was found at). The chats' own pick (the AI pane, the Grades center;
+  // 37-ai.js chatSettings) is below: empty means the scan's.
+  aiChatProvider: '',
+  // An address typed in Settings → AI for Ollama or LM Studio somewhere
+  // other than its usual one (another computer at home); empty: the usual.
+  aiOllamaUrl: '',
+  aiLmstudioUrl: '',
+  aiChatModel: '',
+  aiChatUrl: '',
   // Whether a local AI shows its thinking in the Grades center chat
   // (41-grades-center.js). Off is faster: Ollama skips thinking. A cloud
   // AI always shows its own.
@@ -359,7 +370,7 @@ const TYPES = {
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
-  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
+  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiChatProvider: 'aiChatProvider', aiChatModel: 'aiModel', aiChatUrl: 'aiLocalUrl', aiOllamaUrl: 'aiLocalUrl', aiLmstudioUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
   gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
   gradeAlerts: 'gradeAlerts',
@@ -504,6 +515,11 @@ function validate(key, raw) {
   if (kind === 'aiProvider') {
     const id = String(raw).trim();
     if (id !== 'none' && !require('./37-ai.js').PROVIDER_IDS.includes(id)) return { ok: false, why: `no such AI provider: ${id}` };
+    return { ok: true, value: id };
+  }
+  if (kind === 'aiChatProvider') {
+    const id = String(raw).trim();
+    if (id && !require('./37-ai.js').PROVIDER_IDS.includes(id)) return { ok: false, why: `no such AI provider: ${id}` };
     return { ok: true, value: id };
   }
   if (kind === 'gradesWeights') {
