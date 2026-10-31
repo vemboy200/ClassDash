@@ -2,7 +2,7 @@
 
 **The all-in-one app for school.**
 
-Every class, every assignment, every grade, in one app. It's kind of like [Bun](https://bun.sh), but for students instead of JS devs. ClassDash checks Google Classroom, Canvas, Edpuzzle and your school's grade system (Aequitas Q) for you and puts it all on one page, then adds the tools around it: reminders, a calendar and class schedule, a workspace for PDFs and web pages, and an AI study helper you bring yourself. It works with the platforms your school already uses, with nothing for your school to set up or approve.
+Every class, every assignment, every grade, in one app. It's kinda like [Bun](https://bun.sh), but for students instead of JS devs. ClassDash checks Google Classroom, Canvas, Edpuzzle and your school's grade system (Aequitas Q) for you and puts it all on one page, then adds the tools around it: reminders, a calendar and class schedule, a workspace for PDFs and web pages, and an AI study helper you bring yourself. It works with the platforms your school already uses, with nothing for your school to set up or approve.
 
 Written by Claude under the supervision of someone who knows nothing about coding, for his own homework, then cleaned up enough to share.
 
