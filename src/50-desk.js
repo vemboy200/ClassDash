@@ -632,18 +632,22 @@ function closePane(id) {
 
 // ── What the AI may see of a web page ──
 // Off, Text (its words, for any AI) or Image (a picture of what's on
-// screen too, for an AI that can see pictures), each said in a line under
-// it. Off until set; saved with the pane.
+// screen too, for an AI that can see pictures: greyed out otherwise),
+// each said in a line under it. Off until set; saved with the pane. A
+// pane set to Image while the AI picked can't see works as Text, and says
+// so, and is Image again with an AI that can.
 const SEE_LEVELS = ['off', 'text', 'image'];
 const seeOf = p => (p && p.ai) || 'off';
 function drawSee(id) {
   const e = els[id], p = findPane(id);
   const b = e && e.body.querySelector('.see-btn');
   if (!b || !p) return;
-  b.textContent = L.wsSee + ': ' + L['wsSee_' + seeOf(p)] + ' ▾';
-  b.classList.toggle('on', seeOf(p) !== 'off');
-  b.title = L['wsSeeHint_' + seeOf(p)];
+  const level = seeOf(p) === 'image' && !aiSees ? 'text' : seeOf(p);
+  b.textContent = L.wsSee + ': ' + L['wsSee_' + level] + ' ▾';
+  b.classList.toggle('on', level !== 'off');
+  b.title = L['wsSeeHint_' + level] + (level !== seeOf(p) ? ' ' + L.wsSeeNoVision : '');
 }
+const drawSees = () => { for (const p of panesOf(desk.layout)) if (p.kind === 'web') drawSee(p.pane); };
 function openSeeMenu(id, button) {
   if (menu && menu.pane === id && menu.see) { closeMenu(); return; }
   closeMenu();
@@ -653,7 +657,8 @@ function openSeeMenu(id, button) {
   for (const level of SEE_LEVELS) {
     const b = document.createElement('button');
     b.textContent = L['wsSee_' + level];
-    b.classList.toggle('on', seeOf(p) === level);
+    b.disabled = level === 'image' && !aiSees;
+    b.classList.toggle('on', seeOf(p) === level && !b.disabled);
     b.onclick = () => {
       closeMenu();
       if (level === 'off') delete p.ai; else p.ai = level;
@@ -962,7 +967,7 @@ function makeAi(body) {
   ai.doc = null;
   // A new pick: the chat asks again whether it can, with that AI.
   modelPicker(body.querySelector('.ai-foot'), { ask: bridge, words: L, onPick: () => { ai.doc = null; aiTargetChanged(); },
-    onSees: sees => { aiSees = sees; } });
+    onSees: sees => { aiSees = sees; drawSees(); } });
   if (!desk.aiOk) aiGate(body);
   $('ai-ask').onclick = askAi;
   $('ai-q').addEventListener('keydown', e => {

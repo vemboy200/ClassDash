@@ -191,7 +191,8 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     ok('...its menu: Off, Text, Image, each with what it means', seeMenu && [...seeMenu.querySelectorAll('button')].map(b => b.textContent).join() === 'Off,Text,Image' &&
       seeMenu.querySelectorAll('.note').length === 3 && /can't see this page/.test(seeMenu.querySelectorAll('.note')[0].textContent) && /Works with every AI/.test(seeMenu.querySelectorAll('.note')[1].textContent) &&
       /picture of what's showing/.test(seeMenu.querySelectorAll('.note')[2].textContent));
-    ok('...saying when the AI picked now can\'t see images', /can't see images, so it gets the text only/.test(seeMenu.querySelectorAll('.note')[2].textContent));
+    ok('...Image greyed out while the AI picked can\'t see images, saying why', [...seeMenu.querySelectorAll('button')][2].disabled && !([...seeMenu.querySelectorAll('button')][1].disabled) &&
+      /can't see images: pick one that can/.test(seeMenu.querySelectorAll('.note')[2].textContent));
     ok('...and the page is hidden while the menu\'s over it', webOps().filter(o => o.op === 'layout').pop().panes[0].show === false);
     [...seeMenu.querySelectorAll('button')].find(b => b.textContent === 'Text').click();
     ok('Text: the button says so', see.textContent === 'AI: Text ▾');
