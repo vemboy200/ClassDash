@@ -1470,11 +1470,6 @@ ${list.map(row).join('\n')}`;
 ${group(t('aiGroupLocal'), ids.filter(id => P[id].local))}
       <p class="field-hint ai-local-note">${escapeHtml(t('aiLocalNote'))}</p>
 ${group(t('aiGroupCloud'), ids.filter(id => !P[id].local))}
-      <label class="setting-row">
-        <span class="field-name">${escapeHtml(t('aiThinking'))}</span>
-        <input type="checkbox" class="toggle" data-bool-key="aiThinking"${s.aiThinking !== false ? ' checked' : ''}>
-        <span class="field-hint">${escapeHtml(t('aiThinkingHint'))}</span>
-      </label>
 ${aiScanSection()}
 ${aiMcpSection()}`;
 }

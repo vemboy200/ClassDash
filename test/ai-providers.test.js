@@ -13,6 +13,12 @@ const proj = T.classProject(undefined, { 'settings.json': { language: 'en' } });
 process.chdir(proj);
 const ai = require(path.join(proj, '37-ai.js'));
 const settings = require(path.join(proj, '19-settings.js'));
+// The newest model of each cloud API's family, as if looked up today: the
+// tests below ask with these and count their requests without that lookup
+// (it has its own tests at the end).
+const seedNewest = () => fs.writeFileSync(path.join(proj, 'ai-defaults.json'), JSON.stringify(Object.fromEntries(
+  ['openai', 'anthropic', 'gemini'].map(id => [id, { model: ai.PROVIDERS[id].model, at: new Date().toISOString() }]))));
+seedNewest();
 
 // A fetch that records what it was asked and answers from a table.
 function fakeFetch(answer) {
@@ -612,5 +618,66 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     w.refreshAiStates(true);
     ok('Look again asks again', posted.filter(m => m.action === 'aiChoices').length === 1 && d.getElementById('ai-look').disabled);
     w.close();
+  }
+
+  // ── no model picked: the cloud API's newest ──
+  {
+    ok('the newest of a family, by the version in its name', ai.newestOf('anthropic', ['claude-opus-5-5', 'claude-haiku-4-5-20251001', 'claude-haiku-5-5', 'claude-sonnet-5-5']) === 'claude-haiku-5-5' &&
+      ai.newestOf('openai', ['gpt-4.1-mini', 'gpt-5-mini', 'gpt-5', 'gpt-4o-mini', 'gpt-5-mini-2025-08-07']) === 'gpt-5-mini' &&
+      ai.newestOf('openai', ['gpt-6-mini', 'gpt-5.6-luna', 'gpt-6-luna', 'gpt-5.6-luna-20260709', 'gpt-6']) === 'gpt-6-luna' &&
+      ai.newestOf('gemini', ['gemini-2.5-flash', 'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-3-pro', 'gemini-2.5-flash-lite']) === 'gemini-3-flash' &&
+      ai.newestOf('ollama', ['x']) === null);
+    fs.rmSync(path.join(proj, 'ai-defaults.json'), { force: true });
+    const f = fakeFetch(url => /\/models/.test(url) ? { status: 200, json: { data: [{ id: 'claude-haiku-4-5-20251001' }, { id: 'claude-haiku-6-0' }, { id: 'claude-opus-5-5' }] } }
+      : { status: 200, json: { content: [{ type: 'text', text: 'OK' }] } });
+    const s = { aiProvider: 'anthropic', aiAnthropicKey: KEY, aiAgreed: ['anthropic'] };
+    const r = await ai.complete({ prompt: 'x' }, s, { fetch: f.fetch });
+    ok('none picked: asked with the newest Haiku in its list', r.ok && f.calls[0].url.endsWith('/models?limit=100') && f.calls[1].body.model === 'claude-haiku-6-0', JSON.stringify(f.calls.map(c => c.body && c.body.model)));
+    const again = fakeFetch(() => ({ status: 200, json: { content: [{ type: 'text', text: 'OK' }] } }));
+    await ai.complete({ prompt: 'x' }, s, { fetch: again.fetch });
+    ok('...kept a day: the next question doesn\'t look again', again.calls.length === 1 && again.calls[0].body.model === 'claude-haiku-6-0');
+    const picked = fakeFetch(() => ({ status: 200, json: { content: [{ type: 'text', text: 'OK' }] } }));
+    await ai.complete({ prompt: 'x' }, { ...s, aiModel: 'claude-opus-5-5' }, { fetch: picked.fetch });
+    ok('a picked model is used as it is', picked.calls.length === 1 && picked.calls[0].body.model === 'claude-opus-5-5');
+    fs.rmSync(path.join(proj, 'ai-defaults.json'), { force: true });
+    const down = fakeFetch(url => /\/models/.test(url) ? { status: 500, json: {} } : { status: 200, json: { content: [{ type: 'text', text: 'OK' }] } });
+    await ai.complete({ prompt: 'x' }, s, { fetch: down.fetch });
+    ok('...the list unreadable: ClassDash\'s own default', down.calls[down.calls.length - 1].body.model === 'claude-haiku-5-5');
+    seedNewest();
+  }
+
+  // ── effort: medium where it can be told, unless another is picked ──
+  {
+    const e = (provider, model, effort = '') => ai.effortToSend(ai.configFrom({ aiProvider: provider, aiModel: model, aiEffort: effort }));
+    ok('Codex, Claude Code and the APIs\' thinking models: medium unless picked', e('codex', '') === 'medium' && e('claudecode', 'haiku') === 'medium' && e('claudecode', 'opus', 'high') === 'high' &&
+      e('openai', 'gpt-6-luna') === 'medium' && e('anthropic', 'claude-haiku-5-5', 'low') === 'low');
+    ok('...not told at all where the model can\'t take it', e('openai', 'gpt-4.1-mini') === null && e('anthropic', 'claude-haiku-4-5') === null && e('gemini', 'gemini-3-flash') === null);
+    ok('LM Studio and Ollama: only told when one was picked', e('lmstudio', 'm') === null && e('lmstudio', 'm', 'off') === 'off' && e('ollama', 'm') === null && e('ollama', 'm', 'off') === 'off');
+    const answer = { status: 200, json: { content: [{ type: 'text', text: 'OK' }], choices: [{ message: { content: 'OK' } }], message: { content: 'OK' } } };
+    const a = fakeFetch(() => answer);
+    await ai.complete({ prompt: 'x' }, { aiProvider: 'anthropic', aiAnthropicKey: KEY, aiAgreed: ['anthropic'] }, { fetch: a.fetch });
+    ok('Anthropic: output_config.effort medium on Haiku 5.5', a.calls[0].body.output_config && a.calls[0].body.output_config.effort === 'medium', JSON.stringify(a.calls[0].body));
+    const o = fakeFetch(() => answer);
+    await ai.complete({ prompt: 'x' }, { aiProvider: 'openai', aiModel: 'gpt-6-luna', aiEffort: 'high', aiOpenaiKey: KEY, aiAgreed: ['openai'] }, { fetch: o.fetch });
+    ok('OpenAI: reasoning_effort as picked', o.calls[0].body.reasoning_effort === 'high');
+    const l = fakeFetch(() => answer);
+    await ai.complete({ prompt: 'x' }, { aiProvider: 'lmstudio', aiModel: 'nemo', aiEffort: 'off' }, { fetch: l.fetch });
+    const l2 = fakeFetch(() => answer);
+    await ai.complete({ prompt: 'x' }, { aiProvider: 'lmstudio', aiModel: 'nemo' }, { fetch: l2.fetch });
+    ok('LM Studio: off sent as reasoning_effort "none" (what it takes), nothing when none picked', l.calls[0].body.reasoning_effort === 'none' && !('reasoning_effort' in l2.calls[0].body));
+    const ol = fakeFetch(() => answer);
+    await ai.complete({ prompt: 'x', think: true }, { aiProvider: 'ollama', aiModel: 'm', aiEffort: 'off' }, { fetch: ol.fetch });
+    ok('Ollama: off is think false', ol.calls[0].body.think === false);
+
+    // LM Studio's own list: chat models only, and each one's levels.
+    const lm = fakeFetch(url => url === 'http://localhost:1234/api/v1/models' ? { status: 200, json: { models: [
+      { type: 'llm', key: 'nvidia/nemotron-made-up', capabilities: { reasoning: { allowed_options: ['off', 'on'], default: 'on' } } },
+      { type: 'llm', key: 'plain-made-up', capabilities: {} },
+      { type: 'embedding', key: 'embed-made-up' }] } }
+      : url === 'http://localhost:1234/v1/models' ? { status: 200, json: { data: [{ id: 'nvidia/nemotron-made-up' }, { id: 'plain-made-up' }, { id: 'phonon-40m-multilingual' }] } } : { throws: new Error('connection refused') });
+    const c = await ai.choices({ aiProvider: 'none' }, { fetch: lm.fetch, exists: () => false, platform: 'linux' });
+    const lmp = c.providers.find(p => p.id === 'lmstudio');
+    ok('LM Studio\'s own list: chat models only, and the levels each takes', lmp.ok && lmp.models.join() === 'nvidia/nemotron-made-up,plain-made-up' &&
+      JSON.stringify(lmp.efforts) === '{"nvidia/nemotron-made-up":{"levels":["off","on"],"usual":"on"}}', JSON.stringify(lmp));
   }
 })();

@@ -125,7 +125,7 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
       { platform: 'darwin', env, home: '/Users/nobody', exists, spawn: fakeSpawn('') });
     const x = spawned[2].args;
     const settingsOf = x.map((a, i) => x[i - 1] === '-c' ? a : null).filter(Boolean);
-    ok('Codex: the server as -c settings in TOML', settingsOf.join('\n') === 'mcp_servers.classdash.command="/made/up/node"\nmcp_servers.classdash.args=["/made/up/48-mcp.js", "--run-file", "/made/up/run"]\nmcp_servers.classdash.env.ELECTRON_RUN_AS_NODE="1"', settingsOf.join('\n'));
+    ok('Codex: the server as -c settings in TOML (after medium effort)', settingsOf.join('\n') === 'model_reasoning_effort="medium"\nmcp_servers.classdash.command="/made/up/node"\nmcp_servers.classdash.args=["/made/up/48-mcp.js", "--run-file", "/made/up/run"]\nmcp_servers.classdash.env.ELECTRON_RUN_AS_NODE="1"', settingsOf.join('\n'));
   }
 
   // ── the sidebar: who may ask ──

@@ -34,7 +34,7 @@ const MAX_PER_CLASS = 120;
 const MAX_UPCOMING = 15;
 // The model's thinking, kept with its answer to show under a fold-out;
 // never sent back to it with later questions. Always asked of a cloud AI;
-// a local one only while aiThinking is on (off is faster).
+// a local one unless it's turned off (the picker's Thinking; off is faster).
 const MAX_THINKING = 20000;
 
 const settings = () => require('./19-settings.js').read();

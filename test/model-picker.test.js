@@ -95,7 +95,7 @@ const deps = { fetch, exists: () => false, platform: 'linux' };
   [...d.querySelectorAll('.mp-side button')].find(b => b.textContent === ai.PROVIDERS.openai.label).click();
   const box = d.querySelector('.mp-search');
   box.value = 'mini'; box.dispatchEvent(new w.Event('input'));
-  ok('searching narrows the list', [...d.querySelectorAll('.mp-list button')].map(b => b.textContent).join() === 'gpt-5-mini', [...d.querySelectorAll('.mp-list button')].map(b => b.textContent).join());
+  ok('searching narrows the list', [...d.querySelectorAll('.mp-list button')].map(b => b.textContent).join() === 'default (gpt-5-mini),gpt-5-mini', [...d.querySelectorAll('.mp-list button')].map(b => b.textContent).join());
   box.value = 'gpt-6-preview'; box.dispatchEvent(new w.Event('input'));
   ok('a name not in the list can be typed in', d.querySelector('.mp-list button').textContent === 'Use "gpt-6-preview"');
   d.querySelector('.mp-list button').click();
@@ -106,6 +106,29 @@ const deps = { fetch, exists: () => false, platform: 'linux' };
   await T.until(() => d.querySelector('.mp-pop'));
   d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   ok('Escape closes it', !d.querySelector('.mp-pop'));
+
+  // Thinking: the levels of the model in use, the usual one pressed until another is picked.
+  current = { provider: 'openai', model: 'gpt-5', effort: '' };
+  d.getElementById('host').textContent = '';
+  const withLevels = JSON.parse(JSON.stringify(r.providers));
+  w.modelPicker(d.getElementById('host'), { ask: async (action, arg) => action === 'aiChoices' ? { ok: true, providers: withLevels, current, scan: { provider: 'none', model: '' } } : ask(action, arg), words });
+  await T.until(() => /OpenAI/.test(d.querySelector('.mp-trigger').textContent));
+  ok('the button says how hard it thinks', /OpenAI API · gpt-5 · medium/.test(d.querySelector('.mp-trigger').textContent), d.querySelector('.mp-trigger').textContent);
+  d.querySelector('.mp-trigger').click();
+  await T.until(() => d.querySelector('.mp-effort'));
+  const levelButtons = () => [...d.querySelectorAll('.mp-effort button')];
+  ok('...its levels under the models, medium pressed', levelButtons().map(b => b.textContent + (b.getAttribute('aria-pressed') === 'true' ? '*' : '')).join() === 'low,medium*,high');
+  asked.pick = null;
+  levelButtons()[2].click();
+  await T.until(() => / · high/.test(d.querySelector('.mp-trigger').textContent));
+  ok('...picking high saves it and stays open', asked.pick.effort === 'high' && asked.pick.model === 'gpt-5' && !!d.querySelector('.mp-pop') && levelButtons().length === 3 &&
+    levelButtons()[2].getAttribute('aria-pressed') === 'true' && / · high/.test(d.querySelector('.mp-trigger').textContent),
+    JSON.stringify([asked.pick, !!d.querySelector('.mp-pop'), levelButtons().map(b => b.getAttribute('aria-pressed')), d.querySelector('.mp-trigger').textContent]));
+  asked.pick = null;
+  levelButtons()[1].click();
+  await T.until(() => asked.pick);
+  ok('...and medium, the usual, is saved as none picked', asked.pick.effort === '');
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
   // The model in use deleted: still listed first, said to be gone, checked.
   current = { provider: 'ollama', model: 'gemma-gone' };

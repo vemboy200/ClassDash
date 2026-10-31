@@ -307,15 +307,19 @@ const DEFAULTS = {
   // was found at). The chats' own pick (the AI pane, the Grades center;
   // 37-ai.js chatSettings) is below: empty means the scan's.
   aiChatProvider: '',
+  aiChatEffort: '',
+  // How hard the announcement scan's AI thinks (37-ai.js effortToSend):
+  // empty is the usual, medium where it can be told.
+  aiEffort: '',
   // An address typed in Settings → AI for Ollama or LM Studio somewhere
   // other than its usual one (another computer at home); empty: the usual.
   aiOllamaUrl: '',
   aiLmstudioUrl: '',
   aiChatModel: '',
   aiChatUrl: '',
-  // Whether a local AI shows its thinking in the Grades center chat
-  // (41-grades-center.js). Off is faster: Ollama skips thinking. A cloud
-  // AI always shows its own.
+  // Whether a local AI thinks in the chats (Ollama skips it when off).
+  // No longer on the page: the model picker's Thinking off/on took its
+  // place, but one turned off before still counts until a level is picked.
   aiThinking: true,
   // Announcement scan (38-announcement-scan.js): tell the AI to leave out
   // classwork, so only work for outside class becomes a reminder.
@@ -370,7 +374,7 @@ const TYPES = {
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
-  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiChatProvider: 'aiChatProvider', aiChatModel: 'aiModel', aiChatUrl: 'aiLocalUrl', aiOllamaUrl: 'aiLocalUrl', aiLmstudioUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
+  aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiChatProvider: 'aiChatProvider', aiChatEffort: 'aiEffort', aiEffort: 'aiEffort', aiChatModel: 'aiModel', aiChatUrl: 'aiLocalUrl', aiOllamaUrl: 'aiLocalUrl', aiLmstudioUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
   gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
   gradeAlerts: 'gradeAlerts',
@@ -516,6 +520,11 @@ function validate(key, raw) {
     const id = String(raw).trim();
     if (id !== 'none' && !require('./37-ai.js').PROVIDER_IDS.includes(id)) return { ok: false, why: `no such AI provider: ${id}` };
     return { ok: true, value: id };
+  }
+  if (kind === 'aiEffort') {
+    const e = String(raw).trim();
+    if (e && !require('./37-ai.js').EFFORTS.includes(e)) return { ok: false, why: `no such effort: ${e}` };
+    return { ok: true, value: e };
   }
   if (kind === 'aiChatProvider') {
     const id = String(raw).trim();

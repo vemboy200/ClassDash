@@ -533,7 +533,7 @@ function main(action, arg) {
     case 'aiChoices': {
       return require('./37-ai.js').choices(require('./19-settings.js').read()).then(result => ({ ok: true, action, ...result }));
     }
-    // A model picked in one, as base64url JSON {for, provider, model, url}:
+    // A model picked in one, as base64url JSON {for, provider, model, url, effort}:
     // for "scan", the announcement scan's AI (aiProvider, aiModel,
     // aiLocalUrl; provider "none" turns it off), otherwise the chats'
     // (37-ai.js chatSettings). Only those settings can be written this way.
@@ -546,8 +546,8 @@ function main(action, arg) {
       }
       const scan = pick.for === 'scan';
       const values = scan
-        ? { aiProvider: String(pick.provider || 'none'), aiModel: String(pick.model || ''), aiLocalUrl: String(pick.url || '') }
-        : { aiChatProvider: String(pick.provider || ''), aiChatModel: String(pick.model || ''), aiChatUrl: String(pick.url || '') };
+        ? { aiProvider: String(pick.provider || 'none'), aiModel: String(pick.model || ''), aiLocalUrl: String(pick.url || ''), aiEffort: String(pick.effort || '') }
+        : { aiChatProvider: String(pick.provider || ''), aiChatModel: String(pick.model || ''), aiChatUrl: String(pick.url || ''), aiChatEffort: String(pick.effort || '') };
       const settings = require('./19-settings.js');
       // All three or none.
       const bad = Object.keys(values).map(k => settings.validate(k, values[k])).find(v => !v.ok);

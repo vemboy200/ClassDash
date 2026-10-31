@@ -100,7 +100,7 @@ const PROVIDERS = {
   },
   anthropic: {
     local: false, label: 'Anthropic API (Claude)', company: 'Anthropic', minAge: 18,
-    key: 'aiAnthropicKey', model: 'claude-haiku-4-5',
+    key: 'aiAnthropicKey', model: 'claude-haiku-5-5',
     terms: 'https://www.anthropic.com/legal/commercial-terms', privacy: 'https://www.anthropic.com/legal/privacy',
   },
   gemini: {
@@ -133,9 +133,14 @@ function localAddress(raw) {
 function configFrom(settings) {
   const id = settings.aiProvider || 'none';
   const p = PROVIDERS[id];
+  const model = String(settings.aiModel || '').trim();
   return {
     provider: id,
-    model: String(settings.aiModel || '').trim() || (p && p.model) || '',
+    model: model || (p && p.model) || '',
+    // None picked: a cloud API then asks with its family's newest (newest()).
+    picked: !!model,
+    // How hard it thinks (effortToSend()): '' is the usual, medium.
+    effort: EFFORTS.includes(settings.aiEffort) ? settings.aiEffort : '',
     // Foundry Local's address is asked of it each time (foundryUrl()).
     url: id === 'foundry' ? '' : (String(settings.aiLocalUrl || '').trim() || (p && p.urlKey ? String(settings[p.urlKey] || '').trim() : '') || (p && p.url) || '').replace(/\/+$/, ''),
     key: p && p.key ? String(settings[p.key] || '').trim() : '',
@@ -305,15 +310,112 @@ async function listModels(config, deps) {
   return null;
 }
 
+// ── the newest model, when none is picked ──
+//
+// A cloud API with no model picked asks with the newest of its cheap, fast
+// family (OpenAI's Luna, or its mini where no Luna is listed), found in its
+// own model list, so a new one is used without
+// ClassDash changing; the name in PROVIDERS is only for when the list
+// can't be read. Newest is the highest version in the name (gpt-5-mini
+// over gpt-4.1-mini, claude-haiku-5-5 over claude-haiku-4-5); previews and
+// other kinds don't match. Kept a day in ai-defaults.json, so a question
+// doesn't wait for a list each time.
+// Each a list, the family wanted first.
+const FAMILY = {
+  openai: [/^gpt-\d+(\.\d+)?-luna$/, /^gpt-\d+(\.\d+)?-mini$/],
+  anthropic: [/^claude-haiku-\d+(-\d+)*$/],
+  gemini: [/^gemini-\d+(\.\d+)?-flash$/],
+};
+const inFamily = (id, m) => !!FAMILY[id] && FAMILY[id].some(re => re.test(m));
+const NEWEST_FILE = () => path.join(require('./00-project-root.js').PROJECT_ROOT, 'ai-defaults.json');
+const NEWEST_FOR_MS = 24 * 60 * 60 * 1000;
+
+/** The newest of the family in a list of model names, or null. */
+function newestOf(id, models) {
+  const version = name => (name.match(/\d+/g) || []).map(Number);
+  const newer = (a, b) => {
+    const x = version(a), y = version(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  };
+  for (const re of FAMILY[id] || []) {
+    const best = (models || []).filter(m => re.test(m)).reduce((b, m) => !b || newer(m, b) ? m : b, null);
+    if (best) return best;
+  }
+  return null;
+}
+function readNewest() { try { return JSON.parse(fs.readFileSync(NEWEST_FILE(), 'utf8')) || {}; } catch { return {}; } }
+function saveNewest(id, model, now = Date.now()) {
+  try { fs.writeFileSync(NEWEST_FILE(), JSON.stringify({ ...readNewest(), [id]: { model, at: new Date(now).toISOString() } }, null, 2)); } catch { /* only a shortcut */ }
+}
+
+/** The model to ask with: the one picked, or the family's newest. */
+async function newest(config, deps) {
+  if (config.picked || !FAMILY[config.provider]) return config.model;
+  const kept = readNewest()[config.provider];
+  if (kept && Date.now() - Date.parse(kept.at) < NEWEST_FOR_MS && inFamily(config.provider, kept.model)) return kept.model;
+  try {
+    const found = newestOf(config.provider, await listModels(config, deps));
+    if (found) { saveNewest(config.provider, found); return found; }
+  } catch { /* the fallback below */ }
+  return config.model;
+}
+
+// ── effort ──
+//
+// How hard the AI thinks, where it can be told. Codex, Claude Code and the
+// OpenAI and Anthropic APIs (on models that take it) are asked for medium
+// unless another level was picked: a little slower than low, and much
+// better answers. Ollama is on or off (on unless Off is picked, or Settings'
+// old Show thinking was turned off); LM Studio says per model what it takes
+// (effortChoices()) and is only told when one was picked, so a model that
+// can't think is never asked to. Gemini, Foundry Local and Apple aren't told.
+const EFFORTS = ['off', 'on', 'low', 'medium', 'high'];
+const LEVELS = ['low', 'medium', 'high'];
+const OPENAI_REASONS = /^(o\d|gpt-([5-9]|\d\d))/;
+const ANTHROPIC_EFFORT = /^claude-(fable|mythos|opus-(5|4-[5-9])|sonnet-(5|4-[6-9])|haiku-5)/;
+
+/** The levels a provider and model take, and the one it uses unpicked; or null. */
+function effortChoices(id, model) {
+  if (id === 'codex' || id === 'claudecode') return { levels: LEVELS, usual: 'medium' };
+  if (id === 'openai') return OPENAI_REASONS.test(model) ? { levels: LEVELS, usual: 'medium' } : null;
+  if (id === 'anthropic') return ANTHROPIC_EFFORT.test(model) ? { levels: LEVELS, usual: 'medium' } : null;
+  if (id === 'ollama') return { levels: ['off', 'on'], usual: 'on' };
+  return null;
+}
+
+/** The level to send with this request, or null to send none. */
+function effortToSend(config) {
+  const e = config.effort;
+  if (config.provider === 'lmstudio') return e || null;
+  const c = effortChoices(config.provider, config.model);
+  if (!c) return null;
+  if (config.provider === 'ollama') return e || null;
+  return c.levels.includes(e) ? e : c.usual;
+}
+// OpenAI-style APIs: LM Studio turns thinking off with "none" (it refuses
+// "off" and "on"; found on a real LM Studio), and "on" is its own default.
+function reasoningEffort(config) {
+  const e = effortToSend(config);
+  return !e || e === 'on' ? {} : { reasoning_effort: e === 'off' ? 'none' : e };
+}
+// Ollama's own API takes think as on/off, or a level for the models that have them.
+function ollamaThink(config, think) {
+  const e = effortToSend(config);
+  return e === 'off' ? false : e === 'on' ? true : e || think;
+}
+const anthropicEffort = config => { const e = effortToSend(config); return e ? { output_config: { effort: e } } : {}; };
+
 // ── each provider's way of answering ──
 
 async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, deps) {
   const { provider: id, key, url, model } = config;
+  if (id === 'ollama' && effortToSend(config)) think = ollamaThink(config, think);
   // think true/false (the Grades center chat): Ollama sends its thinking
   // only through its own API with think on, never through the OpenAI-style
   // one below, and with think off it skips thinking, which is faster. A
   // model that can't think refuses either, and is asked the usual way.
-  if (id === 'ollama' && typeof think === 'boolean') {
+  if (id === 'ollama' && think !== undefined) {
     try {
       const chatUrl = `${String(url).replace(/\/v1\/?$/, '')}/api/chat`;
       const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];
@@ -347,7 +449,7 @@ async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, dep
       await requestLines(deps, `${base}/chat/completions`, {
         key, local: id !== 'openai',
         headers: id === 'openai' ? { Authorization: `Bearer ${key}` } : {},
-        body: { model, stream: true, messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }] },
+        body: { model, stream: true, ...reasoningEffort(config), messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }] },
       }, line => {
         const part = dataLine(line);
         const delta = part && part.choices && part.choices[0] && part.choices[0].delta;
@@ -360,7 +462,7 @@ async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, dep
     const json = await request(deps, `${base}/chat/completions`, {
       method: 'POST', key, local: id !== 'openai',
       headers: id === 'openai' ? { Authorization: `Bearer ${key}` } : {},
-      body: { model, messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }] },
+      body: { model, ...reasoningEffort(config), messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }] },
     });
     const msg = json.choices && json.choices[0] && json.choices[0].message;
     // A thinking model's reasoning, when it sends one: beside the answer
@@ -372,7 +474,7 @@ async function viaHttp(config, { system, prompt, maxTokens, think, onPart }, dep
     return thinking ? { text, thinking: thinking.trim() } : text;
   }
   if (id === 'anthropic') {
-    const body = thinking => ({ model, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }],
+    const body = thinking => ({ model, ...(system ? { system } : {}), messages: [{ role: 'user', content: prompt }], ...anthropicEffort(config),
       // Its thinking, summarized (the newer models leave it out unless
       // asked); thinking counts against max_tokens, so there's room for it.
       ...(thinking ? { max_tokens: Math.max(maxTokens || 0, 16000), thinking: { type: 'adaptive', display: 'summarized' } } : { max_tokens: maxTokens || 2048 }) });
@@ -462,7 +564,7 @@ async function openaiTools(config, ask, deps, used) {
   let before = '';
   for (let step = 0; ; step++) {
     const last = step >= (ask.tools.steps || TOOL_STEPS);
-    const body = { model, messages, ...(last ? {} : { tools }) };
+    const body = { model, messages, ...reasoningEffort(config), ...(last ? {} : { tools }) };
     let text = '', thinking = '', calls = [];
     if (ask.onPart) {
       const got = streamed(p => ask.onPart({ thinking: [before, p.thinking].filter(Boolean).join('\n\n'), text: p.text }));
@@ -515,7 +617,7 @@ async function anthropicTools(config, ask, deps, used) {
   let think = !!ask.think, before = '';
   for (let step = 0; ; step++) {
     const last = step >= (ask.tools.steps || TOOL_STEPS);
-    const body = () => ({ model, ...(ask.system ? { system: ask.system } : {}), messages, ...(last ? {} : { tools }),
+    const body = () => ({ model, ...(ask.system ? { system: ask.system } : {}), messages, ...anthropicEffort(config), ...(last ? {} : { tools }),
       ...(think ? { max_tokens: Math.max(ask.maxTokens || 0, 16000), thinking: { type: 'adaptive', display: 'summarized' } } : { max_tokens: ask.maxTokens || 2048 }) });
     let json;
     try {
@@ -753,6 +855,7 @@ async function viaCodex(config, { system, prompt, tools }, deps) {
   try {
     const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--ephemeral',
       '--output-last-message', outFile, ...(config.model ? ['-m', config.model] : []),
+      ...(effortToSend(config) ? ['-c', `model_reasoning_effort=${toml(effortToSend(config))}`] : []),
       // ClassDash's tools, for this run only (none of the person's own servers are touched).
       ...(tools && tools.mcp ? ['-c', `mcp_servers.classdash.command=${toml(tools.mcp.command)}`, '-c', `mcp_servers.classdash.args=${toml(tools.mcp.args)}`,
         ...Object.entries(tools.mcp.env || {}).flatMap(([k, v]) => ['-c', `mcp_servers.classdash.env.${k}=${toml(v)}`])] : []),
@@ -783,7 +886,8 @@ async function viaClaudeCode(config, { system, prompt, tools }, deps) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classdash-claude-'));
   try {
     const args = ['-p', '--output-format', 'text', '--tools', '', '--setting-sources', '', '--strict-mcp-config',
-      '--no-session-persistence', '--system-prompt', CLAUDE_SYSTEM, ...(config.model ? ['--model', config.model] : [])];
+      '--no-session-persistence', '--system-prompt', CLAUDE_SYSTEM, ...(config.model ? ['--model', config.model] : []),
+      ...(effortToSend(config) ? ['--effort', effortToSend(config)] : [])];
     // With tools: ClassDash's MCP server and nothing else (none of its own
     // tools, none of the person's servers), allowed without asking.
     if (tools && tools.mcp) {
@@ -840,6 +944,7 @@ async function complete(ask, settings = require('./19-settings.js').read(), deps
   if (!can.ok) return can;
   const used = [];
   try {
+    config.model = await newest(config, d);
     const text = config.provider === 'apple' ? await viaApple(ask, d)
       : config.provider === 'codex' ? await viaCodex(config, ask, d)
       : config.provider === 'claudecode' ? await viaClaudeCode(config, ask, d)
@@ -879,6 +984,7 @@ async function test(settings, deps) {
   } catch (e) {
     return { ok: false, why: scrub(e && e.message, config.key) };
   }
+  if (!config.picked && newestOf(config.provider, models)) config.model = newestOf(config.provider, models);
   if (!config.model && models && models.length) config.model = models[0];
   if (!config.model && config.provider === 'foundry') {
     return { ok: false, why: 'no model loaded yet (for example: foundry model download qwen2.5-1.5b, then foundry model load qwen2.5-1.5b)', models: models || [] };
@@ -968,6 +1074,29 @@ async function detect(settings = require('./19-settings.js').read(), deps = {}) 
   return { ollama, lmstudio, foundry: foundryResult, apple: appleResult, codex: codexResult, claudeCode: claudeResult, cloud: cloudResult };
 }
 
+// LM Studio's own list says which models are for chat (not embedding or
+// speech ones) and which levels of thinking each takes ("off" and "on",
+// or low to high), so it's read when it's there; older versions only have
+// the usual list.
+async function lmstudioModels(server, deps) {
+  try {
+    const json = await request(deps, `${String(server.url).replace(/\/v1\/?$/, '')}/api/v1/models`, { local: true });
+    const chat = (json.models || []).filter(m => m.type === 'llm' && m.key);
+    if (!chat.length) throw new Error('none');
+    const efforts = {};
+    for (const m of chat) {
+      const r = m.capabilities && m.capabilities.reasoning;
+      if (r && Array.isArray(r.allowed_options) && r.allowed_options.length > 1) {
+        const levels = r.allowed_options.filter(x => EFFORTS.includes(x));
+        if (levels.length > 1) efforts[m.key] = { levels, usual: levels.includes(r.default) ? r.default : levels[0] };
+      }
+    }
+    return { models: chat.map(m => m.key).sort(), efforts };
+  } catch {
+    return { models: server.models, efforts: {} };
+  }
+}
+
 // Claude Code's names for its current models (its own default first);
 // Codex has no list, so it's its default or a name typed in.
 const CLAUDE_CODE_MODELS = ['haiku', 'sonnet', 'opus'];
@@ -982,7 +1111,7 @@ function chatSettings(settings) {
   const id = settings.aiChatProvider;
   if (!id || !PROVIDERS[id]) return settings;
   const same = id === settings.aiProvider;
-  return { ...settings, aiProvider: id, aiModel: settings.aiChatModel || '',
+  return { ...settings, aiProvider: id, aiModel: settings.aiChatModel || '', aiEffort: settings.aiChatEffort || '',
     aiLocalUrl: settings.aiChatUrl || (same ? settings.aiLocalUrl : '') };
 }
 
@@ -990,13 +1119,14 @@ function chatSettings(settings) {
  * Every provider for the model pickers (the chats', and the announcement
  * scan's in Settings → AI), in Settings → AI's order, which also shows
  * each one's state from it:
- * { providers: [{ id, label, local, ok, why?, url?, models, model, stopped? }],
+ * { providers: [{ id, label, local, ok, why?, url?, models, model, stopped?, newest? }],
  *   current: { provider, model } (the chats'), scan: { provider, model } }. ok is whether the chat can use it now;
  * why, when not, is 'notFound' (not on this computer or not running),
  * 'signedOut', 'key' (no API key), 'agree' (its box in Settings → AI not
  * ticked), 'mac', or for Apple Intelligence 'unavailable' with its detail. The Grades center's own box is asked for there, once
  * it's picked. model is the one it uses when
- * none is picked; models the ones to pick from (empty: only the default,
+ * none is picked (newest: it's the newest of its family, so picking ''
+ * keeps following new ones); models the ones to pick from (empty: only the default,
  * or one typed in). A cloud API's list is asked of it only once it may
  * be asked.
  */
@@ -1009,6 +1139,7 @@ async function choices(settings = require('./19-settings.js').read(), deps = {})
     const out = { id, label: p.label, local: !!p.local, ok: true, models: [], model: p.model || '' };
     const no = why => ({ ...out, ok: false, why });
     if (id === 'apple') return d.platform !== 'darwin' ? no('mac') : !found.apple ? no('notFound') : found.apple.ok ? out : { ...no('unavailable'), detail: found.apple.why };
+    if (id === 'lmstudio' && found.lmstudio) return { ...out, url: found.lmstudio.url, ...await lmstudioModels(found.lmstudio, d) };
     if (id === 'ollama' || id === 'lmstudio') return found[id] ? { ...out, url: found[id].url, models: found[id].models } : no('notFound');
     // Foundry Local stopped still works: it's started when it's asked.
     if (id === 'foundry') return !found.foundry ? no('notFound') : found.foundry.url ? { ...out, models: found.foundry.models } : { ...out, stopped: true };
@@ -1020,12 +1151,26 @@ async function choices(settings = require('./19-settings.js').read(), deps = {})
     if (id === 'claudecode') return { ...out, models: CLAUDE_CODE_MODELS };
     const config = configFrom({ ...settings, aiProvider: id, aiModel: '' });
     if (!config.key) return no('key');
-    if (found.cloud && found.cloud.provider === id && found.cloud.models) return { ...out, models: found.cloud.models };
-    try { return { ...out, models: await listModels(config, d) || [] }; } catch { return out; }
+    const listed = models => {
+      const best = newestOf(id, models);
+      if (best) saveNewest(id, best);
+      return { ...out, models, model: best || out.model, newest: true };
+    };
+    if (found.cloud && found.cloud.provider === id && found.cloud.models) return listed(found.cloud.models);
+    try { return listed(await listModels(config, d) || []); } catch { return { ...out, newest: true }; }
   };
-  const providers = await Promise.all(PROVIDER_IDS.map(one));
+  // The levels each model takes ('' for its default model), for the picker.
+  const withEfforts = p => {
+    if (p.efforts || !p.ok) return p;
+    const efforts = {};
+    for (const m of ['', ...p.models]) { const c = effortChoices(p.id, m || p.model); if (c) efforts[m] = c; }
+    return { ...p, efforts };
+  };
+  const providers = (await Promise.all(PROVIDER_IDS.map(one))).map(withEfforts);
   const scan = configFrom(settings);
-  return { providers, current: { provider: chat.provider, model: chat.model }, scan: { provider: scan.provider, model: scan.model } };
+  // None picked: a cloud API's is '' (its newest, which can change).
+  const shown = c => ({ provider: c.provider, model: c.picked || !FAMILY[c.provider] ? c.model : '', effort: c.effort });
+  return { providers, current: shown(chat), scan: shown(scan) };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect, chatSettings, choices };
+module.exports = { PROVIDERS, PROVIDER_IDS, EFFORTS, effortChoices, effortToSend, newestOf, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect, chatSettings, choices };
