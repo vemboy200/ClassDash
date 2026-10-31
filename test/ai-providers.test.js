@@ -672,12 +672,15 @@ const chat = text => ({ status: 200, json: { choices: [{ message: { content: tex
     // LM Studio's own list: chat models only, and each one's levels.
     const lm = fakeFetch(url => url === 'http://localhost:1234/api/v1/models' ? { status: 200, json: { models: [
       { type: 'llm', key: 'nvidia/nemotron-made-up', capabilities: { reasoning: { allowed_options: ['off', 'on'], default: 'on' } } },
-      { type: 'llm', key: 'plain-made-up', capabilities: {} },
+      { type: 'llm', key: 'plain-made-up', capabilities: { vision: true } },
       { type: 'embedding', key: 'embed-made-up' }] } }
       : url === 'http://localhost:1234/v1/models' ? { status: 200, json: { data: [{ id: 'nvidia/nemotron-made-up' }, { id: 'plain-made-up' }, { id: 'phonon-40m-multilingual' }] } } : { throws: new Error('connection refused') });
     const c = await ai.choices({ aiProvider: 'none' }, { fetch: lm.fetch, exists: () => false, platform: 'linux' });
     const lmp = c.providers.find(p => p.id === 'lmstudio');
     ok('LM Studio\'s own list: chat models only, and the levels each takes', lmp.ok && lmp.models.join() === 'nvidia/nemotron-made-up,plain-made-up' &&
       JSON.stringify(lmp.efforts) === '{"nvidia/nemotron-made-up":{"levels":["off","on"],"usual":"on"}}', JSON.stringify(lmp));
+    ok('...and which can see pictures', JSON.stringify(lmp.sees) === '["plain-made-up"]', JSON.stringify(lmp.sees));
+    const cloud = await ai.choices({ aiProvider: 'none', aiOpenaiKey: KEY, aiAgreed: ['openai'] }, { fetch: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'gpt-5-mini' }] }) }), exists: () => false, platform: 'linux' });
+    ok('...a cloud one sees with every model', cloud.providers.find(p => p.id === 'openai').sees === true);
   }
 })();

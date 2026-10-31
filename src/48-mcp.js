@@ -61,10 +61,11 @@ function writeRuns(runs) {
   fs.writeFileSync(RUNS_FILE, JSON.stringify(runs), { mode: 0o600 });
 }
 
-/** A code for one sidebar run: { grades }. Ended by endRun, or in an hour. */
-function issueRun({ grades = false } = {}, now = Date.now()) {
+/** A code for one sidebar run: { grades, web, webImage, webPanes, webPictures }. Ended by endRun, or in an hour. */
+function issueRun({ grades = false, web = false, webImage = false, webPanes = [], webPictures = [] } = {}, now = Date.now()) {
   const code = crypto.randomBytes(24).toString('hex');
-  writeRuns([...readRuns(now), { hash: hash(code), grades: !!grades, until: now + RUN_MINUTES * 60000 }]);
+  const ids = list => (Array.isArray(list) ? list : []).filter(id => /^[a-z0-9]{1,12}$/.test(id));
+  writeRuns([...readRuns(now), { hash: hash(code), grades: !!grades, web: !!web, webImage: !!webImage, webPanes: ids(webPanes), webPictures: ids(webPictures), until: now + RUN_MINUTES * 60000 }]);
   return code;
 }
 function endRun(code) {
@@ -85,7 +86,7 @@ function access(env = process.env, argv = process.argv) {
   const code = runCode(env, argv);
   if (code) {
     const run = readRuns().find(r => r.hash === hash(code));
-    if (run) return { ok: true, internal: true, grades: run.grades };
+    if (run) return { ok: true, internal: true, grades: run.grades, web: !!run.web, webImage: !!run.webImage, webPanes: run.webPanes || [], webPictures: run.webPictures || [] };
   }
   const s = require('./19-settings.js').read();
   if (!s.aiMcpExternal) return { ok: false, why: 'ClassDash isn\'t letting other AI apps use it. Turn on "Let other AI apps use ClassDash" in ClassDash\'s Settings → AI.' };
@@ -130,7 +131,7 @@ async function handle(msg, env = process.env, argv = process.argv) {
       const who = access(env, argv);
       if (!who.ok) return reply({ content: [{ type: 'text', text: JSON.stringify({ error: who.why }) }], isError: true });
       const out = await tools.run(String(params.name || ''), params.arguments, who);
-      return reply({ content: [{ type: 'text', text: out.text }], isError: out.isError });
+      return reply({ content: [{ type: 'text', text: out.text }, ...(out.image ? [{ type: 'image', data: out.image.data, mimeType: out.image.mime }] : [])], isError: out.isError });
     }
     default:
       return fail(-32601, `Method not found: ${msg.method}`);

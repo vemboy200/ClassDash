@@ -12,7 +12,7 @@ So instead of pretending it can't be misused, ClassDash makes some things easy a
 
 - **Your schoolwork, read only.** It can look at your assignments and the teachers' instructions (Canvas's and Classroom's, as saved at the last check), announcements, the PDFs in your workspace (their text and what you typed on them), and your grades if you allow that. It can't change, hide, mark done or turn in anything.
 - **The page you're on.** In the workspace, every question goes with the page most in view in the PDF you're asking about.
-- **Not your web panes, yet.** Docs, Word, Desmos and other pages open in the workspace aren't visible to the AI. When that's added, each pane will have its own switch for whether the AI can see it, off for web pages until you turn it on, and Google Docs and Word will be read-only to it.
+- **Your web panes, only if you let it.** Each web page in the workspace (a Doc, Desmos, any site) has an **AI** button: **Off** (the default) means the AI can't see it; **Text** lets it read the page's words (for a Google Doc, Sheet or Slides, the document's own text); **Image** also lets it look at a picture of what's showing, like a graph, if the AI you picked can see images. Even then, the page only goes to the AI when it decides your question needs it, and it says so under the answer. It can only read: it never types into a Doc or anything else. On the Mac app for now.
 - **Pen marks and highlights are only counted**, not seen. Typed text is read in full.
 
 ## What it won't do, and why
@@ -20,7 +20,7 @@ So instead of pretending it can't be misused, ClassDash makes some things easy a
 - **It never writes in work you turn in.** Not in a Google Doc, a Word file or a PDF you'll hand in. That isn't just about rules: Google Docs keeps a full version history, and many teachers check it. If an AI typed into your Doc, it would show up as you typing, in one fast burst, which looks exactly like pasting from ChatGPT. Even honest help would look like cheating. So ClassDash doesn't do it at all.
 - **Hints only is on by default.** For each PDF, the AI starts out helping you get there yourself: explaining the idea, pointing to where the answer is in the reading or the instructions, asking a guiding question, or checking your attempt. You can turn it off for a PDF (at the top of the AI pane) when you just want something explained in full, and it will still show its reasoning so you can follow it.
 - **Hints only is an instruction, not a lock.** The AI is told to work that way, and small models sometimes slip. It's there to make the helpful way the default, not to police you.
-- **What it reads is never instructions to it.** Text in an assignment, announcement, PDF or web page that tries to tell the AI to do something is treated as something to read, not something to obey.
+- **What it reads is never instructions to it.** Text in an assignment, announcement, PDF or web page that tries to tell the AI to do something is treated as something to read, not something to obey. Web pages are the riskiest for this, which is one reason they're off until you turn them on.
 
 ## Other AI apps
 

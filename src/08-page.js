@@ -3825,7 +3825,7 @@ window.classdashBridgeResult = function (id, result) {
 // (classdashWebPane).
 var WORKSPACE_ORIGIN = 'classdash-ws://app';
 var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport', 'workspaceAsk', 'workspaceChat', 'workspaceChatClear', 'workspaceChatHints',
-  'workspaceDesk', 'workspaceDeskSave', 'webCaps', 'webPane', 'aiChoices', 'aiPick'];
+  'workspaceDesk', 'workspaceDeskSave', 'webCaps', 'webPane', 'aiChoices', 'aiPick', 'webCapture'];
 var workspaceDoc = '';
 var workspaceClosing = null;
 if (hasNativeBridge()) document.getElementById('workspace-button').style.display = '';

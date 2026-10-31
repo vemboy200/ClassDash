@@ -832,7 +832,8 @@ function main(action, arg) {
     case 'workspaceRemove':
       return { ...require('./46-workspace.js').removeDoc(arg), action };
     // The workspace's AI sidebar (49-ai-sidebar.js): a question, as
-    // base64url JSON {doc, page, question, hints, live}. Logs only whether
+    // base64url JSON {doc, page, question, hints, live, web}: web, the panes
+    // whose pages it may see (saved just before by the Mac app). Logs only whether
     // it worked, never the question or the answer.
     case 'workspaceAsk': {
       let payload;
@@ -841,7 +842,10 @@ function main(action, arg) {
       } catch (e) {
         return { ok: false, action, why: 'could not parse: ' + e.message };
       }
-      return require('./49-ai-sidebar.js').ask(payload.question, { doc: payload.doc, page: payload.page, hints: payload.hints, live: payload.live }).then(result => {
+      // The web pages saved for it are gone afterwards, however it went.
+      const forget = () => { try { fs.rmSync(require('./47-ai-tools.js').webDir(), { recursive: true, force: true }); } catch {} };
+      return require('./49-ai-sidebar.js').ask(payload.question, { doc: payload.doc, page: payload.page, hints: payload.hints, live: payload.live, web: payload.web }).then(result => {
+        forget();
         logAction(result.ok ? '  workspace question answered' : `  workspace question not answered: ${result.why}${result.detail ? ' (' + result.detail + ')' : ''}`);
         const { t } = require('./18-language.js');
         return result.ok ? { ...result, action } : { ...result, action, why: t('wsAiWhy_' + result.why) + (result.detail ? ' ' + result.detail : '') };

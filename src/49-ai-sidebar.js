@@ -69,8 +69,10 @@ const HINTS = `HINTS ONLY is on. Help the student get there themselves: don't gi
   `Questions that aren't about answering their work (what's due, what the instructions say, how a grade works) you can answer fully.`;
 const FULL = `Hints only is off: you may explain fully and work through answers, but show the reasoning so they learn it.`;
 const NO_TOOLS = `You have no tools this time: answer from the page below, and say what you can't see.`;
-const NO_PDF = `No PDF is open right now, so there's no page below: they're asking about their schoolwork in general. ` +
-  `You can't see web pages they have open in their workspace (Google Docs, Desmos and the like): if they ask about one, say so and ask them to paste the part they mean.`;
+const NO_PDF = `No PDF is open right now, so there's no page below: they're asking about their schoolwork in general.`;
+const NO_WEB = `You can't see web pages they have open in their workspace (Google Docs, Desmos and the like): if they ask about one, say so, and that they can let you see it (the AI button on that page) or paste the part they mean.`;
+const WEB = (n, picture) => `They've let you see ${n === 1 ? 'a web page' : `${n} web pages`} open in their workspace, with read_web_page` +
+  `${picture ? ' (and look_at_web_page for a picture of what\'s showing, when the words aren\'t enough, like a graph)' : ''}. Look at it when the question is about it (or might be), not otherwise.`;
 const NO_PDF_NO_TOOLS = `No PDF is open and you have no tools this time, so you can't see their schoolwork: say so, and answer only what you can without it.`;
 
 function chatFile(doc) { return doc ? path.join(workspace().DIR, doc, 'chat.json') : path.join(workspace().DIR, 'chat.json'); }
@@ -136,7 +138,7 @@ function promptFor({ question, history, meta, doc, ctx, today }) {
 }
 
 /** Asks the AI about a PDF; saves the question and the answer with the PDF. */
-async function ask(question, { doc, page, hints, live, s = settings(), complete, now = new Date() } = {}) {
+async function ask(question, { doc, page, hints, live, web, s = settings(), complete, now = new Date() } = {}) {
   const W = workspace();
   const q = String(question || '').trim();
   if (!q) return { ok: false, why: 'empty' };
@@ -153,7 +155,17 @@ async function ask(question, { doc, page, hints, live, s = settings(), complete,
   const ctx = doc ? await pageContext(doc, Math.max(1, Math.floor(Number(page) || 1))) : null;
 
   const tools = require('./47-ai-tools.js');
-  const allowed = { grades: can.grades };
+  // The web pages they let it see: saved by the Mac app just before this
+  // (webCapture), and only the panes the desk says are on.
+  const wanted = new Set((Array.isArray(web) ? web : []).map(w => w && String(w.pane)).filter(id => /^[a-z0-9]{1,12}$/.test(id)));
+  let shared = [];
+  try { shared = fs.readdirSync(tools.webDir()).filter(f => wanted.has(f.replace(/\.json$/, '')) && f.endsWith('.json')); } catch {}
+  // A picture too only for pages set to Image, when one was taken.
+  const pictured = new Set((Array.isArray(web) ? web : []).filter(w => w && w.image).map(w => String(w.pane)));
+  let pictures = [];
+  try { pictures = fs.readdirSync(tools.webDir()).filter(f => f.endsWith('.png') && pictured.has(f.slice(0, -4))); } catch {}
+  const allowed = { grades: can.grades, web: can.tools && shared.length > 0, webImage: can.tools && shared.length > 0 && pictures.length > 0,
+    webPanes: shared.map(f => f.slice(0, -5)), webPictures: pictures.map(f => f.slice(0, -4)) };
   let runCode = null, runDir = null, offered = null;
   if (can.tools) {
     offered = {
@@ -170,7 +182,8 @@ async function ask(question, { doc, page, hints, live, s = settings(), complete,
       offered.mcp = { command: l.command, args: [...l.args, '--run-file', file], ...(l.env ? { env: l.env } : {}) };
     }
   }
-  const system = [BASE, chat.hints ? HINTS : FULL, doc ? (can.tools ? '' : NO_TOOLS) : (can.tools ? NO_PDF : NO_PDF_NO_TOOLS)].filter(Boolean).join('\n\n');
+  const system = [BASE, chat.hints ? HINTS : FULL, doc ? (can.tools ? '' : NO_TOOLS) : (can.tools ? NO_PDF : NO_PDF_NO_TOOLS),
+    allowed.web ? WEB(shared.length, allowed.webImage) : NO_WEB].filter(Boolean).join('\n\n');
   const shown = typeof live === 'string' && /^[a-z0-9]{1,40}$/i.test(live) ? require('./41-grades-center.js').liveWriter(live) : null;
   if (shown && offered) offered.onUse = name => shown.use(name);
   const run = complete || ((a, settingsNow) => require('./37-ai.js').complete(a, settingsNow, { timeoutMs: TIMEOUT_MS }));
@@ -185,6 +198,8 @@ async function ask(question, { doc, page, hints, live, s = settings(), complete,
     if (shown) shown.end();
     if (runCode) require('./48-mcp.js').endRun(runCode);
     if (runDir) { try { fs.rmSync(runDir, { recursive: true, force: true }); } catch {} }
+    // What was on their web pages isn't kept.
+    try { fs.rmSync(tools.webDir(), { recursive: true, force: true }); } catch {}
   }
   if (!answer.ok) return { ok: false, why: 'ai', detail: answer.why };
   const text = String(answer.text || '').trim() || '…';

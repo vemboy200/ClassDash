@@ -18,7 +18,9 @@
  * keep with one provider.
  *
  * Both pages put CSS in their style and SCRIPT in their script, and call
- * modelPicker(host, { ask, words, onPick, which?, off?, down? }):
+ * modelPicker(host, { ask, words, onPick, onSees?, which?, off?, down? }):
+ * onSees(true or false) is told whether the model in use can look at
+ * pictures, whenever that may have changed.
  * ask(action, arg) answers with a promise, words holds the mp* strings
  * (STRING_KEYS).
  */
@@ -81,7 +83,14 @@ function modelPicker(host, opts) {
     var e = effortOf(p, cur().model);
     return e ? (e.levels.indexOf(cur().effort) !== -1 ? cur().effort : e.usual) : '';
   }
+  function sees() {
+    var p = data && find(cur().provider);
+    if (!p || !p.ok) return false;
+    var m = cur().model || p.model;
+    return p.sees === true || (!!p.sees && p.sees.indexOf(m) !== -1);
+  }
   function showCurrent() {
+    if (opts.onSees) opts.onSees(sees());
     var p = data && find(cur().provider);
     var e = effortNow(p);
     trigger.textContent = (p ? p.label + ' · ' + modelName(p, cur().model) + (e ? ' · ' + W['mpEffort_' + e] : '') : opts.off ? W.mpOffPick : W.mpOff) + ' ▾';

@@ -913,6 +913,81 @@ final class WebPanes: NSObject, WKNavigationDelegate, WKUIDelegate {
         return v
     }
 
+    // ── What the AI may see (webCapture) ──
+    //
+    // Just before the AI pane asks, the pages set to Text or Image are saved
+    // where the AI's read_web_page tool reads them (workspace/web/<pane>.json,
+    // and <pane>.png for Image), and the AI pane deletes them when the
+    // answer's in. Only panes the desk names, only then. The text is read in
+    // a script world of ClassDash's own, so the page's scripts can't see or
+    // change it. A Google Doc, Slides or Sheets draws its text itself rather
+    // than as words on the page, so its own text export is asked for
+    // instead (read-only, with the pane's sign-in).
+    static let readScript = """
+    const u = new URL(location.href);
+    const m = u.hostname === 'docs.google.com' && u.pathname.match(/^\\/(document|presentation|spreadsheets)(?:\\/u\\/\\d+)?\\/d\\/([A-Za-z0-9_-]+)/);
+    let text = '', how = 'page';
+    if (m) {
+      const gid = (u.hash.match(/gid=(\\d+)/) || [])[1];
+      const path = m[1] === 'document' ? `/document/d/${m[2]}/export?format=txt`
+        : m[1] === 'presentation' ? `/presentation/d/${m[2]}/export/txt`
+        : `/spreadsheets/d/${m[2]}/export?format=csv${gid ? '&gid=' + gid : ''}`;
+      try { const r = await fetch(path, { credentials: 'include' }); if (r.ok) { text = await r.text(); how = 'export'; } } catch (e) {}
+    }
+    if (!text) text = document.body ? document.body.innerText : '';
+    return { title: document.title, url: location.href, text: String(text).slice(0, 60000), how };
+    """
+
+    func capture(_ arg: String, dir: String, done: @escaping ([String: Any]) -> Void) {
+        guard let data = arg.data(using: .utf8),
+              let op = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let panes = op["panes"] as? [[String: Any]] else { done(["ok": false, "why": "bad capture"]); return }
+        let fm = FileManager.default
+        try? fm.removeItem(atPath: dir)
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let group = DispatchGroup()
+        var saved: [String] = []
+        for p in panes {
+            guard let id = p["id"] as? String, WebPanes.isPaneId(id), let v = views[id], v.url != nil else { continue }
+            group.enter()
+            v.callAsyncJavaScript(WebPanes.readScript, arguments: [:], in: nil, in: .defaultClient) { result in
+                if case .success(let value) = result, let page = value as? [String: Any],
+                   let json = try? JSONSerialization.data(withJSONObject: page) {
+                    fm.createFile(atPath: dir + "/" + id + ".json", contents: json, attributes: [.posixPermissions: 0o600])
+                    saved.append(id)
+                }
+                group.leave()
+            }
+            if (p["image"] as? Bool) == true {
+                group.enter()
+                let shot = WKSnapshotConfiguration()
+                // Wide enough to read, small enough to send: 1280 at most.
+                shot.snapshotWidth = NSNumber(value: Double(min(v.bounds.width, 1280)))
+                v.takeSnapshot(with: shot) { image, _ in
+                    if let png = image.flatMap(WebPanes.png) {
+                        fm.createFile(atPath: dir + "/" + id + ".png", contents: png, attributes: [.posixPermissions: 0o600])
+                    }
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) { done(["ok": true, "saved": saved.count]) }
+    }
+
+    // One pixel per point: a Retina screen's doubled ones would only make
+    // the picture bigger to send, not easier to read.
+    static func png(_ image: NSImage) -> Data? {
+        let w = Int(image.size.width), h = Int(image.size.height)
+        guard w > 0, h > 0, let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                                        hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = NSSize(width: w, height: h)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
+    }
+
     private func drop(_ id: String, _ v: WKWebView) {
         watching[id] = nil
         v.stopLoading()
@@ -1579,6 +1654,15 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         if action == "webPane" || action == "webCaps" {
             let result: [String: Any] = action == "webCaps" ? ["ok": true, "web": true] : webPaneOp(arg)
             deliver(requestId: requestId, resultJSON: WorkspaceFiles.json(result))
+            return
+        }
+        // The pages the AI may see, saved just before a question: answers
+        // later, when they're read, and never logged.
+        if action == "webCapture" {
+            guard let panes = webPanes else { deliver(requestId: requestId, resultJSON: WorkspaceFiles.json(["ok": true, "saved": 0])); return }
+            panes.capture(arg, dir: projectDir + "/workspace/web") { [weak self] result in
+                self?.deliver(requestId: requestId, resultJSON: WorkspaceFiles.json(result))
+            }
             return
         }
         // A settings save carries every setting, the Canvas access token

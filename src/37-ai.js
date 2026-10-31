@@ -603,10 +603,16 @@ async function openaiTools(config, ask, deps, used) {
     if (thinking) before = [before, thinking].filter(Boolean).join('\n\n');
     calls.forEach((c, i) => { if (!c.id) c.id = `call_${step}_${i}`; });
     messages.push({ role: 'assistant', content: text || null, tool_calls: calls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } })) });
+    const pictures = [];
     for (const c of calls) {
       const r = await toolResult(ask, used, c.name, c.arguments);
       messages.push({ role: 'tool', tool_call_id: c.id, content: r.text });
+      if (r.image) pictures.push(r.image);
     }
+    // A tool's answer here can only be text, so a picture follows it as
+    // the student's, the way these APIs take pictures.
+    if (pictures.length) messages.push({ role: 'user', content: [{ type: 'text', text: 'The picture look_at_web_page returned:' },
+      ...pictures.map(p => ({ type: 'image_url', image_url: { url: `data:${p.mime};base64,${p.data}` } }))] });
   }
 }
 
@@ -640,7 +646,8 @@ async function anthropicTools(config, ask, deps, used) {
     const results = [];
     for (const c of calls) {
       const r = await toolResult(ask, used, c.name, c.input);
-      results.push({ type: 'tool_result', tool_use_id: c.id, content: r.text, ...(r.isError ? { is_error: true } : {}) });
+      const content = r.image ? [{ type: 'text', text: r.text }, { type: 'image', source: { type: 'base64', media_type: r.image.mime, data: r.image.data } }] : r.text;
+      results.push({ type: 'tool_result', tool_use_id: c.id, content, ...(r.isError ? { is_error: true } : {}) });
     }
     messages.push({ role: 'user', content: results });
   }
@@ -686,6 +693,7 @@ async function geminiTools(config, ask, deps, used) {
       try { response = JSON.parse(r.text); } catch { response = { text: r.text }; }
       if (!response || typeof response !== 'object' || Array.isArray(response)) response = { result: response };
       answers.push({ functionResponse: { name: c.functionCall.name, response } });
+      if (r.image) answers.push({ inlineData: { mimeType: r.image.mime, data: r.image.data } });
     }
     contents.push({ role: 'user', parts: answers });
   }
@@ -1091,10 +1099,23 @@ async function lmstudioModels(server, deps) {
         if (levels.length > 1) efforts[m.key] = { levels, usual: levels.includes(r.default) ? r.default : levels[0] };
       }
     }
-    return { models: chat.map(m => m.key).sort(), efforts };
+    return { models: chat.map(m => m.key).sort(), efforts, sees: chat.filter(m => m.capabilities && m.capabilities.vision === true).map(m => m.key) };
   } catch {
-    return { models: server.models, efforts: {} };
+    return { models: server.models, efforts: {}, sees: [] };
   }
+}
+
+// Ollama says per model what it can do ("vision" among them), one at a time.
+async function ollamaSees(url, models, deps) {
+  const show = `${String(url).replace(/\/v1\/?$/, '')}/api/show`;
+  const out = [];
+  for (const model of (models || []).slice(0, 30)) {
+    try {
+      const json = await request(deps, show, { method: 'POST', local: true, body: { model } });
+      if (Array.isArray(json.capabilities) && json.capabilities.includes('vision')) out.push(model);
+    } catch { /* can't tell: not that one */ }
+  }
+  return out;
 }
 
 // Claude Code's names for its current models (its own default first);
@@ -1166,7 +1187,15 @@ async function choices(settings = require('./19-settings.js').read(), deps = {})
     for (const m of ['', ...p.models]) { const c = effortChoices(p.id, m || p.model); if (c) efforts[m] = c; }
     return { ...p, efforts };
   };
-  const providers = (await Promise.all(PROVIDER_IDS.map(one))).map(withEfforts);
+  // Which models can look at pictures (a web page's Image): every model of
+  // a cloud one, and the local ones that say so.
+  const withSees = async p => {
+    if (!p.ok || p.sees !== undefined) return p;
+    if (!PROVIDERS[p.id].local) return { ...p, sees: true };
+    if (p.id === 'ollama') return { ...p, sees: await ollamaSees(p.url, p.models, d) };
+    return { ...p, sees: [] };
+  };
+  const providers = await Promise.all((await Promise.all(PROVIDER_IDS.map(one))).map(withEfforts).map(withSees));
   const scan = configFrom(settings);
   // None picked: a cloud API's is '' (its newest, which can change).
   const shown = c => ({ provider: c.provider, model: c.picked || !FAMILY[c.provider] ? c.model : '', effort: c.effort });

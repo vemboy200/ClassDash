@@ -168,6 +168,54 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
     !side.readChat(pdf.id).messages.some(m => /due this week/.test(m.text)));
   ok('...cleared on its own too', side.clearChat('').ok && side.readChat('').messages.length === 0 && side.readChat(pdf.id).messages.length > 0);
 
+  // ── web pages the student let it see ──
+  const names = ctx => tools.toolsFor(ctx).map(t => t.name);
+  ok('no web tools unless a page was shared; the picture only with Image', !names({}).some(n => /web_page/.test(n)) &&
+    names({ web: true }).includes('read_web_page') && !names({ web: true }).includes('look_at_web_page') && names({ web: true, webImage: true }).includes('look_at_web_page'));
+  const shareWeb = () => {
+    fs.mkdirSync(tools.webDir(), { recursive: true });
+    fs.writeFileSync(path.join(tools.webDir(), 'p3.json'), JSON.stringify({ title: 'Made-up Essay - Google Docs', url: 'https://docs.google.com/document/d/abc/edit', text: 'My made-up intro paragraph.', how: 'export' }));
+    fs.writeFileSync(path.join(tools.webDir(), 'p3.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+    fs.writeFileSync(path.join(tools.webDir(), 'p9.json'), JSON.stringify({ title: 'Not shared', url: 'https://example.test', text: 'x' }));
+  };
+  shareWeb();
+  let duringWeb = null;
+  r = await side.ask('Is my intro OK?', { doc: '', s: local, web: [{ pane: 'p3', image: true }], complete: async a => {
+    duringWeb = { names: a.tools.list.map(t => t.name), system: a.system, read: JSON.parse((await a.tools.call('read_web_page', {})).text), pic: await a.tools.call('look_at_web_page', {}) };
+    return { ok: true, text: 'Good start.' };
+  } });
+  ok('a shared page: both tools, and the AI told it may look when the question\'s about it', r.ok && duringWeb.names.includes('read_web_page') && duringWeb.names.includes('look_at_web_page') &&
+    /let you see a web page/.test(duringWeb.system) && !/can't see web pages/.test(duringWeb.system), JSON.stringify(duringWeb && duringWeb.names));
+  ok('...read_web_page gives the Doc\'s own text, and only the panes shared', duringWeb.read.pages.length === 1 && duringWeb.read.pages[0].pane === 'p3' &&
+    duringWeb.read.pages[0].text === 'My made-up intro paragraph.' && duringWeb.read.pages[0].from === 'the document itself', JSON.stringify(duringWeb.read));
+  ok('...look_at_web_page gives the picture apart from the text', duringWeb.pic.image && duringWeb.pic.image.mime === 'image/png' && duringWeb.pic.image.data === Buffer.from('89504e470d0a1a0a', 'hex').toString('base64') && !duringWeb.pic.text.includes(duringWeb.pic.image.data));
+  ok('...and what was on the page is gone after', !fs.existsSync(tools.webDir()));
+  shareWeb();
+  await side.ask('Is my intro OK?', { doc: '', s: local, web: [{ pane: 'p3', image: false }], complete: fake({ ok: true, text: 'a' }) });
+  ok('Text only: no picture tool even with one saved', seen.a.tools.list.some(t => t.name === 'read_web_page') && !seen.a.tools.list.some(t => t.name === 'look_at_web_page'));
+  await side.ask('q', { doc: '', s: local, complete: fake({ ok: true, text: 'a' }) });
+  ok('nothing shared: no web tools, and told it can\'t see web pages', !seen.a.tools.list.some(t => /web_page/.test(t.name)) && /can't see web pages/.test(seen.a.system));
+  side.clearChat('');
+
+  // The picture reaches each kind of AI in its own shape.
+  {
+    const picture = { list: [{ name: 'look_at_web_page', description: 'd', input: { type: 'object', properties: {} } }], call: async () => ({ text: '{"title":"t"}', image: { mime: 'image/png', data: 'QUJD' } }) };
+    const o = fakeFetch((url, body, n) => ({ status: 200, json: n === 1 ? { choices: [{ message: { content: '', tool_calls: [{ id: 'c1', function: { name: 'look_at_web_page', arguments: '{}' } }] } }] } : { choices: [{ message: { content: 'A parabola.' } }] } }));
+    await ai.complete({ prompt: 'graph?', tools: picture }, { aiProvider: 'openai', aiOpenaiKey: KEY, aiAgreed: ['openai'], aiModel: 'gpt-made-up' }, { fetch: o.fetch });
+    const after = o.calls[1].body.messages;
+    ok('OpenAI-style: the tool\'s text, then the picture as the student\'s message', after.find(m => m.role === 'tool').content === '{"title":"t"}' &&
+      after.slice(-1)[0].role === 'user' && after.slice(-1)[0].content[1].image_url.url === 'data:image/png;base64,QUJD', JSON.stringify(after.slice(-1)));
+    const a = fakeFetch((url, body, n) => n === 1 ? { status: 200, json: { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'look_at_web_page', input: {} }] } }
+      : { status: 200, json: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'A parabola.' }] } });
+    await ai.complete({ prompt: 'graph?', tools: picture }, { aiProvider: 'anthropic', aiAnthropicKey: KEY, aiAgreed: ['anthropic'], aiModel: 'claude-made-up' }, { fetch: a.fetch });
+    const res = a.calls[1].body.messages.slice(-1)[0].content[0];
+    ok('Anthropic: the picture inside the tool_result', res.type === 'tool_result' && res.content[1].type === 'image' && res.content[1].source.data === 'QUJD', JSON.stringify(res));
+    const g = fakeFetch((url, body, n) => ({ status: 200, json: { candidates: [{ content: { role: 'model', parts: n === 1 ? [{ functionCall: { name: 'look_at_web_page', args: {} } }] : [{ text: 'A parabola.' }] } }] } }));
+    await ai.complete({ prompt: 'graph?', tools: picture }, { aiProvider: 'gemini', aiGeminiKey: KEY, aiAgreed: ['gemini'], aiModel: 'gemini-made-up' }, { fetch: g.fetch });
+    const gparts = g.calls[1].body.contents.slice(-1)[0].parts;
+    ok('Gemini: the picture beside the function\'s answer', gparts[0].functionResponse && gparts[1].inlineData && gparts[1].inlineData.data === 'QUJD', JSON.stringify(gparts));
+  }
+
   let during = null;
   await side.ask('q', { doc: pdf.id, page: 1, s: { aiProvider: 'claudecode', aiAgreed: ['claudecode'] }, complete: async a => {
     const file = a.tools.mcp.args[a.tools.mcp.args.indexOf('--run-file') + 1];

@@ -179,9 +179,34 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     last = webOps().filter(o => o.op === 'layout').pop();
     ok('...and shows it again after', last.panes[0].show === true);
     pane.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
-    ok('the web pane in front: the AI pane says it can\'t see web pages', d.getElementById('ai-web-note') && !d.getElementById('ai-web-note').hidden && /can't see web pages/.test(d.getElementById('ai-web-note').textContent));
+    ok('the web pane in front: the AI pane says it can\'t see web pages', d.getElementById('ai-web-note') && !d.getElementById('ai-web-note').hidden && /can't see this web page/.test(d.getElementById('ai-web-note').textContent));
     d.querySelector('.pane[data-id="p1"]').dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('...and not once a PDF pane is', d.getElementById('ai-web-note').hidden);
+
+    // What the AI may see of it: Off until set, three levels, each explained.
+    const see = pane.querySelector('.see-btn');
+    ok('a web page\'s AI button starts Off', see && see.textContent === 'AI: Off ▾');
+    see.click();
+    const seeMenu = pane.querySelector('.see-menu');
+    ok('...its menu: Off, Text, Image, each with what it means', seeMenu && [...seeMenu.querySelectorAll('button')].map(b => b.textContent).join() === 'Off,Text,Image' &&
+      seeMenu.querySelectorAll('.note').length === 3 && /can't see this page/.test(seeMenu.querySelectorAll('.note')[0].textContent) && /Works with every AI/.test(seeMenu.querySelectorAll('.note')[1].textContent) &&
+      /picture of what's showing/.test(seeMenu.querySelectorAll('.note')[2].textContent));
+    ok('...saying when the AI picked now can\'t see images', /can't see images, so it gets the text only/.test(seeMenu.querySelectorAll('.note')[2].textContent));
+    ok('...and the page is hidden while the menu\'s over it', webOps().filter(o => o.op === 'layout').pop().panes[0].show === false);
+    [...seeMenu.querySelectorAll('button')].find(b => b.textContent === 'Text').click();
+    ok('Text: the button says so', see.textContent === 'AI: Text ▾');
+    await sleep(500);
+    ok('...and it\'s kept with the pane', JSON.stringify(act('workspaceDesk').desk.layout).includes('"ai":"text"'));
+    pane.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
+    ok('the AI pane\'s note now says it can look at this page', /can look at this web page/.test(d.getElementById('ai-web-note').textContent));
+    posted.length = 0;
+    d.getElementById('ai-q').value = 'Is this graph right?';
+    d.getElementById('ai-ask').click();
+    await sleep(50);
+    const capture = posted.find(m => m.action === 'webCapture');
+    const asking = posted.find(m => m.action === 'workspaceAsk');
+    ok('asking: the app saves that page first, text only, then the question says which pane', capture && JSON.stringify(JSON.parse(capture.arg)) === '{"panes":[{"id":"p3","image":false}]}' &&
+      asking && JSON.stringify(JSON.parse(Buffer.from(asking.arg, 'base64url').toString('utf8')).web) === '[{"pane":"p3","image":false}]' && posted.indexOf(capture) < posted.indexOf(asking), JSON.stringify(posted.map(m => m.action)));
     fromMain({ type: 'web', web: { id: 'p3', url: 'https://www.desmos.com/calculator/abc123', title: 'Made-up graph', loading: false, back: true, forward: false } });
     ok('the app\'s news shows in the pane: the title, back', pane.querySelector('.pane-title').textContent === 'Made-up graph' && !pane.querySelector('.back').disabled && pane.querySelector('.fwd').disabled);
     ok('...and there\'s no address bar: the bookmarks are the way in', !pane.querySelector('.web-bar input'));

@@ -105,6 +105,8 @@ function clean(raw) {
       const out = { pane: n.pane, kind: n.kind };
       if (n.kind === 'pdf' && workspace().isId(n.doc)) out.doc = n.doc;
       if (n.kind === 'web' && webUrl(n.url)) out.url = webUrl(n.url);
+      // What the AI may see of it: off unless set (AI_SEES).
+      if (n.kind === 'web' && (n.ai === 'text' || n.ai === 'image')) out.ai = n.ai;
       return out;
     }
     if ((n.split !== 'row' && n.split !== 'col') || !Array.isArray(n.kids)) return null;
@@ -148,10 +150,11 @@ function strings() {
     'wsPaneKind', 'wsPanePdf', 'wsPaneWeb', 'wsSplitRight', 'wsSplitDown', 'wsMoveLeft', 'wsMoveRight', 'wsMoveUp', 'wsMoveDown', 'wsClosePane', 'wsMaxPanes', 'wsAiOnlyOne',
     'wsWebBack', 'wsWebForward', 'wsWebReload', 'wsWebBookmarks', 'wsWebNewMark', 'wsWebNewName', 'wsWebNewUrl', 'wsWebNewAdd', 'wsWebNewBad', 'wsWebAddPage', 'wsWebRemove', 'wsWebNoNative', 'wsWebNoBookmarks', 'wsWebDownloaded',
     'wsAi', 'wsAiTitle', 'wsAiHints', 'wsAiHintsTip', 'wsAiClear', 'wsAiAsk', 'wsAiPlaceholder', 'wsAiThinking', 'wsAiThought',
-    'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiEmptyGeneral', 'wsAiGeneral', 'wsAiNoWeb', 'wsAiAbout',
+    'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiEmptyGeneral', 'wsAiGeneral', 'wsAiNoWeb', 'wsAiSeesWeb', 'wsAiAbout',
+    'wsSee', 'wsSee_off', 'wsSee_text', 'wsSee_image', 'wsSeeHint_off', 'wsSeeHint_text', 'wsSeeHint_image', 'wsSeeNoVision',
     'wsAiGateTitle', 'wsAiGateLearn', 'wsAiGateNoWrite', 'wsAiGateWrong', 'wsAiGateSees', 'wsAiGateOk', 'wsAiGateMore',
     'wsAiTool_list_assignments', 'wsAiTool_get_assignment', 'wsAiTool_list_classes', 'wsAiTool_list_announcements',
-    'wsAiTool_list_pdfs', 'wsAiTool_read_pdf_pages', 'wsAiTool_get_grades'];
+    'wsAiTool_list_pdfs', 'wsAiTool_read_pdf_pages', 'wsAiTool_get_grades', 'wsAiTool_read_web_page', 'wsAiTool_look_at_web_page'];
   const out = { locale: t('locale'), guide: GUIDE_URL };
   for (const k of [...keys, ...require('./51-model-picker.js').STRING_KEYS]) out[k] = t(k);
   return out;
@@ -202,7 +205,9 @@ function pageHtml() {
   .pane-head .move.can { display: inline-block; }
   .note-box { padding: 24px; color: var(--dim); text-align: center; }
   /* web */
-  .web-bar { display: flex; gap: 4px; align-items: center; padding: 4px 6px; border-bottom: 2px solid var(--line); }
+  .web-bar { display: flex; gap: 4px; align-items: center; padding: 4px 6px; border-bottom: 2px solid var(--line); position: relative; }
+  .see-menu { left: auto; right: 6px; }
+  .see-menu .note { max-width: 260px; }
   .new-mark { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .new-mark b { flex-basis: 100%; font-size: 13px; }
   .new-mark input { flex: 1; min-width: 120px; font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 2px solid var(--ink); padding: 3px 6px; }
@@ -315,6 +320,7 @@ const pdfs = {};          // pane id -> { doc, title, page } as its frame last s
 const webs = {};          // pane id -> { url, title, loading, back, forward, home }
 let lastPdf = null;
 let menu = null;          // { el, pane } while a menu is open
+let aiSees = false;       // the chat's model can look at pictures (its picker says)
 
 function panesOf(n, out = []) { if (n.pane) out.push(n); else n.kids.forEach(k => panesOf(k, out)); return out; }
 function findPane(id) { return panesOf(desk.layout).find(p => p.pane === id); }
@@ -624,6 +630,47 @@ function closePane(id) {
   save();
 }
 
+// ── What the AI may see of a web page ──
+// Off, Text (its words, for any AI) or Image (a picture of what's on
+// screen too, for an AI that can see pictures), each said in a line under
+// it. Off until set; saved with the pane.
+const SEE_LEVELS = ['off', 'text', 'image'];
+const seeOf = p => (p && p.ai) || 'off';
+function drawSee(id) {
+  const e = els[id], p = findPane(id);
+  const b = e && e.body.querySelector('.see-btn');
+  if (!b || !p) return;
+  b.textContent = L.wsSee + ': ' + L['wsSee_' + seeOf(p)] + ' ▾';
+  b.classList.toggle('on', seeOf(p) !== 'off');
+  b.title = L['wsSeeHint_' + seeOf(p)];
+}
+function openSeeMenu(id, button) {
+  if (menu && menu.pane === id && menu.see) { closeMenu(); return; }
+  closeMenu();
+  const p = findPane(id);
+  const m = document.createElement('div');
+  m.className = 'menu see-menu';
+  for (const level of SEE_LEVELS) {
+    const b = document.createElement('button');
+    b.textContent = L['wsSee_' + level];
+    b.classList.toggle('on', seeOf(p) === level);
+    b.onclick = () => {
+      closeMenu();
+      if (level === 'off') delete p.ai; else p.ai = level;
+      drawSee(id);
+      aiTargetChanged();
+      save();
+    };
+    const note = document.createElement('div');
+    note.className = 'note';
+    note.textContent = L['wsSeeHint_' + level] + (level === 'image' && !aiSees ? ' ' + L.wsSeeNoVision : '');
+    m.append(b, note);
+  }
+  button.parentNode.appendChild(m);
+  menu = { el: m, pane: id, see: true };
+  syncWeb();
+}
+
 function openKindMenu(id, button) {
   closeMenu();
   const p = findPane(id);
@@ -716,12 +763,15 @@ function makeWeb(p, body) {
   if (!canWeb) { const n = document.createElement('div'); n.className = 'note-box'; n.textContent = L.wsWebNoNative; body.appendChild(n); return; }
   const bar = document.createElement('div');
   bar.className = 'web-bar';
-  bar.innerHTML = '<button class="small back">‹</button><button class="small fwd">›</button><button class="small reload">⟳</button><span class="grow"></span><button class="small marks-btn"></button>';
+  bar.innerHTML = '<button class="small back">‹</button><button class="small fwd">›</button><button class="small reload">⟳</button><span class="grow"></span>' +
+    '<button class="small see-btn"></button><button class="small marks-btn"></button>';
   const [back, fwd, reload] = bar.querySelectorAll('button');
   back.title = L.wsWebBack; fwd.title = L.wsWebForward; reload.title = L.wsWebReload;
   back.onclick = () => tell('webPane', JSON.stringify({ op: 'nav', id: p.pane, cmd: 'back' }));
   fwd.onclick = () => tell('webPane', JSON.stringify({ op: 'nav', id: p.pane, cmd: 'forward' }));
   reload.onclick = () => tell('webPane', JSON.stringify({ op: 'nav', id: p.pane, cmd: 'reload' }));
+  const see = bar.querySelector('.see-btn');
+  see.onclick = e => { e.stopPropagation(); openSeeMenu(p.pane, see); };
   const marks = bar.querySelector('.marks-btn');
   marks.textContent = '☆ ' + L.wsWebBookmarks;
   marks.onclick = () => { const w = webs[p.pane]; w.home = !w.home || !w.url; drawWeb(p.pane); syncWeb(); };
@@ -766,6 +816,7 @@ function drawWeb(id) {
   body.querySelector('.fwd').disabled = !w.forward || w.home;
   body.querySelector('.reload').disabled = !w.url || w.home;
   body.querySelector('.marks-btn').classList.toggle('on', w.home);
+  drawSee(id);
   body.querySelector('.web-said').textContent = w.said || '';
   const box = body.querySelector('.web-box');
   let bar = box.querySelector('.web-loading');
@@ -910,7 +961,8 @@ function makeAi(body) {
   ai.el = body;
   ai.doc = null;
   // A new pick: the chat asks again whether it can, with that AI.
-  modelPicker(body.querySelector('.ai-foot'), { ask: bridge, words: L, onPick: () => { ai.doc = null; aiTargetChanged(); } });
+  modelPicker(body.querySelector('.ai-foot'), { ask: bridge, words: L, onPick: () => { ai.doc = null; aiTargetChanged(); },
+    onSees: sees => { aiSees = sees; } });
   if (!desk.aiOk) aiGate(body);
   $('ai-ask').onclick = askAi;
   $('ai-q').addEventListener('keydown', e => {
@@ -962,6 +1014,7 @@ async function aiTargetChanged() {
   // A web page in front: the AI can't see it, whatever the question is about.
   const front = findPane(desk.focus);
   $('ai-web-note').hidden = !(front && front.kind === 'web');
+  $('ai-web-note').textContent = front && front.kind === 'web' && seeOf(front) !== 'off' ? L.wsAiSeesWeb : L.wsAiNoWeb;
   $('ai-ask').disabled = !!ai.asking;
   // '' is the chat with no PDF, about their schoolwork in general.
   const doc = t ? t.doc : '';
@@ -1031,7 +1084,14 @@ async function askAi() {
   ai.asking = { live, question, page, doc };
   $('ai-ask').disabled = true; field.disabled = true; $('ai-status').textContent = '';
   drawAi([{ role: 'user', text: question, page }, { role: 'ai', text: L.wsAiThinking, pending: true }]);
-  const arg = b64(JSON.stringify({ doc, page, question, hints: $('ai-hints').checked, live }));
+  // The web pages it may see, saved by the app just before it's asked.
+  const shown = panesOf(desk.layout).filter(q => q.kind === 'web' && q.ai && webs[q.pane] && webs[q.pane].url && !webs[q.pane].home);
+  const web = shown.map(q => ({ pane: q.pane, image: q.ai === 'image' && aiSees }));
+  if (web.length) {
+    const got = await bridge('webCapture', JSON.stringify({ panes: web.map(w => ({ id: w.pane, image: w.image })) }));
+    if (!got || !got.ok) web.length = 0;
+  }
+  const arg = b64(JSON.stringify({ doc, page, question, hints: $('ai-hints').checked, live, web }));
   const r = await bridge('workspaceAsk', arg, { live });
   const asked = ai.asking;
   ai.asking = null;

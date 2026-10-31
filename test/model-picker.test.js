@@ -130,6 +130,20 @@ const deps = { fetch, exists: () => false, platform: 'linux' };
   ok('...and medium, the usual, is saved as none picked', asked.pick.effort === '');
   d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
+  // Whether the model in use can see pictures, for a web page's Image.
+  const told = [];
+  d.getElementById('host').textContent = '';
+  current = { provider: 'ollama', model: 'llama3.2' };
+  const seeing = JSON.parse(JSON.stringify(r.providers)).map(p => p.id === 'ollama' ? { ...p, sees: ['qwen3:8b'] } : p);
+  w.modelPicker(d.getElementById('host'), { ask: async (action, arg) => action === 'aiChoices' ? { ok: true, providers: seeing, current, scan: { provider: 'none', model: '' } } : ask(action, arg), words, onSees: s => told.push(s) });
+  await T.until(() => told.length);
+  ok('the picker says whether the model in use can see pictures', told[told.length - 1] === false);
+  d.querySelector('.mp-trigger').click();
+  await T.until(() => d.querySelector('.mp-list button'));
+  [...d.querySelectorAll('.mp-list button')].find(b => b.textContent === 'qwen3:8b').click();
+  await T.until(() => told[told.length - 1] === true);
+  ok('...and again when another is picked', told[told.length - 1] === true);
+
   // The model in use deleted: still listed first, said to be gone, checked.
   current = { provider: 'ollama', model: 'gemma-gone' };
   d.getElementById('host').textContent = '';
