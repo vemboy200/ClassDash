@@ -1,6 +1,7 @@
 // The PDF workspace: adding a PDF, the list, removing one, the actions the
-// app calls, the page's list view (talking through the main page), and the
-// main page's Workspace panel passing those messages on.
+// app calls, a PDF pane's list view (talking through the desk), and the
+// main page's Workspace panel passing those messages on. The desk itself is
+// in desk.test.js.
 // Drawing and exporting need a real browser engine (PDF.js draws on a
 // canvas, which jsdom doesn't have), so those were checked in WebKit and
 // Chromium instead. The PDF is made up, made here with pdf-lib.
@@ -45,20 +46,22 @@ const act = (action, arg = '') => JSON.parse(T.run(proj, '21-notifier-actions.js
   ok('...and nothing outside the workspace, whatever it\'s asked', act('workspaceRemove', '../settings').why === 'badId' && fs.existsSync(path.join(proj, 'settings.json')));
 
   // ── the page ──
-  ok('workspacePage writes it', act('workspacePage').ok && fs.existsSync(W.PAGE));
+  ok('workspacePage writes it, and the desk', act('workspacePage').ok && fs.existsSync(W.PAGE) && fs.existsSync(path.join(proj, 'workspace.html')));
   const html = fs.readFileSync(W.PAGE, 'utf8');
   ok('...in the current language', /<title>Workspace<\/title>/.test(html) && html.includes('Export PDF'));
   ok('...loading its scripts only from the workspace address\'s own paths', html.includes('<script src="pdf-lib.min.js">') && html.includes("import('./pdfjs/pdf.min.mjs')"));
 
-  // The list view, in a stand-in for the main page it's a frame of.
+  // The list view, in a stand-in for the desk it's a frame of.
   const posted = [];
   const errors = [];
   const vc = new VirtualConsole(); vc.on('jsdomError', e => errors.push(String(e.message)));
   let closed = false;
-  const dom = new JSDOM(html, { url: 'https://app.test/workspace.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
+  const told = [];
+  const dom = new JSDOM(html, { url: 'https://app.test/workspace-pdf.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
     beforeParse(w) {
       const parent = { postMessage(m) {
         if (m.type === 'close') closed = true;
+        if (m.type === 'pdf') told.push(m);
         if (m.type !== 'action') return;
         posted.push(m.action);
         const result = m.action === 'workspaceList' ? act('workspaceList') : { ok: true };
@@ -79,8 +82,9 @@ const act = (action, arg = '') => JSON.parse(T.run(proj, '21-notifier-actions.js
   const remove = rows[0].querySelector('.remove');
   remove.click();
   ok('Remove asks first', remove.textContent === 'Sure? Remove' && !posted.includes('workspaceRemove'));
-  d.getElementById('home-close').click();
-  ok('Close asks the main page to close the panel', closed);
+  ok('...telling the desk no PDF is open in it yet', told.length === 1 && told[0].doc === '' && told[0].page === 0, JSON.stringify(told));
+  d.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  ok('Escape asks to close the panel', closed);
   ok('the page script runs clean', errors.length === 0, errors.join('\n'));
   dom.window.close();
 

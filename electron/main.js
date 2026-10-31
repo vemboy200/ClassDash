@@ -512,7 +512,8 @@ function startLiveWatcher() {
 // own, classdash-ws://app/. That answers only these, never any other file
 // in the project (the same list as WorkspaceSchemeHandler in
 // 16-summary.swift):
-//   /workspace.html                the page (written by 46-workspace.js)
+//   /workspace.html                the desk (written by 50-desk.js)
+//   /workspace-pdf.html            a PDF pane's page (46-workspace.js)
 //   /pdf-lib.min.js                pdf-lib, for Export
 //   /pdfjs/pdf.min.mjs, /pdfjs/pdf.worker.min.mjs
 //   /doc/<id>/source.pdf | meta.json | ink.json
@@ -522,6 +523,7 @@ function workspaceFile(urlPath) {
   const pdfjs = path.join(projectDir, 'node_modules', 'pdfjs-dist', 'legacy', 'build');
   const fixed = {
     '/workspace.html': [path.join(projectDir, 'workspace.html'), 'text/html; charset=utf-8'],
+    '/workspace-pdf.html': [path.join(projectDir, 'workspace-pdf.html'), 'text/html; charset=utf-8'],
     '/pdf-lib.min.js': [scriptPath('pdf-lib.min.js', projectDir), 'text/javascript'],
     '/pdfjs/pdf.min.mjs': [path.join(pdfjs, 'pdf.min.mjs'), 'text/javascript'],
     '/pdfjs/pdf.worker.min.mjs': [path.join(pdfjs, 'pdf.worker.min.mjs'), 'text/javascript'],

@@ -826,6 +826,23 @@ function main(action, arg) {
       const [doc, on] = String(arg).split(':');
       return { ...require('./49-ai-sidebar.js').setHints(doc, on === '1'), action };
     }
+    // The workspace's desk (50-desk.js): its layout and bookmarks, the
+    // saved one as base64url JSON, cleaned before it's written.
+    case 'workspaceDesk':
+      return { ok: true, desk: require('./50-desk.js').readDesk(), action };
+    case 'workspaceDeskSave': {
+      let raw;
+      try {
+        raw = JSON.parse(Buffer.from(String(arg).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      } catch (e) {
+        return { ok: false, action, why: 'could not parse: ' + e.message };
+      }
+      return { ok: require('./50-desk.js').writeDesk(raw).ok, action };
+    }
+    // Whether the app draws web panes itself. The Mac app answers this one
+    // before it gets here; anywhere it does get here, it doesn't.
+    case 'webCaps':
+      return { ok: true, web: false, action };
     default:
       console.error('unknown napominalka action:', action);
       process.exitCode = 1;

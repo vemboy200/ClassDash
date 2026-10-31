@@ -3807,15 +3807,21 @@ window.classdashBridgeResult = function (id, result) {
 // there, unchanged.
 // ── The PDF workspace (46-workspace.js) ──
 //
-// A panel over the page like the Grades center, holding the workspace's own
-// page in a frame served from classdash-ws://app/ (a file:// page can't run
-// PDF.js). The frame can't reach the app's bridge, so it sends its actions
-// here with postMessage and this page passes them on: only these, and only
-// from that frame. Only the app has the address, so the button only shows
-// there. workspacePage writes workspace.html first, so it's always this
-// version's, in the current language.
+// A panel over the page like the Grades center, holding the workspace's desk
+// (50-desk.js) in a frame served from classdash-ws://app/ (a file:// page
+// can't run PDF.js). The frame can't reach the app's bridge, so it sends its
+// actions here with postMessage and this page passes them on: only these,
+// and only from that frame. Only the app has the address, so the button
+// only shows there. workspacePage writes the pages first, so they're always
+// this version's, in the current language.
+//
+// Web panes are drawn by the app over the desk (16-summary.swift's
+// WebPanes): the desk says where its boxes are, this page adds where the
+// frame is, and the app's news about each page comes back the same way
+// (classdashWebPane).
 var WORKSPACE_ORIGIN = 'classdash-ws://app';
-var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport', 'workspaceAsk', 'workspaceChat', 'workspaceChatClear', 'workspaceChatHints'];
+var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport', 'workspaceAsk', 'workspaceChat', 'workspaceChatClear', 'workspaceChatHints',
+  'workspaceDesk', 'workspaceDeskSave', 'webCaps', 'webPane'];
 var workspaceDoc = '';
 var workspaceClosing = null;
 if (hasNativeBridge()) document.getElementById('workspace-button').style.display = '';
@@ -3851,6 +3857,27 @@ function finishClosingWorkspace() {
   document.getElementById('workspace-panel').hidden = true;
   document.getElementById('workspace-frame').src = 'about:blank';
   document.body.style.overflow = '';
+  // The web panes' pages close with it (they reopen where they were).
+  dispatchAction('webPane', JSON.stringify({ op: 'closeAll' }), null);
+}
+
+// From the app: a web pane's page moved on (its address, title, loading...).
+window.classdashWebPane = function (ev) {
+  var panel = document.getElementById('workspace-panel');
+  if (panel && !panel.hidden && ev && typeof ev.id === 'string') toWorkspace({ type: 'web', web: ev });
+};
+
+// The desk's boxes are where they are in its frame; the app wants them
+// where they are in this window.
+function webPaneArg(arg) {
+  var frame = document.getElementById('workspace-frame');
+  try {
+    var op = JSON.parse(arg);
+    if (op.op !== 'layout' || !Array.isArray(op.panes)) return arg;
+    var r = frame.getBoundingClientRect();
+    op.panes.forEach(function (p) { p.x = Math.round(p.x + r.left); p.y = Math.round(p.y + r.top); });
+    return JSON.stringify(op);
+  } catch (e) { return arg; }
 }
 
 // The app calls this before it quits: the frame sends its last save now.
@@ -3869,7 +3896,8 @@ window.addEventListener('message', function (e) {
     // The AI sidebar's answer as it's written: the frame can't load
     // chat-live/answer.js from its own address, so it's read here and passed on.
     var watching = m.action === 'workspaceAsk' && typeof m.live === 'string' ? watchWorkspaceAnswer(m.live) : null;
-    dispatchAction(m.action, String(m.arg || ''), m.id === 'flush' ? null : function (result) {
+    var arg = m.action === 'webPane' ? webPaneArg(String(m.arg || '')) : String(m.arg || '');
+    dispatchAction(m.action, arg, m.id === 'flush' ? null : function (result) {
       if (watching) watching();
       toWorkspace({ type: 'result', id: m.id, result: result });
     });

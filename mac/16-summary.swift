@@ -663,7 +663,8 @@ final class LiveStatePusher {
 // allows none of that from a file:// page. Served from an address of its
 // own, all of it just works. The frame talks to the main page, which
 // passes its messages on through the bridge (see 46-workspace.js). It answers only these, never any other file in the project:
-//   /workspace.html                the page (written by 46-workspace.js)
+//   /workspace.html                the desk (written by 50-desk.js)
+//   /workspace-pdf.html            a PDF pane's page (46-workspace.js)
 //   /pdf-lib.min.js                pdf-lib, for Export
 //   /pdfjs/pdf.min.mjs, /pdfjs/pdf.worker.min.mjs
 //   /doc/<id>/source.pdf | meta.json | ink.json
@@ -674,6 +675,7 @@ final class WorkspaceSchemeHandler: NSObject, WKURLSchemeHandler {
         let pdfjs = projectDir + "/node_modules/pdfjs-dist/legacy/build/"
         switch path {
         case "/workspace.html": return (projectDir + "/workspace.html", "text/html; charset=utf-8")
+        case "/workspace-pdf.html": return (projectDir + "/workspace-pdf.html", "text/html; charset=utf-8")
         case "/pdf-lib.min.js": return (scriptPath("pdf-lib.min.js", in: projectDir), "text/javascript")
         case "/pdfjs/pdf.min.mjs": return (pdfjs + "pdf.min.mjs", "text/javascript")
         case "/pdfjs/pdf.worker.min.mjs": return (pdfjs + "pdf.worker.min.mjs", "text/javascript")
@@ -777,10 +779,278 @@ enum WorkspaceFiles {
 }
 // END Workspace
 
+// MARK: - Web panes (50-desk.js)
+
+// THE DESK'S WEB PANES, DRAWN BY THE APP.
+//
+// A web page can't go in the desk's own page: Google, Microsoft and most
+// sites refuse to be framed, and their sign-in wouldn't work there anyway.
+// So each web pane is a real browser view of its own, laid over the box the
+// desk leaves for it. The desk says where the boxes are (webPane layout,
+// in the window's own CSS pixels, through the main page), and hears back
+// where each page has got to (classdashWebPane in 08-page.js).
+//
+// Its own sign-in: one store for every web pane, apart from Safari's, from
+// the main page's and from the browser the checks use. It says it's Safari
+// (it is Safari's engine): left as WebKit's default, Google can tell it's a
+// view inside an app and won't always let it sign in. Tested with a real
+// Google sign-in on 2026-10-30 (it can sit on a blank accounts.google.com
+// page for a while before going through; the loading bar covers that).
+//
+// Closing the workspace closes the pages (closeAll): each view is a WebKit
+// process of its own, a Doc a few hundred MB, and nothing should keep
+// running in the background. The desk opens them again on the address it
+// kept. A pane that's gone from the layout loses its view too.
+final class WebPanes: NSObject, WKNavigationDelegate, WKUIDelegate {
+    static let storeId = UUID(uuidString: "4F7C2B1A-8E3D-4C5B-9A6F-1D2E3C4B5A60")!
+    weak var window: NSWindow?
+    weak var host: WKWebView?
+    let tell: (String) -> Void
+    var views: [String: WKWebView] = [:]
+    var watching: [String: [NSKeyValueObservation]] = [:]
+    var popups: [NSWindow] = []
+    var downloads: [ObjectIdentifier: URL] = [:]
+
+    init(window: NSWindow, host: WKWebView, tell: @escaping (String) -> Void) {
+        self.window = window
+        self.host = host
+        self.tell = tell
+    }
+
+    lazy var config: WKWebViewConfiguration = {
+        let c = WKWebViewConfiguration()
+        if #available(macOS 14.0, *) {
+            c.websiteDataStore = WKWebsiteDataStore(forIdentifier: WebPanes.storeId)
+        }
+        c.applicationNameForUserAgent = WebPanes.safariName()
+        c.preferences.javaScriptCanOpenWindowsAutomatically = true
+        return c
+    }()
+
+    // "Version/<this Mac's Safari> Safari/605.1.15", the end of Safari's own.
+    static func safariName() -> String {
+        var version = "18.0"
+        if let info = NSDictionary(contentsOfFile: "/Applications/Safari.app/Contents/Info.plist"),
+           let v = info["CFBundleShortVersionString"] as? String, !v.isEmpty {
+            version = v
+        }
+        return "Version/\(version) Safari/605.1.15"
+    }
+
+    // One op from the desk: layout, load, nav or closeAll.
+    func handle(_ arg: String) -> [String: Any] {
+        guard let data = arg.data(using: .utf8),
+              let op = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let kind = op["op"] as? String else { return ["ok": false, "why": "bad op"] }
+        switch kind {
+        case "layout":
+            let panes = (op["panes"] as? [[String: Any]]) ?? []
+            var keep = Set<String>()
+            for p in panes {
+                guard let id = p["id"] as? String, WebPanes.isPaneId(id) else { continue }
+                keep.insert(id)
+                let show = (p["show"] as? Bool) == true
+                var view = views[id]
+                if view == nil, show, let start = p["start"] as? String, let url = WebPanes.webURL(start) {
+                    view = make(id)
+                    view?.load(URLRequest(url: url))
+                }
+                guard let v = view else { continue }
+                place(v, x: num(p["x"]), y: num(p["y"]), w: num(p["w"]), h: num(p["h"]))
+                v.isHidden = !show
+            }
+            for (id, v) in views where !keep.contains(id) { drop(id, v) }
+        case "load":
+            guard let id = op["id"] as? String, WebPanes.isPaneId(id),
+                  let s = op["url"] as? String, let url = WebPanes.webURL(s) else { return ["ok": false, "why": "bad load"] }
+            let v = views[id] ?? make(id)
+            v.load(URLRequest(url: url))
+        case "nav":
+            guard let id = op["id"] as? String, let v = views[id] else { return ["ok": false, "why": "no such pane"] }
+            switch op["cmd"] as? String {
+            case "back": v.goBack()
+            case "forward": v.goForward()
+            case "reload": v.reload()
+            default: return ["ok": false, "why": "bad nav"]
+            }
+        case "closeAll":
+            for (id, v) in views { drop(id, v) }
+        default:
+            return ["ok": false, "why": "bad op"]
+        }
+        return ["ok": true]
+    }
+
+    static func isPaneId(_ id: String) -> Bool {
+        return !id.isEmpty && id.count <= 12 && id.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
+    }
+    static func webURL(_ s: String) -> URL? {
+        guard let url = URL(string: s), let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return nil }
+        return url
+    }
+    private func num(_ v: Any?) -> CGFloat { return CGFloat((v as? NSNumber)?.doubleValue ?? 0) }
+
+    private func make(_ id: String) -> WKWebView {
+        let v = WKWebView(frame: .zero, configuration: config)
+        v.navigationDelegate = self
+        v.uiDelegate = self
+        v.allowsBackForwardNavigationGestures = true
+        v.isHidden = true
+        // Kept the same distance from the top as the window resizes; the
+        // desk sends new sizes itself.
+        v.autoresizingMask = [.minYMargin]
+        if #available(macOS 13.3, *) { v.isInspectable = true }
+        window?.contentView?.addSubview(v)
+        views[id] = v
+        let send: (WKWebView) -> Void = { [weak self] w in self?.report(id, w) }
+        watching[id] = [
+            v.observe(\.url) { w, _ in send(w) },
+            v.observe(\.title) { w, _ in send(w) },
+            v.observe(\.isLoading) { w, _ in send(w) },
+            v.observe(\.canGoBack) { w, _ in send(w) },
+            v.observe(\.canGoForward) { w, _ in send(w) },
+        ]
+        return v
+    }
+
+    private func drop(_ id: String, _ v: WKWebView) {
+        watching[id] = nil
+        v.stopLoading()
+        v.removeFromSuperview()
+        views[id] = nil
+    }
+
+    // The desk's box, in the main page's CSS pixels, to the window's own
+    // points: the content view isn't flipped, the page is.
+    private func place(_ v: WKWebView, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
+        guard let host = host else { return }
+        var zoom: CGFloat = 1
+        if #available(macOS 11.0, *) { zoom = host.pageZoom }
+        let f = host.frame
+        v.frame = NSRect(x: f.minX + x * zoom, y: f.maxY - (y + h) * zoom, width: max(0, w * zoom), height: max(0, h * zoom))
+    }
+
+    private func report(_ id: String, _ v: WKWebView) {
+        let ev: [String: Any] = [
+            "id": id,
+            "url": v.url?.absoluteString ?? "",
+            "title": v.title ?? "",
+            "loading": v.isLoading,
+            "back": v.canGoBack,
+            "forward": v.canGoForward,
+        ]
+        send(ev)
+    }
+    private func send(_ ev: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: ev),
+              let json = String(data: data, encoding: .utf8) else { return }
+        tell("window.classdashWebPane && window.classdashWebPane(\(json));")
+    }
+    private func paneId(_ v: WKWebView) -> String? { return views.first(where: { $0.value === v })?.key }
+
+    // Only web addresses load in a pane; anything else (mailto:, zoommtg:...)
+    // goes to the app that opens it.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = action.request.url, let scheme = url.scheme?.lowercased() else { decisionHandler(.cancel); return }
+        if ["http", "https", "about", "blob", "data"].contains(scheme) { decisionHandler(.allow); return }
+        NSWorkspace.shared.open(url)
+        decisionHandler(.cancel)
+    }
+
+    // What the view can't show, it downloads (Docs' File → Download).
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if response.canShowMIMEType { decisionHandler(.allow); return }
+        if #available(macOS 11.3, *) { decisionHandler(.download) } else { decisionHandler(.cancel) }
+    }
+
+    // A real pop-up (a sign-in window, sized by the page) gets a window of
+    // its own; a link that only wants a new tab opens in the same pane.
+    func webView(_ webView: WKWebView, createWebViewWith config: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if windowFeatures.width == nil && windowFeatures.height == nil {
+            if let url = action.request.url { webView.load(URLRequest(url: url)) }
+            return nil
+        }
+        let popup = WKWebView(frame: .zero, configuration: config)
+        popup.uiDelegate = self
+        popup.navigationDelegate = self
+        let w = CGFloat(windowFeatures.width?.doubleValue ?? 520), h = CGFloat(windowFeatures.height?.doubleValue ?? 680)
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        win.contentView = popup
+        win.isReleasedWhenClosed = false
+        win.center()
+        win.makeKeyAndOrderFront(nil)
+        popups.append(win)
+        return popup
+    }
+    func webViewDidClose(_ webView: WKWebView) {
+        if let win = popups.first(where: { $0.contentView === webView }) {
+            win.close()
+            popups.removeAll { $0 === win }
+        }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let a = NSAlert(); a.messageText = message; a.runModal(); completionHandler()
+    }
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let a = NSAlert(); a.messageText = message; a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+        completionHandler(a.runModal() == .alertFirstButtonReturn)
+    }
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        let a = NSAlert(); a.messageText = prompt; a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = defaultText ?? ""
+        a.accessoryView = field
+        completionHandler(a.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
+    }
+    // Uploading (a file to Drive, to Classroom).
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        completionHandler(panel.runModal() == .OK ? panel.urls : nil)
+    }
+}
+
+// Downloads go to ~/Downloads under their own name (a number added if it's
+// taken), and the pane says so.
+@available(macOS 11.3, *)
+extension WebPanes: WKDownloadDelegate {
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        let name = (suggestedFilename as NSString).lastPathComponent.isEmpty ? "download" : (suggestedFilename as NSString).lastPathComponent
+        let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+        var url = dir.appendingPathComponent(name)
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
+            n += 1
+        }
+        downloads[ObjectIdentifier(download)] = url
+        completionHandler(url)
+    }
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let url = downloads.removeValue(forKey: ObjectIdentifier(download)),
+              let v = download.webView, let id = paneId(v) else { return }
+        send(["id": id, "downloaded": url.lastPathComponent])
+    }
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloads[ObjectIdentifier(download)] = nil
+    }
+}
+// END Web panes
+
 class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
     var livePusher: LiveStatePusher?
+    var webPanes: WebPanes?
 
     // Set true only by setUpNewProject() succeeding — gates
     // continueNewProjectSetupIfNeeded() so an existing-folder launch
@@ -1304,6 +1574,13 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
             return
         }
         let arg = (body["arg"] as? String) ?? ""
+        // The desk's web panes: sent on every move of a divider, and carrying
+        // the addresses of the pages, so never logged.
+        if action == "webPane" || action == "webCaps" {
+            let result: [String: Any] = action == "webCaps" ? ["ok": true, "web": true] : webPaneOp(arg)
+            deliver(requestId: requestId, resultJSON: WorkspaceFiles.json(result))
+            return
+        }
         // A settings save carries every setting, the Canvas access token
         // and the email included, so its payload is never written to the log
         // (the notifier's own log line for the same save lists which
@@ -1319,6 +1596,15 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
             if action == "config" { DispatchQueue.main.async { self?.applyOpenAtLogin() } }
             self?.deliver(requestId: requestId, resultJSON: resultJSON)
         }
+    }
+
+    func webPaneOp(_ arg: String) -> [String: Any] {
+        if webPanes == nil {
+            webPanes = WebPanes(window: window, host: web) { [weak self] script in
+                self?.web.evaluateJavaScript(script, completionHandler: nil)
+            }
+        }
+        return webPanes!.handle(arg)
     }
 
     // Settings → Checking → Open at login (settings.openAtLogin, off unless

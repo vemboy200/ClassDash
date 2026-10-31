@@ -3,8 +3,8 @@
 // tool run and its answer sent back, until it answers; Codex and Claude Code
 // handed the MCP server for one run; who may ask and who gets grades; hints
 // only; the page sent with the question; the chat kept with the PDF; and the
-// sidebar in the workspace page, with the main page passing the live answer
-// on. Fake fetch and spawn stand in for the AIs, and the PDF is made up.
+// AI pane in the workspace's desk, with the main page passing the live
+// answer on. Fake fetch and spawn stand in for the AIs, and the PDF is made up.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs'), cp = require('child_process');
 const { EventEmitter } = require('events');
@@ -201,42 +201,49 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
   ok('an answer that loaded the collector is still a line of plain JSON (the Grades center\'s too)', parsed && parsed.action === 'gradesAsk' && /couldn't connect/.test(parsed.why), graded.slice(0, 120));
   writeSettings({ aiProvider: 'none' });
 
-  // ── the sidebar in the page ──
+  // ── the AI pane in the desk ──
   fs.writeFileSync(path.join(W.DIR, pdf.id, 'chat.json'), JSON.stringify({ hints: true, messages: [{ role: 'user', text: 'Earlier?', page: 1 }, { role: 'ai', text: 'Earlier answer.', used: ['list_assignments'] }] }));
-  const html = W.pageHtml();
+  const html = require(path.join(proj, '50-desk.js')).pageHtml();
   const posted = [];
   let answerAsk = null;
   const errors = [];
   const vc = new VirtualConsole(); vc.on('jsdomError', e => errors.push(String(e.message)));
-  const dom = new JSDOM(html, { url: 'https://app.test/workspace.html?doc=' + pdf.id, runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
+  const runAction = (action, arg) => JSON.parse(T.run(proj, '21-notifier-actions.js', [action, arg]).stdout.trim().split('\n').pop());
+  const dom = new JSDOM(html, { url: 'https://app.test/workspace.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
     beforeParse(w) {
-      w.IntersectionObserver = class { observe() {} };
       const parent = { postMessage(m) {
         if (m.type !== 'action') return;
         posted.push(m);
         const reply = result => { const e = new w.Event('message'); Object.assign(e, { data: { cd: 'ws', type: 'result', id: m.id, result } }); Object.defineProperty(e, 'source', { value: parent }); w.dispatchEvent(e); };
-        if (m.action === 'workspaceChat') setTimeout(() => reply(JSON.parse(T.run(proj, '21-notifier-actions.js', ['workspaceChat', m.arg]).stdout.trim().split('\n').pop())), 0);
+        if (m.action === 'workspaceChat' || m.action === 'workspaceDesk') setTimeout(() => reply(runAction(m.action, m.arg)), 0);
+        else if (m.action === 'webCaps') setTimeout(() => reply({ ok: true, web: false }), 0);
         else if (m.action === 'workspaceAsk') answerAsk = reply;
-        else setTimeout(() => reply({ ok: false }), 0);
+        else setTimeout(() => reply({ ok: true }), 0);
       } };
       Object.defineProperty(w, 'parent', { value: parent });
-      w.fetch = () => new Promise(() => {});
     } });
   const w = dom.window, d = w.document;
-  await sleep(300);
-  ok('an AI button in the PDF\'s toolbar, the sidebar closed', d.getElementById('ai-btn') && d.getElementById('ai-side').hidden);
-  d.getElementById('ai-btn').click();
+  await sleep(600);
+  const aiPane = d.querySelector('.pane[data-id="p2"]');
+  ok('the desk opens as it does at first: a PDF pane and the AI beside it', d.querySelector('.pane[data-id="p1"] iframe') && aiPane && d.getElementById('ai-q'));
+  ok('...the AI waiting for a PDF to be open', aiPane.querySelector('.about').textContent === '' && d.getElementById('ai-ask').disabled);
+  // The PDF pane's frame says what it has open, as 46-workspace.js's page does.
+  const frameWin = d.querySelector('.pane[data-id="p1"] iframe').contentWindow;
+  const fromFrame = data => { const e = new w.Event('message'); Object.assign(e, { data: Object.assign({ cd: 'ws' }, data) }); Object.defineProperty(e, 'source', { value: frameWin }); w.dispatchEvent(e); };
+  fromFrame({ type: 'pdf', doc: pdf.id, title: 'Made-up Worksheet', page: 1 });
   await sleep(300);
   const msgs = () => [...d.querySelectorAll('#ai-chat .ai-msg')].map(m => m.textContent);
-  ok('opening it shows this PDF\'s chat, with what the AI looked at', msgs().join('|') === 'Earlier?Page 1|Earlier answer.Looked at: your assignments', msgs().join('|'));
+  ok('then it\'s about that PDF and page, with its chat and what the AI looked at', /About Made-up Worksheet · Page 1/.test(aiPane.querySelector('.about').textContent) &&
+    msgs().join('|') === 'Earlier?Page 1|Earlier answer.Looked at: your assignments', msgs().join('|'));
   ok('...and why it can\'t ask yet', /Settings → AI/.test(d.getElementById('ai-status').textContent));
+  fromFrame({ type: 'pdf', doc: pdf.id, title: 'Made-up Worksheet', page: 2 });
   d.getElementById('ai-q').value = 'What\'s due?';
   d.getElementById('ai-q').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   await sleep(50);
   const ask = posted.find(m => m.action === 'workspaceAsk');
   const payload = ask && JSON.parse(Buffer.from(ask.arg, 'base64url').toString('utf8'));
-  ok('Enter asks: this PDF, the page in view, Hints only, and a live id the main page can watch', payload && payload.doc === pdf.id && payload.page === 1 && payload.hints === true && payload.question === 'What\'s due?' && ask.live === payload.live, JSON.stringify(payload));
-  ok('...showing the question and "Thinking…" at once', msgs().slice(-2).join('|') === 'What\'s due?Page 1|Thinking…');
+  ok('Enter asks: that PDF, the page in view there now, Hints only, and a live id the main page can watch', payload && payload.doc === pdf.id && payload.page === 2 && payload.hints === true && payload.question === 'What\'s due?' && ask.live === payload.live, JSON.stringify(payload));
+  ok('...showing the question and "Thinking…" at once', msgs().slice(-2).join('|') === 'What\'s due?Page 2|Thinking…');
   const live = data => { const e = new w.Event('message'); Object.assign(e, { data: { cd: 'ws', type: 'live', live: Object.assign({ id: payload.live }, data) } }); Object.defineProperty(e, 'source', { value: w.parent }); w.dispatchEvent(e); };
   live({ using: 'list_assignments', thinking: '', text: '' });
   ok('while it looks something up, it says what', msgs().slice(-1)[0] === 'Looking at your assignments…', msgs().slice(-1)[0]);
@@ -244,15 +251,15 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
   ok('...then the answer as it\'s written, its thinking folded above', msgs().slice(-1)[0] === 'ThinkingChecking the list.The cell work');
   live({ id: 'someone-else', text: 'not mine' });
   ok('...never another question\'s', msgs().slice(-1)[0] === 'ThinkingChecking the list.The cell work');
-  answerAsk({ ok: true, answer: 'The cell worksheet, tomorrow.', messages: [{ role: 'user', text: 'What\'s due?', page: 1 }, { role: 'ai', text: 'The cell worksheet, tomorrow.', used: ['list_assignments'] }] });
+  answerAsk({ ok: true, answer: 'The cell worksheet, tomorrow.', messages: [{ role: 'user', text: 'What\'s due?', page: 2 }, { role: 'ai', text: 'The cell worksheet, tomorrow.', used: ['list_assignments'] }] });
   await sleep(20);
-  ok('the finished answer replaces it, and the box empties for the next one', msgs().join('|') === 'What\'s due?Page 1|The cell worksheet, tomorrow.Looked at: your assignments' && d.getElementById('ai-q').value === '');
+  ok('the finished answer replaces it, and the box empties for the next one', msgs().join('|') === 'What\'s due?Page 2|The cell worksheet, tomorrow.Looked at: your assignments' && d.getElementById('ai-q').value === '');
   d.getElementById('ai-hints').checked = false;
   d.getElementById('ai-hints').dispatchEvent(new w.Event('change'));
   ok('turning off Hints only is remembered for this PDF', posted.slice(-1)[0].action === 'workspaceChatHints' && posted.slice(-1)[0].arg === pdf.id + ':0');
-  d.getElementById('ai-q').value = 'p';
-  d.getElementById('ai-q').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
-  ok('typing a P in the question doesn\'t switch tools', d.body.dataset.tool === 'pen');
+  fromFrame({ type: 'pdf', doc: '', title: '', page: 0 });
+  await sleep(50);
+  ok('back to the PDF list in that pane: the AI waits for a PDF again', aiPane.querySelector('.about').textContent === '' && d.getElementById('ai-ask').disabled && !d.querySelector('#ai-chat .ai-msg'));
   ok('the page script runs clean', errors.length === 0, errors.join('\n'));
   dom.window.close();
 

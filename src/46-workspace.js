@@ -18,17 +18,20 @@
  *
  * ── Who does what ──
  *
- * This file writes workspace.html and does the file work that's easy to
- * test here (adding a PDF, the list, removing one), as actions in
- * 21-notifier-actions.js. The workspace is a panel over the main page, like
- * the Grades center (openWorkspace in 08-page.js), but this page sits in a
- * frame of its own, served by the app (16-summary.swift, electron/main.js)
- * from its classdash-ws:// address, which answers only the page, PDF.js,
- * pdf-lib and the workspace's own files, nothing else in the project. A
- * file:// page can't load PDF.js's module and worker, or fetch() the PDF.
- * The frame can't reach the app's bridge, so it posts its actions to the
- * main page, which passes them on. The two that are too big for a command
- * line, a save and an export, the app does itself (wsSave, wsExport).
+ * This file writes workspace-pdf.html, the page for one PDF, and does the
+ * file work that's easy to test here (adding a PDF, the list, removing
+ * one), as actions in 21-notifier-actions.js. The workspace is a panel over
+ * the main page, like the Grades center (openWorkspace in 08-page.js),
+ * holding the desk (50-desk.js, workspace.html): panes side by side, a PDF
+ * in each PDF pane in a frame of this page. Both are served by the app
+ * (16-summary.swift, electron/main.js) from its classdash-ws:// address,
+ * which answers only the pages, PDF.js, pdf-lib and the workspace's own
+ * files, nothing else in the project. A file:// page can't load PDF.js's
+ * module and worker, or fetch() the PDF. This page can't reach the app's
+ * bridge, so it posts its actions to the desk, which passes them on to the
+ * main page, which passes them to the app. The two that are too big for a
+ * command line, a save and an export, the app does itself (wsSave,
+ * wsExport).
  *
  * ── Drawing and exporting ──
  *
@@ -44,7 +47,7 @@ const crypto = require('crypto');
 const { PROJECT_ROOT } = require('./00-project-root.js');
 
 const DIR = path.join(PROJECT_ROOT, 'workspace');
-const PAGE = path.join(PROJECT_ROOT, 'workspace.html');
+const PAGE = path.join(PROJECT_ROOT, 'workspace-pdf.html');
 const MAX_BYTES = 200 * 1024 * 1024;
 const isId = id => typeof id === 'string' && /^[a-f0-9]{16}$/.test(id);
 
@@ -107,11 +110,7 @@ function strings() {
   const keys = ['wsTitle', 'wsOpenPdf', 'wsEmpty', 'wsAdded', 'wsEdited', 'wsRemove', 'wsRemoveSure', 'wsAllFiles',
     'wsPen', 'wsHighlighter', 'wsText', 'wsEraser', 'wsUndo', 'wsRedo', 'wsZoomIn', 'wsZoomOut', 'wsFit', 'wsExport',
     'wsSaving', 'wsSaved', 'wsSaveFailed', 'wsExporting', 'wsExported', 'wsExportFailed', 'wsLoadFailed', 'wsNotPdf',
-    'wsTooBig', 'wsWithNotes', 'wsSize', 'wsNoBridge', 'wsLoading', 'wsClose',
-    'wsAi', 'wsAiTitle', 'wsAiHints', 'wsAiHintsTip', 'wsAiClear', 'wsAiCleared', 'wsAiAsk', 'wsAiPlaceholder', 'wsAiThinking', 'wsAiThought',
-    'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiHide',
-    'wsAiTool_list_assignments', 'wsAiTool_get_assignment', 'wsAiTool_list_classes', 'wsAiTool_list_announcements',
-    'wsAiTool_list_pdfs', 'wsAiTool_read_pdf_pages', 'wsAiTool_get_grades'];
+    'wsTooBig', 'wsWithNotes', 'wsSize', 'wsNoBridge', 'wsLoading'];
   const out = { locale: t('locale') };
   for (const k of keys) out[k] = t(k);
   out.wsPages = [1, 2, 5].map(n => t('wsPages', n));
@@ -170,30 +169,6 @@ function pageHtml() {
   .doc-row .remove.sure { background: var(--hot); color: #fff; }
   .message { padding: 40px; text-align: center; color: var(--dim); }
   .message.bad { color: var(--hot); }
-  #main { flex: 1; display: flex; min-height: 0; }
-  #ai-side { width: var(--ai-width, clamp(280px, 28vw, 400px)); flex: none; display: flex; flex-direction: column; background: var(--bg); border-left: 2px solid var(--ink); min-height: 0; position: relative; }
-  #ai-grip { position: absolute; left: -5px; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; z-index: 1; }
-  #ai-grip:hover, #ai-grip.dragging { background: var(--accent); opacity: .5; }
-  @media (max-width: 760px) { #ai-side { position: fixed; inset: 52px 0 0 0; width: auto; z-index: 3; border-left: 0; } #ai-grip { display: none; } }
-  .ai-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 2px solid var(--line); }
-  .ai-head b { flex: 1; }
-  .ai-head label { display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; }
-  #ai-chat { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-  #ai-chat .empty { color: var(--dim); font-size: 13px; }
-  .ai-msg { max-width: 92%; padding: 7px 10px; border: 2px solid var(--ink); background: var(--card); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .ai-msg.user { align-self: flex-end; background: var(--accent); color: var(--card); }
-  .ai-msg.ai { align-self: flex-start; }
-  .ai-msg.pending .ai-said { color: var(--dim); font-style: italic; }
-  .ai-msg .ai-meta { display: block; color: var(--dim); font-size: 11px; margin-top: 4px; white-space: normal; }
-  .ai-msg.user .ai-meta { color: inherit; opacity: .8; }
-  .ai-thought { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
-  .ai-thought summary { cursor: pointer; }
-  .ai-thought div { max-height: 160px; overflow-y: auto; white-space: pre-wrap; }
-  #ai-status { color: var(--hot); font-size: 12px; padding: 0 10px; }
-  #ai-status:empty { display: none; }
-  .ai-form { display: flex; gap: 6px; padding: 8px 10px 10px; align-items: flex-end; }
-  #ai-q { flex: 1; min-height: 38px; max-height: 140px; resize: vertical; font: inherit; color: var(--text); background: var(--card); border: 2px solid var(--ink); padding: 6px 8px; }
-  .ai-foot { color: var(--dim); font-size: 11px; padding: 0 10px 8px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -222,29 +197,9 @@ function pageHtml() {
   </div>
   <div class="grow"></div>
   <span id="status"></span>
-  <button id="ai-btn" title="${escapeHtml(L.wsAiTitle)}">${escapeHtml(L.wsAi)}</button>
   <button id="export-btn">${escapeHtml(L.wsExport)}</button>
-  <button id="close-btn">${escapeHtml(L.wsClose)}</button>
 </div>
-<div id="main">
 <div id="desk"><div id="pages"></div></div>
-<aside id="ai-side" hidden>
-  <div id="ai-grip"></div>
-  <div class="ai-head">
-    <b>${escapeHtml(L.wsAiTitle)}</b>
-    <label title="${escapeHtml(L.wsAiHintsTip)}"><input type="checkbox" id="ai-hints" checked> ${escapeHtml(L.wsAiHints)}</label>
-    <button id="ai-clear">${escapeHtml(L.wsAiClear)}</button>
-    <button id="ai-hide" title="${escapeHtml(L.wsAiHide)}">×</button>
-  </div>
-  <div id="ai-chat"></div>
-  <div id="ai-status"></div>
-  <div class="ai-form">
-    <textarea id="ai-q" rows="2" placeholder="${escapeHtml(L.wsAiPlaceholder)}"></textarea>
-    <button id="ai-ask">${escapeHtml(L.wsAiAsk)}</button>
-  </div>
-  <div class="ai-foot" id="ai-foot"></div>
-</aside>
-</div>
 <script src="pdf-lib.min.js"></script>
 <script>
 ${PAGE_SCRIPT.replace('__STRINGS__', () => JSON.stringify(L).replace(/</g, '\\u003c'))}
@@ -258,9 +213,10 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/** Writes workspace.html for the window to open. */
+/** Writes the workspace's pages: the desk (workspace.html) and this one. */
 function writeWorkspacePage() {
   fs.writeFileSync(PAGE, pageHtml());
+  require('./50-desk.js').writeDeskPage();
   return PAGE;
 }
 
@@ -283,10 +239,10 @@ const SIZES = { pen: [1.5, 2.5, 4], hl: [10, 16, 24], text: [12, 16, 22], eraser
 const docId = new URLSearchParams(location.search).get('doc');
 const $ = id => document.getElementById(id);
 
-// ── Talking to the app, through the main page ──
-// This page is a frame in the main page (its Workspace panel), which passes
-// {action, arg} on through its bridge and sends the answer back. Messages
-// count only from that page, and go only to it.
+// ── Talking to the app, through the desk ──
+// This page is a frame in a PDF pane of the desk (50-desk.js), which passes
+// {action, arg} on to the main page and on through its bridge, and sends
+// the answer back. Messages count only from the desk, and go only to it.
 const embedded = window.parent !== window;
 let seq = 0;
 const waiting = {};
@@ -296,17 +252,20 @@ window.addEventListener('message', e => {
   if (e.source !== window.parent || !m || m.cd !== 'ws') return;
   if (m.type === 'result') { const cb = waiting[m.id]; delete waiting[m.id]; if (cb) cb(m.result || { ok: false }); }
   else if (m.type === 'flush') flushAndTell();
-  else if (m.type === 'live' && m.live) showLive(m.live);
 });
-// extra: more for the main page to read, beside the action (an AI question's live id).
-function bridge(action, arg, extra) {
+function bridge(action, arg) {
   return new Promise(resolve => {
     if (!embedded) { resolve({ ok: false, why: L.wsNoBridge }); return; }
     const id = 'w' + Date.now().toString(36) + '-' + (++seq);
     waiting[id] = resolve;
-    toParent(Object.assign({ type: 'action', id, action, arg: arg || '' }, extra || {}));
+    toParent({ type: 'action', id, action, arg: arg || '' });
   });
 }
+// Which PDF this pane has open and the page most in view, for the desk's
+// AI pane to ask about; and a click anywhere here makes this pane the one
+// in front.
+function tellDesk() { toParent({ type: 'pdf', doc: pdf ? docId : '', title: meta ? meta.title : '', page: pdf ? currentPage() : 0 }); }
+document.addEventListener('pointerdown', () => toParent({ type: 'focus' }), true);
 const closePanel = () => toParent({ type: 'close' });
 const whyText = why => ({ notPdf: L.wsNotPdf, tooBig: L.wsTooBig }[why] || why || '');
 const pagesText = n => { const f = L.wsPages; const one = f[0], few = f[1], many = f[2]; const pick = /^ru/.test(L.locale) ? ((n % 100 >= 11 && n % 100 <= 14) ? many : (n % 10 === 1 ? one : (n % 10 >= 2 && n % 10 <= 4 ? few : many))) : (n === 1 ? one : few); return pick.replace(/\d+/, n); };
@@ -326,11 +285,9 @@ async function showHome() {
   desk.innerHTML = '';
   const home = document.createElement('div');
   home.className = 'home';
-  home.innerHTML = '<div class="home-head"><h1></h1><button id="home-close"></button></div><button id="open-btn"></button><div id="open-why" class="message bad" hidden></div><div id="doc-list"></div>';
+  home.innerHTML = '<div class="home-head"><h1></h1></div><button id="open-btn"></button><div id="open-why" class="message bad" hidden></div><div id="doc-list"></div>';
   home.querySelector('h1').textContent = L.wsTitle;
-  home.querySelector('#home-close').textContent = L.wsClose;
-  home.querySelector('#home-close').onclick = closePanel;
-  toParent({ type: 'doc', doc: '' });
+  tellDesk();
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
   home.querySelector('#open-btn').textContent = L.wsOpenPdf;
   desk.appendChild(home);
@@ -398,7 +355,6 @@ async function openDoc() {
     if (saved && saved.pages && typeof saved.pages === 'object') ink = saved.pages;
     document.title = meta.title;
     $('doc-title').textContent = meta.title;
-    toParent({ type: 'doc', doc: docId });
     const pdfjs = await import('./pdfjs/pdf.min.mjs');
     pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs/pdf.worker.min.mjs', location.href).href;
     // A copy: PDF.js hands the bytes it's given to its worker, which empties them.
@@ -434,6 +390,8 @@ async function openDoc() {
   pages.forEach(p => observer.observe(p.el));
   fitWidth('auto');
   window.addEventListener('resize', () => { if (state.fit) fitWidth(state.fit); });
+  tellDesk();
+  $('desk').addEventListener('scroll', () => { clearTimeout(openDoc.t); openDoc.t = setTimeout(tellDesk, 150); });
 }
 
 function layout() {
@@ -459,8 +417,8 @@ function setZoom(z, fit) {
 }
 
 // 'width' fills the width (Fit width, ⌘0); 'auto', how a PDF opens, is
-// its actual size (100%), smaller only when the window is too narrow for
-// that. Either one refits when the window or the AI sidebar changes width.
+// its actual size (100%), smaller only when the pane is too narrow for
+// that. Either one refits when the pane changes width.
 function fitWidth(mode = 'width') {
   const widest = Math.max(...pages.map(p => p.vp1.width), 1);
   const width = Math.max(0.25, ($('desk').clientWidth - 48) / widest);
@@ -865,7 +823,6 @@ function wireToolbar() {
   $('zoom-out').onclick = () => stepZoom(-1);
   $('zoom-fit').onclick = () => fitWidth('width');
   $('export-btn').onclick = exportPdf;
-  $('close-btn').onclick = closePanel;
   $('home-btn').onclick = async () => { if (editing) finishText(); await saveNow(); location.search = ''; };
   document.addEventListener('keydown', e => {
     const typing = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
@@ -890,12 +847,6 @@ function wireToolbar() {
   updateUndo();
 }
 
-// ── The AI sidebar (49-ai-sidebar.js) ──
-// This PDF's chat, asked with the page that's most in view. The answer
-// shows as it's written: the main page reads it and posts it here.
-const ai = { loaded: false, messages: [], asking: null };
-const toolWord = name => L['wsAiTool_' + name] || name;
-
 // The page whose middle is nearest the middle of the view.
 function currentPage() {
   const desk = $('desk');
@@ -909,152 +860,9 @@ function currentPage() {
   }
   return best.num;
 }
-function showPageNote() { if (!$('ai-side').hidden) $('ai-foot').textContent = L.wsAiPage + ' ' + currentPage(); }
 
-function aiThought(text, open) {
-  const fold = document.createElement('details');
-  fold.className = 'ai-thought';
-  fold.open = open;
-  const head = document.createElement('summary');
-  head.textContent = L.wsAiThought;
-  const body = document.createElement('div');
-  body.textContent = text;
-  fold.append(head, body);
-  return fold;
-}
-function drawAi(extra) {
-  const box = $('ai-chat');
-  const follow = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-  box.textContent = '';
-  const list = ai.messages.concat(extra || []);
-  if (!list.length) {
-    const e = document.createElement('div');
-    e.className = 'empty';
-    e.textContent = L.wsAiEmpty;
-    box.appendChild(e);
-  }
-  for (const m of list) {
-    const el = document.createElement('div');
-    el.className = 'ai-msg ' + (m.role === 'ai' ? 'ai' : 'user') + (m.pending ? ' pending' : '');
-    if (m.thinking) el.appendChild(aiThought(m.thinking, !!m.live));
-    const said = document.createElement('span');
-    said.className = 'ai-said';
-    said.textContent = m.text;
-    el.appendChild(said);
-    const meta = m.role === 'ai' ? (m.used && m.used.length ? L.wsAiUsed + ' ' + m.used.map(toolWord).join(', ') : '')
-      : (m.page ? L.wsAiPage + ' ' + m.page : '');
-    if (meta) { const s = document.createElement('span'); s.className = 'ai-meta'; s.textContent = meta; el.appendChild(s); }
-    box.appendChild(el);
-  }
-  if (follow || extra) box.scrollTop = box.scrollHeight;
-}
-
-async function openAi(show) {
-  $('ai-side').hidden = !show;
-  $('ai-btn').classList.toggle('on', show);
-  try { localStorage.setItem('classdash-ws-ai', show ? '1' : ''); } catch (e) {}
-  if (state.fit && pages.length) fitWidth(state.fit);
-  if (!show) return;
-  showPageNote();
-  if (!ai.loaded) {
-    ai.loaded = true;
-    drawAi();
-    const r = await bridge('workspaceChat', docId);
-    if (r.ok) {
-      ai.messages = r.messages || [];
-      $('ai-hints').checked = r.hints !== false;
-      if (r.can && !r.can.ok) $('ai-status').textContent = r.can.why;
-    } else $('ai-status').textContent = r.why || '';
-    drawAi();
-  }
-  $('ai-q').focus();
-}
-
-async function askAi() {
-  const field = $('ai-q');
-  const question = field.value.trim();
-  if (!question || ai.asking) return;
-  const page = currentPage();
-  const live = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  ai.asking = { live, question, page };
-  $('ai-ask').disabled = true; field.disabled = true; $('ai-status').textContent = '';
-  drawAi([{ role: 'user', text: question, page }, { role: 'ai', text: L.wsAiThinking, pending: true }]);
-  const arg = toBase64(new TextEncoder().encode(JSON.stringify({ doc: docId, page, question, hints: $('ai-hints').checked, live })))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const r = await bridge('workspaceAsk', arg, { live });
-  ai.asking = null;
-  $('ai-ask').disabled = false; field.disabled = false;
-  if (r.ok) {
-    ai.messages = r.messages || ai.messages.concat([{ role: 'user', text: question, page }, { role: 'ai', text: r.answer }]);
-    field.value = '';
-    drawAi();
-  } else {
-    drawAi([{ role: 'user', text: question, page }]);
-    $('ai-status').textContent = L.wsAiFailed + ' ' + (r.why || '');
-  }
-  field.focus();
-}
-
-function showLive(live) {
-  if (!ai.asking || live.id !== ai.asking.live) return;
-  const text = live.text || (live.using ? L.wsAiUsing + ' ' + toolWord(live.using) + '…' : L.wsAiThinking);
-  drawAi([{ role: 'user', text: ai.asking.question, page: ai.asking.page }, { role: 'ai', live: true, pending: !live.text, thinking: live.thinking, text }]);
-}
-
-function wireAi() {
-  $('ai-btn').onclick = () => openAi($('ai-side').hidden);
-  $('ai-hide').onclick = () => openAi(false);
-  $('ai-ask').onclick = askAi;
-  $('ai-q').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); askAi(); }
-  });
-  $('ai-clear').onclick = async () => {
-    if (ai.asking) return;
-    ai.messages = [];
-    drawAi();
-    $('ai-status').textContent = '';
-    await bridge('workspaceChatClear', docId);
-  };
-  $('ai-hints').onchange = () => bridge('workspaceChatHints', docId + ':' + ($('ai-hints').checked ? '1' : '0'));
-  $('desk').addEventListener('scroll', () => { clearTimeout(wireAi.t); wireAi.t = setTimeout(showPageNote, 150); });
-  wireAiGrip();
-  let open = false;
-  try { open = localStorage.getItem('classdash-ws-ai') === '1'; } catch (e) {}
-  if (open) openAi(true);
-}
-
-// Its left edge drags it wider or narrower, kept for next time. The PDF
-// refits once, when the drag ends, not on every move.
-function setAiWidth(px) {
-  const w = Math.round(Math.max(260, Math.min(px, window.innerWidth - 320)));
-  document.documentElement.style.setProperty('--ai-width', w + 'px');
-  return w;
-}
-function wireAiGrip() {
-  try { const saved = Number(localStorage.getItem('classdash-ws-ai-width')); if (saved) setAiWidth(saved); } catch (e) {}
-  const grip = $('ai-grip');
-  grip.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    try { grip.setPointerCapture(e.pointerId); } catch (err) {}
-    grip.classList.add('dragging');
-    const move = ev => setAiWidth(window.innerWidth - ev.clientX);
-    const up = ev => {
-      grip.removeEventListener('pointermove', move);
-      grip.removeEventListener('pointerup', up);
-      grip.removeEventListener('pointercancel', up);
-      grip.classList.remove('dragging');
-      const w = setAiWidth(window.innerWidth - ev.clientX);
-      try { localStorage.setItem('classdash-ws-ai-width', String(w)); } catch (err) {}
-      if (state.fit && pages.length) fitWidth(state.fit);
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', up);
-    grip.addEventListener('pointercancel', up);
-  });
-}
-
-if (docId && /^[a-f0-9]{16}$/.test(docId)) { wireToolbar(); wireAi(); openDoc(); }
+if (docId && /^[a-f0-9]{16}$/.test(docId)) { wireToolbar(); openDoc(); }
 else showHome();
 `;
 
-module.exports = { DIR, PAGE, isId, importPdf, listDocs, removeDoc, writeWorkspacePage, pageHtml };
+module.exports = { DIR, PAGE, isId, importPdf, listDocs, removeDoc, writeWorkspacePage, pageHtml, escapeHtml };
