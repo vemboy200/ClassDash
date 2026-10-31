@@ -133,6 +133,7 @@ function headsUpText(h) {
   const type = schoolSchedule.readSchedule().type;
   const word = day => (type === 'oddEven' ? t(day === 'A' ? 'scheduleOddWord' : 'scheduleEvenWord') : day);
   const date = key => new Date(key + 'T12:00:00').toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' });
+  if (h.kind === 'flip' && h.previous) return t('headsUpFlipRepeat', date(h.date), word(h.day), word(h.day === 'A' ? 'B' : 'A'), date(h.previous));
   return h.kind === 'flip'
     ? t('headsUpFlip', date(h.date), word(h.day), word(h.day === 'A' ? 'B' : 'A'))
     : t('headsUpRepeat', date(h.date), word(h.day), date(h.previous));

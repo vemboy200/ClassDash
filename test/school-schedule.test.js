@@ -38,7 +38,7 @@ ok('a normal day after day: nothing', headsOn(odd, new Date(2026, 9, 5, 10)) ===
 const oddFlip = { ...odd, flips: ['2026-10-14', '2026-10-17'] };
 ok('a flipped day swaps (and one on a weekend means nothing)', types(oddFlip, '2026-10-13', '2026-10-19') === '10-13A 10-14A* 10-15A 10-16B 10-19A', types(oddFlip, '2026-10-13', '2026-10-19'));
 // On the 13th, today is itself a repeat (of the 9th, over the holiday).
-ok('...and gets its heads-up, the repeat it makes too', headsOn(oddFlip, new Date(2026, 9, 13, 16)) === 'repeat:2026-10-13<2026-10-09 flip:2026-10-14 repeat:2026-10-14<2026-10-13', headsOn(oddFlip, new Date(2026, 9, 13, 16)));
+ok('...and gets its heads-up, one that also says it repeats the day before', headsOn(oddFlip, new Date(2026, 9, 13, 16)) === 'repeat:2026-10-13<2026-10-09 flip:2026-10-14<2026-10-13', headsOn(oddFlip, new Date(2026, 9, 13, 16)));
 
 // ── A/B ──
 const ab = mode => ({ type: 'ab', ab: { anchor: '2026-10-05', anchorDay: 'A', flipMode: mode }, flips: [], classes: [] });
@@ -119,7 +119,7 @@ ok('/api/status gives today\'s label', api.HANDLERS['/api/status']({ ...api.gath
   await sleep(300);
   const w = dom.window, d = w.document;
   const banner = d.getElementById('schedule-banner');
-  ok('a heads-up banner for the flipped day', banner && /Heads-up:.*is flipped: (even instead of odd|odd instead of even)\./.test(banner.textContent.replace(/\s+/g, ' ')),
+  ok('a heads-up banner for the flipped day', banner && /Heads-up:.*is flipped: (even instead of odd|odd instead of even)(, the same classes as [^.]+)?\./.test(banner.textContent.replace(/\s+/g, ' ')),
     banner && banner.textContent.replace(/\s+/g, ' '));
   const line = d.getElementById('schedule-line');
   const flipLine = [...banner.querySelectorAll('.schedule-heads-up')].find(l => /is flipped/.test(l.textContent));

@@ -206,9 +206,13 @@ function classesOn(date, sched = readSchedule(), cal = calendar.readCalendar()) 
 
 /**
  * Heads-ups for today (if it's a school day) and the next school day:
- *   { kind: 'flip', date, day }               the school flipped that day
+ *   { kind: 'flip', date, day, previous? }    the school flipped that day
+ *                                             (previous: and so it's the same
+ *                                             as the school day before it)
  *   { kind: 'repeat', date, day, previous }   odd/even: the same as the school
  *                                             day before it (31st → 1st, a holiday)
+ * A day that's flipped and a repeat is one heads-up, the flip: with odd/even
+ * a flip is usually exactly what makes it a repeat.
  */
 function headsUps(now = new Date(), sched = readSchedule(), cal = calendar.readCalendar()) {
   if (!['ab', 'oddEven'].includes(sched.type)) return [];
@@ -222,12 +226,14 @@ function headsUps(now = new Date(), sched = readSchedule(), cal = calendar.readC
     const type = dayType(target, sched, cal);
     if (!type) continue;
     const date = dayKey(target);
-    if (type.flipped) push({ kind: 'flip', date, day: type.day });
+    let previous = null;
     if (sched.type === 'oddEven') {
       const before = previousSchoolDay(target, cal);
       const was = before && dayType(before, sched, cal);
-      if (was && was.day === type.day) push({ kind: 'repeat', date, day: type.day, previous: dayKey(before) });
+      if (was && was.day === type.day) previous = dayKey(before);
     }
+    if (type.flipped) push({ kind: 'flip', date, day: type.day, ...(previous ? { previous } : {}) });
+    else if (previous) push({ kind: 'repeat', date, day: type.day, previous });
   }
   return out;
 }
