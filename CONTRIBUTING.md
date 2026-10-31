@@ -1,12 +1,12 @@
 # Contributing / how this is built
 
-This is the technical companion to [README.md](README.md) — the "why," not the "how do I use it." Read this if you want to modify the code, understand a design decision, or build against the home API.
+This is the technical companion to [README.md](README.md) and the [docs](docs/) — the "why," not the "how do I use it." Read this if you want to modify the code, understand a design decision, or build against the home API.
 
 ---
 
 ## Platform support
 
-The README has the user-facing version of this, with pros and cons, in [How the sources compare](README.md#how-the-sources-compare). This is the same four rows from the code's side.
+The README has the user-facing version of this, with pros and cons, in [How the sources compare](docs/sources.md#how-the-sources-compare). This is the same four rows from the code's side.
 
 | Platform | Collection method | Official? |
 |---|---|---|
@@ -32,7 +32,7 @@ npm run build
 npm start
 ```
 
-Each of those is covered for an end user in the README's [Get it](README.md#get-it) section — this is the same steps, without the explanation. A few things specifically worth knowing as a contributor:
+Each of those is covered for an end user in [Getting started](docs/getting-started.md) — this is the same steps, without the explanation. A few things specifically worth knowing as a contributor:
 
 **Why a real browser, not Playwright's bundled one.** Google's login flow blocks plain automated Chromium as "not secure," so `setup-browser` either uses an already-installed Google Chrome or downloads an isolated copy of Brave into `.browser/` — never your everyday browser profile. `--user-data-dir` keeps the automated session separate from your normal one, and that isolation is confirmed correct for Chrome and Brave specifically. It *isn't* safe with every Chromium fork: Arc was confirmed to ignore its assigned profile folder entirely and write into the real one instead, corrupting real saved logins on the next normal launch. That failure is exactly what this setup avoids by sticking to browsers confirmed to respect the flag.
 
@@ -387,7 +387,7 @@ If a browser is needed and can't be started (none installed or chosen, or a lock
 
 ## Home API — technical detail
 
-The user-facing version is in the [README](README.md#home-api). This is the actual protocol, for anything consuming it (a Home Assistant integration, a script, a phone shortcut).
+The user-facing version is in the [Home API docs](docs/home-api.md). This is the actual protocol, for anything consuming it (a Home Assistant integration, a script, a phone shortcut).
 
 - **Transport:** `https.createServer`. First run generates `api-cert.pem`
   + `api-key.pem` (self-signed, `openssl req`, RSA 2048, CN=`classdash-local`, 10-year expiry) and `api-token.txt` (32 random bytes, hex) next to `17-api.js` — gitignored, unique per install, never regenerated on their own. A client should pin the certificate's SHA-256 fingerprint rather than doing normal CA validation — there's no real CA for a private home address.

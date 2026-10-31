@@ -1,0 +1,4 @@
+# Calendar and schedule
+
+- **School calendar**: Settings → **Calendar** → **Read PDF…** reads your school's calendar PDF (a grid per month with marked days) and lets you say what each mark means. You can also paste a **calendar feed** link (ICS or webcal) and pick what each kind of event means. The month shows at the top of the right-hand column; click a day to change it. Work with no due date then counts as due the next school day, not tomorrow. Scanned PDFs can't be read.
+- **Class schedule**: Settings → **Schedule** takes the same classes every day, A/B days or odd/even days, and your classes with their periods. The page shows today's and the next school day's classes, each day's A/B (or O/E), and "class tomorrow" on cards. Add **flipped days** when the school announces one. You get a heads-up the day before a flipped day, and with odd/even before a school day that repeats the last one (the 31st then the 1st): a banner, plus a notification on a Mac.
