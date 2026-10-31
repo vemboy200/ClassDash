@@ -94,6 +94,18 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     const p1 = d.querySelector('.pane[data-id="p1"]'), p3 = d.querySelector('.pane[data-id="p3"]');
     ok('...half each, one above the other', p1.style.left === p3.style.left && parseFloat(p3.style.top) > parseFloat(p1.style.top) && p1.style.height === p3.style.height, [p1.style.cssText, p3.style.cssText].join(' / '));
     const frame1 = d.querySelector('.pane[data-id="p1"] iframe');
+    const top = id => parseFloat(d.querySelector(`.pane[data-id="${id}"]`).style.top);
+    const ways = id => [...d.querySelectorAll(`.pane[data-id="${id}"] .move.can`)].map(b => b.dataset.way).join();
+    ok('arrows only the ways there\'s a pane to go: p1 (top left) right and down, p3 (bottom left) right and up, the AI left', ways('p1') === 'right,down' && ways('p3') === 'right,up' && ways('p2') === 'left', [ways('p1'), ways('p3'), ways('p2')].join(' | '));
+    d.querySelector('.pane[data-id="p3"] .move[data-way="up"]').click();
+    ok('...↑ puts the lower pane on top, without reloading either', top('p3') < top('p1') && d.querySelector('.pane[data-id="p1"] iframe') === frame1);
+    await sleep(500);
+    ok('...and it\'s kept', JSON.stringify(act('workspaceDesk').desk.layout).indexOf('"p3"') < JSON.stringify(act('workspaceDesk').desk.layout).indexOf('"p1"'));
+    d.querySelector('.pane[data-id="p2"] .move[data-way="left"]').click();
+    ok('...← with two stacked on the left: trades places with one of them, taking its spot and size', parseFloat(d.querySelector('.pane[data-id="p2"]').style.left) === 0 && top('p2') === 0 &&
+      parseFloat(d.querySelector('.pane[data-id="p3"]').style.left) > 0 && d.querySelector('.pane[data-id="p1"] iframe') === frame1, d.querySelector('.pane[data-id="p2"]').style.cssText);
+    d.querySelector('.pane[data-id="p2"] .move[data-way="right"]').click();
+    d.querySelector('.pane[data-id="p3"] .move[data-way="down"]').click();
     d.querySelector('.pane[data-id="p2"] .split-r').click();
     d.querySelector('.pane[data-id="p2"] .split-r').click();
     ok('five panes at most: then splitting is off', panes().length === 5 && d.querySelector('.pane[data-id="p1"] .split-r').disabled, panes().join());

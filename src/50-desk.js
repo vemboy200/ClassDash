@@ -10,7 +10,9 @@
  *   web  a bookmarked site: Google Docs, Word, Desmos... There's no address
  *        bar: the bookmarks are the way in (a new one is typed in on the
  *        bookmarks screen), so ClassDash stays a desk, not a second browser
- * Panes split right or down and the dividers drag. The layout, each pane's
+ * Panes split right or down and the dividers drag; the arrows in a pane's
+ * head (only the ways there's a pane to go to) trade its
+ * place with the pane next to it that way. The layout, each pane's
  * PDF or page, and the bookmarks are kept in workspace/desk.json, so the
  * desk opens the way it was left.
  *
@@ -143,7 +145,7 @@ function writeDesk(raw) {
 function strings() {
   const { t } = require('./18-language.js');
   const keys = ['wsTitle', 'wsClose', 'wsNoBridge',
-    'wsPaneKind', 'wsPanePdf', 'wsPaneWeb', 'wsSplitRight', 'wsSplitDown', 'wsClosePane', 'wsMaxPanes', 'wsAiOnlyOne',
+    'wsPaneKind', 'wsPanePdf', 'wsPaneWeb', 'wsSplitRight', 'wsSplitDown', 'wsMoveLeft', 'wsMoveRight', 'wsMoveUp', 'wsMoveDown', 'wsClosePane', 'wsMaxPanes', 'wsAiOnlyOne',
     'wsWebBack', 'wsWebForward', 'wsWebReload', 'wsWebBookmarks', 'wsWebNewMark', 'wsWebNewName', 'wsWebNewUrl', 'wsWebNewAdd', 'wsWebNewBad', 'wsWebAddPage', 'wsWebRemove', 'wsWebNoNative', 'wsWebNoBookmarks', 'wsWebDownloaded',
     'wsAi', 'wsAiTitle', 'wsAiHints', 'wsAiHintsTip', 'wsAiClear', 'wsAiAsk', 'wsAiPlaceholder', 'wsAiThinking', 'wsAiThought',
     'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiAbout',
@@ -196,6 +198,8 @@ function pageHtml() {
   .divider.row { cursor: col-resize; }
   .divider.col { cursor: row-resize; }
   .divider:hover, .divider.dragging { background: var(--accent); opacity: .5; }
+  .pane-head .move { display: none; padding: 0 6px; }
+  .pane-head .move.can { display: inline-block; }
   .note-box { padding: 24px; color: var(--dim); text-align: center; }
   /* web */
   .web-bar { display: flex; gap: 4px; align-items: center; padding: 4px 6px; border-bottom: 2px solid var(--line); }
@@ -382,6 +386,10 @@ function layout() {
     el.d = d;
   });
   old.slice(out.dividers.length).forEach(el => el.remove());
+  // A pane's arrows: only the ways there's a pane to trade places with.
+  for (const id in els) {
+    for (const b of els[id].el.querySelectorAll('.move')) b.classList.toggle('can', !small && !!neighbour(out.panes, id, b.dataset.way));
+  }
   drawTabs(small);
   syncWeb();
 }
@@ -404,6 +412,42 @@ function paneLabel(p) {
   if (p.kind === 'pdf' && pdfs[p.pane] && pdfs[p.pane].title) return pdfs[p.pane].title;
   if (p.kind === 'web' && webs[p.pane] && webs[p.pane].title) return webs[p.pane].title;
   return KIND_WORD[p.kind];
+}
+
+// The pane next to this one that way: the one just across the gap that
+// shares the most of this one's edge (of two stacked beside it, the one
+// more level with it). null when there's none.
+function neighbour(boxes, id, way) {
+  const a = boxes[id];
+  if (!a) return null;
+  const across = way === 'left' || way === 'right';
+  let best = null, most = 0;
+  for (const other in boxes) {
+    if (other === id) continue;
+    const b = boxes[other];
+    const touches = way === 'right' ? Math.abs(b.x - (a.x + a.w + GAP)) < 2 : way === 'left' ? Math.abs(a.x - (b.x + b.w + GAP)) < 2
+      : way === 'down' ? Math.abs(b.y - (a.y + a.h + GAP)) < 2 : Math.abs(a.y - (b.y + b.h + GAP)) < 2;
+    if (!touches) continue;
+    const shared = across ? Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) : Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+    if (shared > most) { most = shared; best = other; }
+  }
+  return best;
+}
+
+// Two panes trade places: each takes the other's spot and size.
+function movePane(id, way) {
+  const out = { panes: {}, dividers: [] };
+  place(desk.layout, 0, 0, $('panes').clientWidth, $('panes').clientHeight, out);
+  const other = neighbour(out.panes, id, way);
+  if (!other) return;
+  const a = findPane(id), b = findPane(other);
+  const pa = parentOf(a), pb = parentOf(b);
+  if (!pa || !pb) return;
+  const ia = pa.kids.indexOf(a), ib = pb.kids.indexOf(b);
+  pa.kids[ia] = b;
+  pb.kids[ib] = a;
+  layout();
+  save();
 }
 
 function wireDividers() {
@@ -453,6 +497,8 @@ function makePane(p) {
   el.className = 'pane';
   el.dataset.id = p.pane;
   el.innerHTML = '<div class="pane-head"><button class="small kind"></button><span class="pane-title"></span>' +
+    '<button class="small move" data-way="left">←</button><button class="small move" data-way="right">→</button>' +
+    '<button class="small move" data-way="up">↑</button><button class="small move" data-way="down">↓</button>' +
     '<button class="small split-r"></button><button class="small split-d"></button><button class="small shut">×</button></div><div class="pane-body"></div>';
   const head = el.querySelector('.pane-head');
   const kindBtn = head.querySelector('.kind');
@@ -464,6 +510,10 @@ function makePane(p) {
   head.querySelector('.split-d').textContent = '⊟';
   head.querySelector('.split-d').title = L.wsSplitDown;
   head.querySelector('.split-d').onclick = () => split(p.pane, 'col');
+  for (const b of head.querySelectorAll('.move')) {
+    b.title = L['wsMove' + b.dataset.way[0].toUpperCase() + b.dataset.way.slice(1)];
+    b.onclick = () => movePane(p.pane, b.dataset.way);
+  }
   head.querySelector('.shut').title = L.wsClosePane;
   head.querySelector('.shut').onclick = () => closePane(p.pane);
   el.addEventListener('pointerdown', () => setFocus(p.pane), true);
