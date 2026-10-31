@@ -10,7 +10,7 @@ So instead of pretending it can't be misused, ClassDash makes some things easy a
 
 ## What the AI can see and do
 
-- **Your schoolwork, read only.** It can look at your assignments and the teachers' instructions, announcements, the PDFs in your workspace (their text and what you typed on them), and your grades if you allow that. It can't change, hide, mark done or turn in anything.
+- **Your schoolwork, read only.** It can look at your assignments and the teachers' instructions (Canvas's and Classroom's, as saved at the last check), announcements, the PDFs in your workspace (their text and what you typed on them), and your grades if you allow that. It can't change, hide, mark done or turn in anything.
 - **The page you're on.** In the workspace, every question goes with the page most in view in the PDF you're asking about.
 - **Not your web panes, yet.** Docs, Word, Desmos and other pages open in the workspace aren't visible to the AI. When that's added, each pane will have its own switch for whether the AI can see it, off for web pages until you turn it on, and Google Docs and Word will be read-only to it.
 - **Pen marks and highlights are only counted**, not seen. Typed text is read in full.

@@ -257,8 +257,21 @@ function itemCard(x, now, isFresh, section) {
         </div>
       </${tag}>`;
   return `      <div class="row${x.removed ? ' gone' : ''}"${tags}>
-      ${cardWithActions(card, linkButtons(x) + button)}${linkHereButton(x)}
+      ${cardWithActions(instructionsBlock(x) ? `<div class="item-stack">${card}${instructionsBlock(x)}</div>` : card, linkButtons(x) + button)}${linkHereButton(x)}
       </div>`;
+}
+
+/**
+ * The teacher's instructions under a card, folded (Canvas's description,
+ * Classroom's from readInstructions in 05-playwright-draft.js). Outside the
+ * card itself: the card is a link, and a click in here mustn't open it.
+ * Web addresses in them can be clicked.
+ */
+function instructionsBlock(x) {
+  const text = typeof x.description === 'string' ? x.description.trim() : '';
+  if (!text) return '';
+  const linked = escapeHtml(text).replace(/https?:\/\/[^\s<>()"]+/g, url => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
+  return `<details class="instructions"><summary>${escapeHtml(t('instructions'))}</summary><div class="instructions-text">${linked}</div></details>`;
 }
 
 /**
@@ -3341,6 +3354,15 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
      and then the card's other buttons step aside. */
   .card-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
   .card-wrap > .item { flex: 1; min-width: 0; }
+  /* A card with its instructions folded under it (instructionsBlock). */
+  .card-wrap > .item-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .item-stack > .item { margin-bottom: 0; }
+  .instructions { border: 2px solid var(--ink); border-top: 0; background: var(--card); padding: 3px 10px; font-size: 13px; margin: 0 14px 0 10px; }
+  .instructions summary { cursor: pointer; color: var(--dim); width: max-content; }
+  .instructions summary:hover { color: var(--new); }
+  .instructions-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; padding: 4px 0 6px; }
+  .instructions-text a { color: var(--new); }
+  .row.gone .instructions { opacity: .55; border-style: dashed; }
   /* A card's buttons, full size in their usual place beside the card, but
      only while the card is hovered (or focused); always on a touch screen.
      They slide out from the card's edge and fade in: a grid column going

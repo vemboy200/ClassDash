@@ -647,9 +647,8 @@ async function scrapeClass(page, cls, timeoutMs = TIMEOUT) {
       // accounts are added, email doesn't.
       //
       // Attachments (Google Docs and the like) live inside the
-      // assignment and aren't visible in the list — getting them would
-      // mean opening every assignment individually, 25-40 seconds each.
-      // Deferred.
+      // assignment and aren't visible in the list. The instructions are
+      // read separately (readInstructions), by opening each item in place.
       const id = el.getAttribute('data-stream-item-id');
       const link = id
         ? `https://classroom.google.com/c/${classId}/a/${btoa(id)}/details` +
@@ -761,6 +760,109 @@ async function scrapeClassChecked(page, cls, timeoutMs, previous) {
   if (kept.held) logTurnedIn(`${cls.name}: kept ${kept.held} as turned in (not yet ${TURNED_IN_THRESHOLD} reads in a row)`);
   if (kept.released) logTurnedIn(`${cls.name}: ${kept.released} no longer turned in (${TURNED_IN_THRESHOLD} reads in a row)`);
   return kept.items;
+}
+
+
+// ── Classroom instructions ────────────────────────────────────
+//
+// What the teacher wrote on an assignment, for the AI (get_assignment) and
+// the card's Instructions drop-down: the same `description` Canvas items
+// carry. Classwork's list doesn't show it, but clicking an item opens it in
+// place, and there it is: about half a second each, where opening each
+// assignment's own page is 25-40. Checked live on 2026-10-30 on two real
+// classes (counts only): every item opened, and with no instructions the
+// first line there is "Posted <date>", which isn't instructions.
+//
+// Instructions rarely change, so each is kept between passes and read again
+// only after INSTRUCTIONS_REFRESH_MS (not-turned-in work only), at most
+// INSTRUCTIONS_PER_PASS per class per pass, not-turned-in and never-read
+// first: a class's first pass after this doesn't take a minute longer.
+const INSTRUCTIONS_PER_PASS = 12;
+const INSTRUCTIONS_REFRESH_MS = 2 * 24 * 3600 * 1000;
+const INSTRUCTIONS_LENGTH = 4000;
+
+/** Runs in the page: opens one Classwork item, reads its instructions, closes it. */
+async function readInstructionsInPage(id) {
+  const li = [...document.querySelectorAll('li[data-stream-item-id]')].find(el => el.getAttribute('data-stream-item-id') === id);
+  const header = li && li.querySelector('[role="button"][aria-expanded]');
+  if (!header) return { ok: false };
+  const wasOpen = header.getAttribute('aria-expanded') === 'true';
+  if (!wasOpen) header.click();
+  // Open at once, filled in a moment later: read once its text has stayed
+  // the same for three looks in a row (3 s at most).
+  let box = null, last = null, same = 0;
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    box = li.querySelector('[expanded-item-id]');
+    const now = box && header.getAttribute('aria-expanded') === 'true' ? (box.innerText || '') : null;
+    if (now !== null && now === last) { if (++same >= 3) break; } else same = 0;
+    last = now;
+  }
+  const opened = box && header.getAttribute('aria-expanded') === 'true';
+  let text = null;
+  if (opened) {
+    // The first span with text that isn't part of a widget (attachments,
+    // the View link and comments are all inside jscontroller ones), looked
+    // at only up to the opened part: everything above it is widgets.
+    const inWidget = n => { for (let p = n; p && p !== box; p = p.parentElement) if (p.matches('[jscontroller], button, a, [role="button"]')) return true; return false; };
+    const el = [...box.querySelectorAll('span')].find(sp => {
+      const t = (sp.textContent || '').trim();
+      return t && !inWidget(sp) && !(/^(Posted|Edited)\b/.test(t) && t.length < 60);
+    });
+    if (el) {
+      // Line breaks and lists kept; a link as "its words (its address)".
+      const out = [];
+      const walk = n => {
+        for (const c of n.childNodes) {
+          if (c.nodeType === 3) { out.push(c.textContent); continue; }
+          if (c.nodeType !== 1) continue;
+          const tag = c.tagName.toLowerCase();
+          if (tag === 'br') out.push('\n');
+          else if (tag === 'a' && c.href) {
+            const words = (c.textContent || '').trim();
+            out.push(words && words !== c.href ? `${words} (${c.href})` : c.href);
+          } else {
+            const block = ['div', 'p', 'li', 'ul', 'ol'].includes(tag);
+            if (block) out.push('\n');
+            if (tag === 'li') out.push('- ');
+            walk(c);
+            if (block) out.push('\n');
+          }
+        }
+      };
+      walk(el);
+      text = out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() || null;
+    }
+  }
+  if (!wasOpen && header.getAttribute('aria-expanded') === 'true') header.click();
+  return { ok: !!opened, text };
+}
+
+/**
+ * Gives a class's items their instructions: kept from last pass, read now
+ * where they're missing or old. The page must be on the class's Classwork.
+ */
+async function readInstructions(page, items, previous, now = Date.now()) {
+  const before = new Map(previous.filter(x => !x.platform && x.id).map(x => [x.id, x]));
+  const out = items.map(x => {
+    const old = before.get(x.id);
+    return old && old.descriptionAt ? { ...x, description: old.description || null, descriptionAt: old.descriptionAt } : x;
+  });
+  const due = out
+    .filter(x => x.id && (!x.descriptionAt || (!isTurnedIn(x) && now - Date.parse(x.descriptionAt) > INSTRUCTIONS_REFRESH_MS)))
+    .sort((a, b) => (isTurnedIn(a) - isTurnedIn(b)) || (!!a.descriptionAt - !!b.descriptionAt))
+    .slice(0, INSTRUCTIONS_PER_PASS);
+  let read = 0;
+  for (const x of due) {
+    let r;
+    try { r = await page.evaluate(readInstructionsInPage, x.id); } catch { break; }
+    if (!r.ok) continue;
+    x.description = r.text ? (r.text.length > INSTRUCTIONS_LENGTH ? r.text.slice(0, INSTRUCTIONS_LENGTH) + '…' : r.text) : null;
+    x.descriptionAt = new Date(now).toISOString();
+    read++;
+  }
+  if (read) console.log(`  instructions read: ${read}`);
+  return out;
 }
 
 // ── Where the class list comes from ───────────────────────────
@@ -1317,7 +1419,13 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     let result;
     try {
       page = await ctx.newPage();
-      const items = await scrapeClassChecked(page, cls, timeoutMs, previousItems);
+      let items = await scrapeClassChecked(page, cls, timeoutMs, previousItems);
+      // Still on the class's Classwork: its instructions, before the feed.
+      try {
+        items = await readInstructions(page, items, previousItems);
+      } catch (e) {
+        console.warn(`  instructions for ${cls.name}: ${e.message}`);
+      }
 
       // The same class's feed — teacher announcements. Read with the same
       // tab right after the assignments: no reason to open a separate
@@ -2172,6 +2280,7 @@ module.exports = {
   LOCK_FILE, PROFILE_DIR, killLeftoverBrowser,
   teacherNamesFromPeoplePage, classesNeedingTeacher, withKnownTeachers, saveClassroomTeachers, resolveClasses,
   flippedFromTurnedIn, looksMisread, keepTurnedIn, scrapeClassChecked, TURNED_IN_THRESHOLD, TURNED_IN_LOG,
+  readInstructions, readInstructionsInPage,
 };
 if (require.main !== module) return;
 

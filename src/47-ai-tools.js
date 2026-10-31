@@ -134,7 +134,7 @@ const TOOLS = [
   },
   {
     name: 'get_assignment',
-    description: 'One assignment in full: its class, due date, link, and the teacher\'s instructions where the platform gave them (Canvas does; Classroom\'s aren\'t read yet).',
+    description: 'One assignment in full: its class, due date, link, and the teacher\'s instructions where there are some (Canvas and Classroom; links in them kept as "words (address)").',
     input: {
       type: 'object',
       properties: { id: { type: 'string', description: 'The id from list_assignments.' } },
