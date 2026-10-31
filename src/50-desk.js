@@ -148,7 +148,7 @@ function strings() {
     'wsPaneKind', 'wsPanePdf', 'wsPaneWeb', 'wsSplitRight', 'wsSplitDown', 'wsMoveLeft', 'wsMoveRight', 'wsMoveUp', 'wsMoveDown', 'wsClosePane', 'wsMaxPanes', 'wsAiOnlyOne',
     'wsWebBack', 'wsWebForward', 'wsWebReload', 'wsWebBookmarks', 'wsWebNewMark', 'wsWebNewName', 'wsWebNewUrl', 'wsWebNewAdd', 'wsWebNewBad', 'wsWebAddPage', 'wsWebRemove', 'wsWebNoNative', 'wsWebNoBookmarks', 'wsWebDownloaded',
     'wsAi', 'wsAiTitle', 'wsAiHints', 'wsAiHintsTip', 'wsAiClear', 'wsAiAsk', 'wsAiPlaceholder', 'wsAiThinking', 'wsAiThought',
-    'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiAbout',
+    'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiEmptyGeneral', 'wsAiGeneral', 'wsAiNoWeb', 'wsAiAbout',
     'wsAiGateTitle', 'wsAiGateLearn', 'wsAiGateNoWrite', 'wsAiGateWrong', 'wsAiGateSees', 'wsAiGateOk', 'wsAiGateMore',
     'wsAiTool_list_assignments', 'wsAiTool_get_assignment', 'wsAiTool_list_classes', 'wsAiTool_list_announcements',
     'wsAiTool_list_pdfs', 'wsAiTool_read_pdf_pages', 'wsAiTool_get_grades'];
@@ -237,6 +237,7 @@ function pageHtml() {
   .ai-thought { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
   .ai-thought summary { cursor: pointer; }
   .ai-thought div { max-height: 160px; overflow-y: auto; white-space: pre-wrap; }
+  #ai-web-note { font-size: 12px; color: var(--dim); padding: 6px 10px; border-bottom: 2px solid var(--line); }
   #ai-status { color: var(--hot); font-size: 12px; padding: 0 10px; }
   #ai-status:empty { display: none; }
   .ai-form { display: flex; gap: 6px; padding: 8px 10px 10px; align-items: flex-end; }
@@ -487,7 +488,8 @@ function setFocus(id) {
   if (!desk || desk.focus === id || !findPane(id)) return;
   desk.focus = id;
   const p = findPane(id);
-  if (p.kind === 'pdf') { lastPdf = id; aiTargetChanged(); }
+  if (p.kind === 'pdf') lastPdf = id;
+  aiTargetChanged();
   for (const k in els) els[k].el.classList.toggle('front', k === id && panesOf(desk.layout).length > 1);
   save();
 }
@@ -897,12 +899,13 @@ function aiTarget() {
 function makeAi(body) {
   body.innerHTML = '<div class="ai-head"><span class="about"></span>' +
     '<label><input type="checkbox" id="ai-hints" checked> <span></span></label><button class="small" id="ai-clear"></button></div>' +
-    '<div id="ai-chat"></div><div id="ai-status"></div>' +
+    '<div id="ai-web-note" hidden></div><div id="ai-chat"></div><div id="ai-status"></div>' +
     '<div class="ai-form"><textarea id="ai-q" rows="2"></textarea><button id="ai-ask"></button></div><div class="ai-foot"></div>';
   body.querySelector('label').title = L.wsAiHintsTip;
   body.querySelector('label span').textContent = L.wsAiHints;
   body.querySelector('#ai-clear').textContent = L.wsAiClear;
   body.querySelector('#ai-q').placeholder = L.wsAiPlaceholder;
+  body.querySelector('#ai-web-note').textContent = L.wsAiNoWeb;
   body.querySelector('#ai-ask').textContent = L.wsAiAsk;
   ai.el = body;
   ai.doc = null;
@@ -914,13 +917,13 @@ function makeAi(body) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); askAi(); }
   });
   $('ai-clear').onclick = async () => {
-    if (ai.asking || !ai.doc) return;
+    if (ai.asking || ai.doc === null) return;
     ai.messages = [];
     drawAi();
     $('ai-status').textContent = '';
     await bridge('workspaceChatClear', ai.doc);
   };
-  $('ai-hints').onchange = () => { if (ai.doc) bridge('workspaceChatHints', ai.doc + ':' + ($('ai-hints').checked ? '1' : '0')); };
+  $('ai-hints').onchange = () => { if (ai.doc !== null) bridge('workspaceChatHints', ai.doc + ':' + ($('ai-hints').checked ? '1' : '0')); };
 }
 
 // The warning before the AI can be used, until "I understand".
@@ -955,15 +958,18 @@ function aiGate(body) {
 async function aiTargetChanged() {
   if (!ai.el) return;
   const t = aiTarget();
-  ai.el.querySelector('.about').textContent = t ? L.wsAiAbout + ' ' + t.title + ' · ' + L.wsAiPage + ' ' + t.page : '';
-  $('ai-ask').disabled = !t || !!ai.asking;
-  const doc = t ? t.doc : null;
+  ai.el.querySelector('.about').textContent = t ? L.wsAiAbout + ' ' + t.title + ' · ' + L.wsAiPage + ' ' + t.page : L.wsAiGeneral;
+  // A web page in front: the AI can't see it, whatever the question is about.
+  const front = findPane(desk.focus);
+  $('ai-web-note').hidden = !(front && front.kind === 'web');
+  $('ai-ask').disabled = !!ai.asking;
+  // '' is the chat with no PDF, about their schoolwork in general.
+  const doc = t ? t.doc : '';
   if (doc === ai.doc || ai.asking) return;
   ai.doc = doc;
   ai.messages = [];
   $('ai-status').textContent = '';
   drawAi();
-  if (!doc) return;
   const r = await bridge('workspaceChat', doc);
   if (ai.doc !== doc || !ai.el) return;
   if (r.ok) {
@@ -994,7 +1000,7 @@ function drawAi(extra) {
   if (!list.length) {
     const e = document.createElement('div');
     e.className = 'empty';
-    e.textContent = L.wsAiEmpty;
+    e.textContent = ai.doc ? L.wsAiEmpty : L.wsAiEmptyGeneral;
     box.appendChild(e);
   }
   for (const m of list) {
@@ -1017,13 +1023,15 @@ async function askAi() {
   const field = $('ai-q');
   const question = field.value.trim();
   const t = aiTarget();
-  if (!question || ai.asking || !t) return;
-  const page = t.page || 1;
+  if (!question || ai.asking) return;
+  // No PDF: about their schoolwork in general, with no page.
+  const doc = t ? t.doc : '';
+  const page = t ? t.page || 1 : null;
   const live = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  ai.asking = { live, question, page, doc: t.doc };
+  ai.asking = { live, question, page, doc };
   $('ai-ask').disabled = true; field.disabled = true; $('ai-status').textContent = '';
   drawAi([{ role: 'user', text: question, page }, { role: 'ai', text: L.wsAiThinking, pending: true }]);
-  const arg = b64(JSON.stringify({ doc: t.doc, page, question, hints: $('ai-hints').checked, live }));
+  const arg = b64(JSON.stringify({ doc, page, question, hints: $('ai-hints').checked, live }));
   const r = await bridge('workspaceAsk', arg, { live });
   const asked = ai.asking;
   ai.asking = null;

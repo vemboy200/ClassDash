@@ -161,6 +161,12 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
   ok('a cloud AI ticked for class text but not grades: no grades tool', !seen.a.tools.list.some(t => t.name === 'get_grades'));
   await side.ask('q', { doc: pdf.id, page: 1, s: { aiProvider: 'apple' }, complete: fake({ ok: true, text: 'a' }) });
   ok('Apple: no tools, told so, the page still there', !seen.a.tools && /no tools this time/.test(seen.a.system) && /Which organelle/.test(seen.a.prompt));
+  r = await side.ask('What\'s due this week?', { doc: '', s: local, complete: fake({ ok: true, text: 'The cell worksheet.' }) });
+  ok('no PDF open: asked about their schoolwork, with the tools and no page, told it can\'t see web pages', r.ok && !/THE PDF|PAGE \d/.test(seen.a.prompt) &&
+    /No PDF is open/.test(seen.a.system) && /can't see web pages/.test(seen.a.system) && seen.a.tools.list.length > 0, seen.a.system);
+  ok('...kept in a chat of its own, not any PDF\'s', side.readChat('').messages.length === 2 && side.readChat('').messages[0].page === null &&
+    !side.readChat(pdf.id).messages.some(m => /due this week/.test(m.text)));
+  ok('...cleared on its own too', side.clearChat('').ok && side.readChat('').messages.length === 0 && side.readChat(pdf.id).messages.length > 0);
 
   let during = null;
   await side.ask('q', { doc: pdf.id, page: 1, s: { aiProvider: 'claudecode', aiAgreed: ['claudecode'] }, complete: async a => {
@@ -226,7 +232,9 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
   await sleep(600);
   const aiPane = d.querySelector('.pane[data-id="p2"]');
   ok('the desk opens as it does at first: a PDF pane and the AI beside it', d.querySelector('.pane[data-id="p1"] iframe') && aiPane && d.getElementById('ai-q'));
-  ok('...the AI waiting for a PDF to be open', aiPane.querySelector('.about').textContent === '' && d.getElementById('ai-ask').disabled);
+  ok('...with no PDF open, the AI is about your schoolwork, and can be asked', /About your schoolwork \(no PDF open\)/.test(aiPane.querySelector('.about').textContent) && !d.getElementById('ai-ask').disabled &&
+    /what's due this week/.test(d.querySelector('#ai-chat .empty').textContent), aiPane.querySelector('.about').textContent);
+  ok('...no web page in front, so no note about web pages', d.getElementById('ai-web-note').hidden);
   // The PDF pane's frame says what it has open, as 46-workspace.js's page does.
   const frameWin = d.querySelector('.pane[data-id="p1"] iframe').contentWindow;
   const fromFrame = data => { const e = new w.Event('message'); Object.assign(e, { data: Object.assign({ cd: 'ws' }, data) }); Object.defineProperty(e, 'source', { value: frameWin }); w.dispatchEvent(e); };
@@ -259,7 +267,13 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
   ok('turning off Hints only is remembered for this PDF', posted.slice(-1)[0].action === 'workspaceChatHints' && posted.slice(-1)[0].arg === pdf.id + ':0');
   fromFrame({ type: 'pdf', doc: '', title: '', page: 0 });
   await sleep(50);
-  ok('back to the PDF list in that pane: the AI waits for a PDF again', aiPane.querySelector('.about').textContent === '' && d.getElementById('ai-ask').disabled && !d.querySelector('#ai-chat .ai-msg'));
+  ok('back to the PDF list in that pane: the AI is about your schoolwork again, with that chat', /no PDF open/.test(aiPane.querySelector('.about').textContent) && !d.getElementById('ai-ask').disabled &&
+    posted.slice(-1)[0].action === 'workspaceChat' && posted.slice(-1)[0].arg === '');
+  d.getElementById('ai-q').value = 'Anything new?';
+  d.getElementById('ai-ask').click();
+  await sleep(20);
+  const general = JSON.parse(Buffer.from(posted.filter(m => m.action === 'workspaceAsk').slice(-1)[0].arg, 'base64url').toString('utf8'));
+  ok('...and asking then sends no PDF and no page', general.doc === '' && general.page === null && general.question === 'Anything new?', JSON.stringify(general));
   ok('the page script runs clean', errors.length === 0, errors.join('\n'));
   dom.window.close();
 

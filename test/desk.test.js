@@ -178,6 +178,10 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     last = webOps().filter(o => o.op === 'layout').pop();
     ok('...and shows it again after', last.panes[0].show === true);
+    pane.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
+    ok('the web pane in front: the AI pane says it can\'t see web pages', d.getElementById('ai-web-note') && !d.getElementById('ai-web-note').hidden && /can't see web pages/.test(d.getElementById('ai-web-note').textContent));
+    d.querySelector('.pane[data-id="p1"]').dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
+    ok('...and not once a PDF pane is', d.getElementById('ai-web-note').hidden);
     fromMain({ type: 'web', web: { id: 'p3', url: 'https://www.desmos.com/calculator/abc123', title: 'Made-up graph', loading: false, back: true, forward: false } });
     ok('the app\'s news shows in the pane: the title, back', pane.querySelector('.pane-title').textContent === 'Made-up graph' && !pane.querySelector('.back').disabled && pane.querySelector('.fwd').disabled);
     ok('...and there\'s no address bar: the bookmarks are the way in', !pane.querySelector('.web-bar input'));

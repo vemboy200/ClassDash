@@ -36,7 +36,9 @@
  * Nothing is logged but that a question was asked.
  *
  * The chat is kept with the PDF, in workspace/<id>/chat.json, until Clear
- * (or the PDF is removed).
+ * (or the PDF is removed). With no PDF open it's about their schoolwork in
+ * general (doc ''), kept in workspace/chat.json: no page goes with the
+ * question, only the tools.
  */
 const fs = require('fs');
 const os = require('os');
@@ -53,8 +55,8 @@ const TIMEOUT_MS = 5 * 60 * 1000;
 const settings = () => require('./19-settings.js').read();
 const workspace = () => require('./46-workspace.js');
 
-const BASE = `You are a study helper in ClassDash, a student's school dashboard, shown beside a PDF they're working on (a worksheet, a reading, notes). ` +
-  `The page they're looking at is given below with what they've typed on it. ` +
+const BASE = `You are a study helper in ClassDash, a student's school dashboard, shown in their workspace, usually beside a PDF they're working on (a worksheet, a reading, notes). ` +
+  `When one is open, the page they're looking at is given below with what they've typed on it. ` +
   `You may have tools to look up the rest of their schoolwork: their assignments and the teachers' instructions, announcements, the text of other pages and other PDFs in their workspace, and sometimes their grades. ` +
   `Use them when the question needs them rather than guessing, and say so when something isn't there. ` +
   `Follow up yourself: when one tool's answer leads to another (a list gives an id; the instructions are one call away), make that call before answering, and never tell the student to look something up with an id or a tool. ` +
@@ -67,28 +69,34 @@ const HINTS = `HINTS ONLY is on. Help the student get there themselves: don't gi
   `Questions that aren't about answering their work (what's due, what the instructions say, how a grade works) you can answer fully.`;
 const FULL = `Hints only is off: you may explain fully and work through answers, but show the reasoning so they learn it.`;
 const NO_TOOLS = `You have no tools this time: answer from the page below, and say what you can't see.`;
+const NO_PDF = `No PDF is open right now, so there's no page below: they're asking about their schoolwork in general. ` +
+  `You can't see web pages they have open in their workspace (Google Docs, Desmos and the like): if they ask about one, say so and ask them to paste the part they mean.`;
+const NO_PDF_NO_TOOLS = `No PDF is open and you have no tools this time, so you can't see their schoolwork: say so, and answer only what you can without it.`;
 
-function chatFile(doc) { return path.join(workspace().DIR, doc, 'chat.json'); }
+function chatFile(doc) { return doc ? path.join(workspace().DIR, doc, 'chat.json') : path.join(workspace().DIR, 'chat.json'); }
+// '' (or nothing): the chat with no PDF.
+const usable = doc => !doc || workspace().isId(doc);
 
-/** This PDF's chat: { hints, messages }. Hints only is on until turned off. */
+/** This PDF's chat, or the one with no PDF: { hints, messages }. Hints only is on until turned off. */
 function readChat(doc) {
-  if (!workspace().isId(doc)) return { hints: true, messages: [] };
+  if (!usable(doc)) return { hints: true, messages: [] };
   try {
     const saved = JSON.parse(fs.readFileSync(chatFile(doc), 'utf8'));
     return { hints: saved.hints !== false, messages: Array.isArray(saved.messages) ? saved.messages : [] };
   } catch { return { hints: true, messages: [] }; }
 }
 function writeChat(doc, chat) {
+  if (!doc) fs.mkdirSync(workspace().DIR, { recursive: true });
   fs.writeFileSync(chatFile(doc), JSON.stringify({ hints: chat.hints !== false, messages: chat.messages.slice(-MAX_SAVED) }, null, 2));
 }
 function clearChat(doc) {
-  if (!workspace().isId(doc)) return { ok: false, why: 'badId' };
+  if (!usable(doc)) return { ok: false, why: 'badId' };
   const { hints } = readChat(doc);
-  if (fs.existsSync(path.join(workspace().DIR, doc))) writeChat(doc, { hints, messages: [] });
+  if (!doc || fs.existsSync(path.join(workspace().DIR, doc))) writeChat(doc, { hints, messages: [] });
   return { ok: true };
 }
 function setHints(doc, on) {
-  if (!workspace().isId(doc) || !fs.existsSync(path.join(workspace().DIR, doc))) return { ok: false, why: 'badId' };
+  if (!usable(doc) || (doc && !fs.existsSync(path.join(workspace().DIR, doc)))) return { ok: false, why: 'badId' };
   writeChat(doc, { ...readChat(doc), hints: !!on });
   return { ok: true, hints: !!on };
 }
@@ -120,7 +128,7 @@ async function pageContext(doc, page) {
 function promptFor({ question, history, meta, doc, ctx, today }) {
   const turns = history.slice(-HISTORY_TURNS).map(m => `${m.role === 'ai' ? 'You' : 'Student'}: ${m.text}`).join('\n\n');
   return `Today is ${today.toISOString().slice(0, 10)}.\n\n` +
-    `THE PDF: "${meta.title}" (workspace PDF id ${doc}), ${ctx ? `${ctx.pageCount} page${ctx.pageCount === 1 ? '' : 's'}` : 'pages unknown'}.\n\n` +
+    (meta ? `THE PDF: "${meta.title}" (workspace PDF id ${doc}), ${ctx ? `${ctx.pageCount} page${ctx.pageCount === 1 ? '' : 's'}` : 'pages unknown'}.\n\n` : '') +
     (ctx ? `PAGE ${ctx.page}, THE ONE THEY'RE LOOKING AT\n\n${ctx.text}\n\n` +
       `WHAT THEY TYPED ON THIS PAGE\n\n${ctx.typed.length ? ctx.typed.map(t => `- ${t}`).join('\n') : '(nothing typed)'}` +
       `${ctx.marks ? `\n(and ${ctx.marks} pen mark${ctx.marks === 1 ? '' : 's'} or highlight${ctx.marks === 1 ? '' : 's'}, which you can't see)` : ''}\n\n` : '') +
@@ -133,15 +141,16 @@ async function ask(question, { doc, page, hints, live, s = settings(), complete,
   const q = String(question || '').trim();
   if (!q) return { ok: false, why: 'empty' };
   if (q.length > MAX_QUESTION) return { ok: false, why: 'long' };
-  if (!W.isId(doc)) return { ok: false, why: 'nodoc' };
-  let meta;
-  try { meta = JSON.parse(fs.readFileSync(path.join(W.DIR, doc, 'meta.json'), 'utf8')); } catch { return { ok: false, why: 'nodoc' }; }
+  if (!usable(doc)) return { ok: false, why: 'nodoc' };
+  doc = doc || '';
+  let meta = null;
+  if (doc) { try { meta = JSON.parse(fs.readFileSync(path.join(W.DIR, doc, 'meta.json'), 'utf8')); } catch { return { ok: false, why: 'nodoc' }; } }
   const can = canAsk(s);
   if (!can.ok) return { ok: false, why: can.why };
   s = require('./37-ai.js').chatSettings(s);
   const chat = readChat(doc);
   if (typeof hints === 'boolean') chat.hints = hints;
-  const ctx = await pageContext(doc, Math.max(1, Math.floor(Number(page) || 1)));
+  const ctx = doc ? await pageContext(doc, Math.max(1, Math.floor(Number(page) || 1))) : null;
 
   const tools = require('./47-ai-tools.js');
   const allowed = { grades: can.grades };
@@ -161,7 +170,7 @@ async function ask(question, { doc, page, hints, live, s = settings(), complete,
       offered.mcp = { command: l.command, args: [...l.args, '--run-file', file], ...(l.env ? { env: l.env } : {}) };
     }
   }
-  const system = [BASE, chat.hints ? HINTS : FULL, can.tools ? '' : NO_TOOLS].filter(Boolean).join('\n\n');
+  const system = [BASE, chat.hints ? HINTS : FULL, doc ? (can.tools ? '' : NO_TOOLS) : (can.tools ? NO_PDF : NO_PDF_NO_TOOLS)].filter(Boolean).join('\n\n');
   const shown = typeof live === 'string' && /^[a-z0-9]{1,40}$/i.test(live) ? require('./41-grades-center.js').liveWriter(live) : null;
   if (shown && offered) offered.onUse = name => shown.use(name);
   const run = complete || ((a, settingsNow) => require('./37-ai.js').complete(a, settingsNow, { timeoutMs: TIMEOUT_MS }));
