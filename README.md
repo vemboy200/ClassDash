@@ -50,6 +50,7 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 - [Using AI with ClassDash](docs/ai-use.md): what the AI will and won't do, and advice about AI and school
 - [Home API](docs/home-api.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Changelog](CHANGELOG.md): what's new, including what's built but not released yet
 - [CONTRIBUTING.md](CONTRIBUTING.md): how it works inside, building from source
 
 ---

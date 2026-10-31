@@ -82,6 +82,8 @@ npm start
 
 ### The release pipeline — both platforms, one tag
 
+Release notes come from [CHANGELOG.md](CHANGELOG.md): each change goes under **Unreleased** as it lands on `main`, written for people using ClassDash (fixes to something not released yet don't get a line). At release, that section becomes the version's heading and its text the GitHub release's notes, and a new empty **Unreleased** starts.
+
 `.github/workflows/release.yml` builds, packages, and publishes a release whenever a `v*` tag is pushed:
 
 ```bash
