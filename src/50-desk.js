@@ -36,6 +36,13 @@
  * Only the Mac app draws web panes so far; elsewhere webCaps says so and
  * the Web choice explains.
  *
+ * ── Before the AI ──
+ *
+ * The AI pane first shows a short warning (docs/ai-use.md in a few lines,
+ * with the warning sign from src/warning-icon.png): what it's for, that it
+ * never writes in work that's turned in, that it can be wrong, and what it
+ * sees. "I understand" is kept in desk.json (aiOk), so it's shown once.
+ *
  * ── Messages ──
  *
  * The desk is the frame in the main page's Workspace panel. A PDF pane's
@@ -50,6 +57,7 @@ const PAGE = path.join(PROJECT_ROOT, 'workspace.html');
 const MAX_PANES = 5;
 const KINDS = ['pdf', 'ai', 'web'];
 const MAX_BOOKMARKS = 40;
+const GUIDE_URL = 'https://github.com/vemboy200/ClassDash/blob/main/docs/ai-use.md';
 
 const DEFAULT_BOOKMARKS = [
   { title: 'Google Docs', url: 'https://docs.google.com/document/' },
@@ -117,7 +125,8 @@ function clean(raw) {
   const bookmarks = Array.isArray(raw.bookmarks)
     ? raw.bookmarks.map(b => b && webUrl(b.url) ? { title: String(b.title || '').trim().slice(0, 80) || new URL(b.url).host, url: webUrl(b.url) } : null).filter(Boolean).slice(0, MAX_BOOKMARKS)
     : DEFAULT_BOOKMARKS.map(b => ({ ...b }));
-  return { version: 1, layout, focus: ids.includes(raw.focus) ? raw.focus : ids[0], bookmarks };
+  const aiOk = typeof raw.aiOk === 'string' && !isNaN(Date.parse(raw.aiOk)) ? new Date(raw.aiOk).toISOString() : null;
+  return { version: 1, layout, focus: ids.includes(raw.focus) ? raw.focus : ids[0], bookmarks, ...(aiOk ? { aiOk } : {}) };
 }
 
 function readDesk() {
@@ -138,9 +147,10 @@ function strings() {
     'wsWebBack', 'wsWebForward', 'wsWebReload', 'wsWebBookmarks', 'wsWebNewMark', 'wsWebNewName', 'wsWebNewUrl', 'wsWebNewAdd', 'wsWebNewBad', 'wsWebAddPage', 'wsWebRemove', 'wsWebNoNative', 'wsWebNoBookmarks', 'wsWebDownloaded',
     'wsAi', 'wsAiTitle', 'wsAiHints', 'wsAiHintsTip', 'wsAiClear', 'wsAiAsk', 'wsAiPlaceholder', 'wsAiThinking', 'wsAiThought',
     'wsAiPage', 'wsAiUsed', 'wsAiUsing', 'wsAiFailed', 'wsAiEmpty', 'wsAiAbout',
+    'wsAiGateTitle', 'wsAiGateLearn', 'wsAiGateNoWrite', 'wsAiGateWrong', 'wsAiGateSees', 'wsAiGateOk', 'wsAiGateMore',
     'wsAiTool_list_assignments', 'wsAiTool_get_assignment', 'wsAiTool_list_classes', 'wsAiTool_list_announcements',
     'wsAiTool_list_pdfs', 'wsAiTool_read_pdf_pages', 'wsAiTool_get_grades'];
-  const out = { locale: t('locale') };
+  const out = { locale: t('locale'), guide: GUIDE_URL };
   for (const k of keys) out[k] = t(k);
   return out;
 }
@@ -227,6 +237,12 @@ function pageHtml() {
   #ai-status:empty { display: none; }
   .ai-form { display: flex; gap: 6px; padding: 8px 10px 10px; align-items: flex-end; }
   #ai-q { flex: 1; min-height: 38px; max-height: 140px; resize: vertical; font: inherit; color: var(--text); background: var(--card); border: 2px solid var(--ink); padding: 6px 8px; }
+  .ai-gate { position: absolute; inset: 0; z-index: 3; background: var(--bg); overflow-y: auto; padding: 20px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .ai-gate img { width: 68px; height: 80px; image-rendering: pixelated; align-self: center; }
+  .ai-gate h2 { margin: 0; font-size: 17px; text-align: center; }
+  .ai-gate ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .ai-gate .ok { align-self: center; }
+  .ai-gate a { color: var(--accent); font-size: 13px; text-align: center; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -239,12 +255,16 @@ function pageHtml() {
 </div>
 <div id="panes"></div>
 <script>
-${PAGE_SCRIPT.replace('__STRINGS__', () => JSON.stringify(L).replace(/</g, '\\u003c'))}
+${PAGE_SCRIPT.replace('__STRINGS__', () => JSON.stringify(L).replace(/</g, '\\u003c')).replace('__WARNING__', () => WARNING_B64)}
 </script>
 </body>
 </html>
 `;
 }
+
+// Beside the scripts, like 08-page.js's icons (a template file, not data).
+const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
+const WARNING_B64 = readIcon('warning-icon.png');
 
 /** Writes workspace.html, the desk. */
 function writeDeskPage() {
@@ -303,7 +323,7 @@ function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400);
 async function saveNow() {
   clearTimeout(saveTimer); saveTimer = null;
   if (!desk) return;
-  const json = JSON.stringify({ layout: desk.layout, focus: desk.focus, bookmarks: desk.bookmarks });
+  const json = JSON.stringify({ layout: desk.layout, focus: desk.focus, bookmarks: desk.bookmarks, aiOk: desk.aiOk });
   saving = bridge('workspaceDeskSave', b64(json));
   await saving;
   saving = null;
@@ -833,6 +853,7 @@ function makeAi(body) {
   body.querySelector('#ai-ask').textContent = L.wsAiAsk;
   ai.el = body;
   ai.doc = null;
+  if (!desk.aiOk) aiGate(body);
   $('ai-ask').onclick = askAi;
   $('ai-q').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); askAi(); }
@@ -845,6 +866,34 @@ function makeAi(body) {
     await bridge('workspaceChatClear', ai.doc);
   };
   $('ai-hints').onchange = () => { if (ai.doc) bridge('workspaceChatHints', ai.doc + ':' + ($('ai-hints').checked ? '1' : '0')); };
+}
+
+// The warning before the AI can be used, until "I understand".
+function aiGate(body) {
+  const gate = document.createElement('div');
+  gate.className = 'ai-gate';
+  const img = document.createElement('img');
+  img.src = 'data:image/png;base64,__WARNING__';
+  img.alt = '';
+  const h = document.createElement('h2');
+  h.textContent = L.wsAiGateTitle;
+  const list = document.createElement('ul');
+  for (const k of ['wsAiGateLearn', 'wsAiGateNoWrite', 'wsAiGateWrong', 'wsAiGateSees']) {
+    const li = document.createElement('li');
+    li.textContent = L[k];
+    list.appendChild(li);
+  }
+  const ok = document.createElement('button');
+  ok.className = 'ok';
+  ok.textContent = L.wsAiGateOk;
+  ok.onclick = () => { desk.aiOk = new Date().toISOString(); gate.remove(); save(); if ($('ai-q')) $('ai-q').focus(); };
+  const more = document.createElement('a');
+  more.href = L.guide;
+  more.target = '_blank';
+  more.rel = 'noopener';
+  more.textContent = L.wsAiGateMore;
+  gate.append(img, h, list, ok, more);
+  body.appendChild(gate);
 }
 
 // The PDF it's about, or its page, changed: the chat follows the PDF.

@@ -170,7 +170,7 @@ const THEIRS = ['settings.json', 'last-collection.json', 'messages.json', 'не-
 {
   // everything that would be bundled: src/'s *.js + settings.example.json + the icons, plus package.json from the true repo root
   const t = tmp();
-  for (const n of fs.readdirSync(path.join(REAL, 'src'))) if (/\.js$/.test(n) || ['settings.example.json', 'refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png', 'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png'].includes(n)) fs.copyFileSync(path.join(REAL, 'src', n), path.join(t, n));
+  for (const n of fs.readdirSync(path.join(REAL, 'src'))) if (/\.js$/.test(n) || ['settings.example.json', 'refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png', 'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png', 'warning-icon.png'].includes(n)) fs.copyFileSync(path.join(REAL, 'src', n), path.join(t, n));
   fs.copyFileSync(path.join(REAL, 'package.json'), path.join(t, 'package.json'));
   const p = oldProject();
   const r = sync.syncProject(t, p);

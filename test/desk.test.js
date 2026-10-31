@@ -84,6 +84,11 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     ok('the desk opens with its saved layout', panes().join() === 'p1:PDF,p2:AI', panes().join());
     ok('...side by side, the panes and the divider filling it', d.querySelector('.pane[data-id="p1"]').style.width && d.querySelectorAll('.divider').length === 1 &&
       Math.round(parseFloat(d.querySelector('.pane[data-id="p1"]').style.width) + parseFloat(d.querySelector('.pane[data-id="p2"]').style.width) + 6) === 1200);
+    const gate = d.querySelector('.pane[data-id="p2"] .ai-gate');
+    ok('the AI pane starts with the warning: the sign, what it\'s for, what it won\'t do, the guide', gate && /^data:image\/png;base64,iVBOR/.test(gate.querySelector('img').src) &&
+      gate.querySelectorAll('li').length === 4 && /never writes in work you turn in/.test(gate.textContent) && /docs\/ai-use\.md$/.test(gate.querySelector('a').href) && gate.querySelector('a').target === '_blank');
+    gate.querySelector('.ok').click();
+    ok('...gone after "I understand"', !d.querySelector('.ai-gate'));
     d.querySelector('.pane[data-id="p1"] .split-d').click();
     ok('splitting a PDF pane down adds a pane under it (a web pane can\'t be had here, so a PDF)', panes().join() === 'p1:PDF,p2:AI,p3:PDF', panes().join());
     const p1 = d.querySelector('.pane[data-id="p1"]'), p3 = d.querySelector('.pane[data-id="p3"]');
@@ -130,6 +135,7 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     ok('...then saves the desk and says it\'s done', posted.some(m => m.type === 'flushed'));
     const kept = act('workspaceDesk').desk;
     ok('the layout is kept, with the PDF each pane had open', panesOf(kept.layout).map(p => p.pane + ':' + p.kind + (p.doc ? ':' + p.doc : '')).join() === 'p1:pdf:0123456789abcdef,p3:pdf,p2:ai', JSON.stringify(kept.layout));
+    ok('..."I understand" is kept, so the warning shows once', !isNaN(Date.parse(kept.aiOk)));
     ok('...and the AI pane got back the room the panes split from it had', kept.layout.sizes.join() === '0.68,0.32', JSON.stringify(kept.layout.sizes));
     ok('the page script runs clean', errors.length === 0, errors.join('\n'));
     dom.window.close();
