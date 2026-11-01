@@ -4,7 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
-Nothing yet.
+- **A sidebar**, like Home Assistant's: **Dashboard**, **Workspace**, **Grades center** and **Settings**, with the page you're on lit. Workspace, the Grades center and Settings now open as pages of their own instead of panels over the dashboard, and Settings saves when you go to another page. **Refresh**, **Fresh check** and the status dots moved to the bottom of the sidebar, ClassDash's name to its top, and **☰** folds it down to its icons (remembered). In a narrow window the sidebar is a bar across the top.
 
 ## v2.7.0 (2026-11-01)
 

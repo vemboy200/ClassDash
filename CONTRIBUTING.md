@@ -117,6 +117,7 @@ The suite is plain Node scripts, `test/*.test.js`, run one per process by `test/
 | `settings-*`, `notifier-pending`, `pending-banner` | which settings wait for a fresh check, saving through the notifier, the notice and its button |
 | `canvas`, `collect-browserless` | reading Canvas through the API, the browser fallback, and a real collection with no browser against a fake Canvas server |
 | `account-section`, `setup-buttons`, `shortcuts`, `settings-panel`, `announce-gear` | the settings panel and the page's keyboard shortcuts, in jsdom |
+| `app-nav` | the sidebar: one page at a time, its item lit, Settings saved on the way out, folding, in jsdom |
 | `live-*`, `announcements-progress` | the progress bar and live updates |
 | `template-sync`, `running-version`, `restart-api` | keeping a project's scripts current after an update, recording the running version, restarting the home API |
 | `wizard-electron`, `native-setup-windows`, `sync-hook-windows`, `menu-windows` | the Windows app's logic. `electron/main.js` can't run outside Electron, so these cut the relevant functions out of its source and run them in a sandbox with scripted dialogs; if you move or rename one of those functions or the comment marker after it, the test says which marker is missing |
@@ -151,7 +152,7 @@ The suite is plain Node scripts, `test/*.test.js`, run one per process by `test/
 
 ## Settings reference
 
-Almost everything below now has a control in the settings panel (gear icon on the summary page) — this table exists for anyone editing `settings.json` directly or scripting `node 19-settings.js --set`.
+Almost everything below now has a control in the settings panel (Settings in the page's sidebar) — this table exists for anyone editing `settings.json` directly or scripting `node 19-settings.js --set`.
 
 | key | meaning |
 |---|---|
@@ -190,12 +191,13 @@ Almost everything below now has a control in the settings panel (gear icon on th
 | `gradesProvider` | `none` (default) or `q`: Settings → Grades. Q's password is never a setting: it goes to the Keychain (Windows: `grades-secret.json`) through its own action. |
 | `gradesAddress`, `gradesUsername` | Q's portal address (the whole thing, with its path; only the part before `/Home/` is kept) and username. |
 | `gradesHidden` | `true` masks the grades on the Grades list (Hide), names kept. |
+| `navCollapsed` | `true` folds the page's sidebar down to its icons (its ☰ button). |
 | `gradesWeights` | `{"Q class name": {"Category": 40}}`: the category weights typed in (or saved by the AI) for Q classes, by Q's own class name even when the class is linked. |
 | `gradeAlerts` | `"all"` (default), `"drops"` or `"off"`: when a class's grade change gets a notification (`45-grade-history.js`). |
 | `gradesAiAgreed` | the cloud providers whose box the person ticked to send grades and teacher comments to them, separate from `aiAgreed`. |
 | `browserPath` | advanced override for which browser binary to automate; leave empty. Set by picking an app, not typing — Advanced has the current path with **Choose App…** and **Clear**, and Setup has **Choose Browser…** (see "Native setup actions" below) |
 
-**How the settings panel saves.** There's no Save button: closing the panel (its Done button, the gear, or the app's Settings… menu item) saves, and only if something actually changed. Most settings just redraw the page. `exclusions`, `canvas`, `canvasToken`, `canvasApiEnabled`, `canvasSsoEnabled` and `classroomEnabled` are different — they change what gets *fetched*, so they only take effect when the next collection runs (a manual check, an automatic one, or the "Check now" button on the notice the page shows meanwhile). Until then nothing on the page changes. `fetch-applied.json` records the values the last collection actually read with, and the page compares the file against it, so putting a setting back the way it was makes the notice go away by itself. Home API toggles are the other kind of side effect (they start, stop or rebind the server) but are instantly reversible, so they apply on save.
+**How the settings panel saves.** There's no Save button: closing the panel (its Done button, another page in the sidebar, or the app's Settings… menu item) saves, and only if something actually changed. Most settings just redraw the page. `exclusions`, `canvas`, `canvasToken`, `canvasApiEnabled`, `canvasSsoEnabled` and `classroomEnabled` are different — they change what gets *fetched*, so they only take effect when the next collection runs (a manual check, an automatic one, or the "Check now" button on the notice the page shows meanwhile). Until then nothing on the page changes. `fetch-applied.json` records the values the last collection actually read with, and the page compares the file against it, so putting a setting back the way it was makes the notice go away by itself. Home API toggles are the other kind of side effect (they start, stop or rebind the server) but are instantly reversible, so they apply on save.
 
 ### Keeping a project's scripts current (`30-template-sync.js`)
 

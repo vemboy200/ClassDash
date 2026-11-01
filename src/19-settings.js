@@ -346,6 +346,9 @@ const DEFAULTS = {
   // class names stay), for when someone's looking over your shoulder.
   // Remembered here so it stays hidden across reloads; the API ignores it.
   gradesHidden: false,
+  // The page's sidebar folded down to its icons (its ☰ button). Remembered
+  // here, like gradesHidden, so a reload doesn't unfold it.
+  navCollapsed: false,
   // Cloud AIs the Grades center's sidebar may send grades and teacher
   // comments to (41-grades-center.js): the box in the sidebar. Separate
   // from aiAgreed, which only covers announcement text.
@@ -376,7 +379,7 @@ const TYPES = {
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
   aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiChatProvider: 'aiChatProvider', aiChatEffort: 'aiEffort', aiEffort: 'aiEffort', aiChatModel: 'aiModel', aiChatUrl: 'aiLocalUrl', aiOllamaUrl: 'aiLocalUrl', aiLmstudioUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
-  gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
+  gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', navCollapsed: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
   gradeAlerts: 'gradeAlerts',
 };
 

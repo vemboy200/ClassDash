@@ -55,6 +55,13 @@ const ICON_FRESHCHECK_B64 = readIcon('freshcheck-icon.png');
 // same stencil treatment as the rest either way.
 const ICON_STOP_B64 = readIcon('stop-icon.png');
 const ICON_SETTINGS_B64 = readIcon('settings-icon.png');
+// The sidebar's items (the user's own drawings): Dashboard in outline,
+// filled in while it's the page showing; Workspace a page being written; the Grades
+// center an A+.
+const ICON_WORKSPACE_B64 = readIcon('workspace-icon.png');
+const ICON_DASHBOARD_B64 = readIcon('dashboard-icon.png');
+const ICON_DASHBOARD_OUTLINE_B64 = readIcon('dashboard-outline-icon.png');
+const ICON_GRADES_B64 = readIcon('grades-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -1794,6 +1801,38 @@ ${sectionBlocks}
   </div>`;
 }
 
+// The sidebar down the left, like Home Assistant's: ClassDash's name with
+// the ☰ that folds it down to its icons, the page's own parts, Settings at
+// the bottom, and under it Refresh, Fresh check and the check-status dots
+// (actions: passed in as made for the header they used to sit in, with
+// their ids, so their click handlers and live updates are unchanged).
+// Workspace, the Grades center and Settings open as pages over the
+// dashboard (showPage), and each item lights up while its page is the one
+// showing. The Workspace item shows only in the app (its page needs the
+// app's classdash-ws:// address), and the Grades center's only once there
+// are grades to show. The ids are the old header buttons', so the gear's
+// "Saving… / Saved." (announceSettings) lands here. Folded, each item's
+// name is its tooltip.
+function appNav(gradesCenter, actions) {
+  const ICONS = { dashboard: 'icon-dashboard', workspace: 'icon-workspace', grades: 'icon-grades', settings: 'icon-settings' };
+  const item = (page, id, label, extra = '') =>
+    `  <button type="button" class="nav-item" id="${id}" data-page="${page}" onclick="showPage('${page}')"${/title=/.test(extra) ? '' : ` title="${escapeHtml(label)}"`}${extra}><span class="nav-icon nav-icon-${page}${ICONS[page] ? ' pixel-icon ' + ICONS[page] : ''}"></span><span class="nav-label">${escapeHtml(label)}</span>`;
+  const collapsed = !!readSettings().navCollapsed;
+  return `<nav class="app-nav${collapsed ? ' collapsed' : ''}" id="app-nav" aria-label="${escapeHtml(t('navLabel'))}">
+  <div class="nav-head">
+    <button type="button" class="nav-toggle" id="nav-toggle" onclick="toggleNav()" aria-expanded="${!collapsed}" title="${escapeHtml(t(collapsed ? 'navExpand' : 'navCollapse'))}" data-collapse="${escapeHtml(t('navCollapse'))}" data-expand="${escapeHtml(t('navExpand'))}"><span class="nav-burger"></span></button>
+    <span class="nav-brand">${escapeHtml(t('title'))}</span>
+  </div>
+${item('dashboard', 'nav-dashboard', t('navDashboard'), ' aria-current="page"')}</button>
+${item('workspace', 'workspace-button', t('wsTitle'), ` style="display: none" title="${escapeHtml(t('wsButtonTitle'))}"`)}</button>
+${gradesCenter ? `${item('grades', 'nav-grades', t('gcTitle'))}</button>\n` : ''}  <span class="nav-spacer"></span>
+${item('settings', 'settings-button', t('settingsTitle'))}<span class="settings-status" id="settings-status"></span></button>
+  <div class="nav-actions">
+  ${actions}
+  </div>
+</nav>`;
+}
+
 /**
  * The filters panel.
  *
@@ -2478,6 +2517,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
       : t('classNextOn', new Date(nextView.date + 'T12:00:00').toLocaleDateString(locale(), { weekday: 'short' })),
   };
 
+  const gradesCenter = gradesCenterPanel();
   const html = `<!doctype html>
 <html lang="ru">
 <head>
@@ -2516,6 +2556,89 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   main { max-width: 1800px; margin: 0 auto; }
+  /* The sidebar (appNav). Fixed down the left; the page, and the pages
+     that open over it, start to its right. In a narrow window it's a bar
+     across the top instead. --nav-w and --nav-h are the room it takes. */
+  :root { --nav-w: 196px; --nav-h: 0px; }
+  body { padding-left: calc(var(--nav-w) + 16px); }
+  .app-nav {
+    position: fixed; top: 0; bottom: 0; left: 0; width: var(--nav-w); z-index: 70;
+    display: flex; flex-direction: column; gap: 2px; padding: 10px 8px 12px;
+    background: var(--bg2); border-right: 2px solid var(--ink); overflow-y: auto;
+  }
+  .nav-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .nav-brand { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+  /* ☰: three bars, drawn square so they stay pixel-crisp. */
+  .nav-toggle {
+    flex: 0 0 36px; height: 32px; padding: 0; border: none; background: none;
+    color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .nav-toggle:hover { color: var(--text); background: var(--line); }
+  .nav-burger { width: 16px; height: 2px; background: currentColor; box-shadow: 0 -5px 0 currentColor, 0 5px 0 currentColor; }
+  /* Refresh, Fresh check and the status dots: rows like the items above,
+     not the framed header buttons they were (the frames are border-images,
+     hence border-image: none for each state that sets one). */
+  .nav-actions { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 2px solid var(--line); }
+  .app-nav .reload.named, .app-nav .reload.named:hover, .app-nav .reload.named.spinning,
+  .app-nav .check-status, .app-nav .check-status:hover {
+    border: none; border-image: none; background: none; margin: 0;
+    width: 100%; height: auto; justify-content: flex-start; gap: 10px;
+    padding: 4px 8px; font-size: 15px; color: var(--text);
+  }
+  .app-nav .reload:hover, .app-nav .check-status:hover { background: var(--line); }
+  .app-nav .reload.spinning { color: var(--new); }
+  .app-nav .check-status { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* Folded down to the icons: no names, each item centred. */
+  body.nav-collapsed { --nav-w: 64px; }
+  .app-nav.collapsed .nav-brand, .app-nav.collapsed .nav-label, .app-nav.collapsed .reload-label,
+  .app-nav.collapsed .settings-status { display: none; }
+  .app-nav.collapsed .nav-head { justify-content: center; }
+  .app-nav.collapsed .nav-item, .app-nav.collapsed .reload, .app-nav.collapsed .check-status { justify-content: center; padding-left: 0; padding-right: 0; }
+  .app-nav.collapsed .check-status { display: grid; grid-template-columns: repeat(2, 9px); justify-content: center; gap: 5px; }
+  /* The check-status details open beside the sidebar, by the dots. */
+  .check-status-panel { position: fixed; left: calc(var(--nav-w) + 8px); bottom: 12px; z-index: 75; width: 420px; max-width: calc(100vw - var(--nav-w) - 16px); margin: 0; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: none; border: none; text-align: left; color: var(--text);
+    font: inherit; font-size: 15px; padding: 4px 8px; cursor: pointer;
+  }
+  .nav-item:hover { background: var(--line); }
+  .nav-item[aria-current="page"] { background: var(--new); color: var(--card); }
+  /* The sidebar's icons at their drawn size, 32px: half that is only crisp
+     on a Retina screen, and on a regular one the 1px lines of a drawing
+     like the dashboard outline go missing. Refresh's and Fresh check's too,
+     so the rows line up. */
+  .app-nav .nav-icon, .app-nav .reload-icon { flex: 0 0 32px; width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-spacer { flex: 1; }
+  /* The gear's "Saving… / Saved." (announceSettings), after its name. */
+  .nav-item.expanded .settings-status { margin-left: auto; color: var(--new); }
+  .nav-item.expanded[aria-current="page"] .settings-status { color: inherit; }
+  @media (max-width: 700px) {
+    :root { --nav-w: 0px; --nav-h: 52px; }
+    body { padding-left: 16px; padding-top: calc(var(--nav-h) + 16px); }
+    .app-nav {
+      bottom: auto; right: 0; width: auto; height: var(--nav-h);
+      flex-direction: row; padding: 4px 8px; overflow-x: auto;
+      border-right: none; border-bottom: 2px solid var(--ink);
+    }
+    .nav-item { width: auto; flex: 0 0 auto; padding: 6px 10px; }
+    .nav-item .settings-status { display: none; }
+    .nav-head { display: none; }
+    /* Scrolls sideways when it doesn't fit, without a scrollbar eating the bar. */
+    .app-nav { scrollbar-width: none; }
+    .app-nav::-webkit-scrollbar { display: none; }
+    .nav-actions { flex-direction: row; margin: 0 0 0 4px; padding: 0 0 0 4px; border-top: none; border-left: 2px solid var(--line); }
+    .app-nav .reload.named, .app-nav .check-status { width: auto; flex: 0 0 auto; padding: 6px 8px; }
+    .app-nav .check-status { flex-wrap: nowrap; }
+    .app-nav .reload-label { display: none; }
+    .check-status-panel { left: 8px; top: calc(var(--nav-h) + 8px); bottom: auto; }
+    /* No folding in the top bar: it's already as small as it gets. */
+    body.nav-collapsed { --nav-w: 0px; }
+    .app-nav.collapsed .nav-label { display: inline; }
+  }
+  /* Settings is a page of its own: while it's open, it's all main shows. */
+  body[data-page="settings"] main > :not(#settings-panel) { display: none; }
   /* Assignments on the left, announcements on the right. Stacked on narrow screens. */
   .columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; }
   @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
@@ -2681,6 +2804,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     --icon-freshcheck: url("data:image/png;base64,${ICON_FRESHCHECK_B64}");
     --icon-stop: url("data:image/png;base64,${ICON_STOP_B64}");
     --icon-settings: url("data:image/png;base64,${ICON_SETTINGS_B64}");
+    --icon-workspace: url("data:image/png;base64,${ICON_WORKSPACE_B64}");
+    --icon-dashboard: url("data:image/png;base64,${ICON_DASHBOARD_B64}");
+    --icon-dashboard-outline: url("data:image/png;base64,${ICON_DASHBOARD_OUTLINE_B64}");
+    --icon-grades: url("data:image/png;base64,${ICON_GRADES_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -2714,6 +2841,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
      button hovers to. */
   #freshcheck-button.running:hover { color: var(--hot); border-color: var(--hot); }
   .icon-settings { -webkit-mask-image: var(--icon-settings); mask-image: var(--icon-settings); }
+  .icon-workspace { -webkit-mask-image: var(--icon-workspace); mask-image: var(--icon-workspace); }
+  .icon-dashboard { -webkit-mask-image: var(--icon-dashboard-outline); mask-image: var(--icon-dashboard-outline); }
+  [aria-current="page"] .icon-dashboard { -webkit-mask-image: var(--icon-dashboard); mask-image: var(--icon-dashboard); }
+  .icon-grades { -webkit-mask-image: var(--icon-grades); mask-image: var(--icon-grades); }
   .reload:hover { color: var(--new); border-color: var(--new); }
   /* Spins while a check is running. Only the ICON spins, not the whole
      button — with a text label sitting next to it now, spinning the
@@ -3229,10 +3360,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .grades-fix a.mini-btn { text-decoration: none; }
   .grades-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .grades-buttons { display: flex; gap: 6px; }
-  .grades-center { position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--text); overflow: auto; padding: 16px; box-sizing: border-box; }
+  .grades-center { position: fixed; inset: var(--nav-h) 0 0 var(--nav-w); z-index: 60; background: var(--bg); color: var(--text); overflow: auto; padding: 16px; box-sizing: border-box; }
   .grades-center[hidden] { display: none; }
   /* The PDF workspace: its page fills the window, in a frame of its own (46-workspace.js). */
-  .workspace-panel { position: fixed; inset: 0; z-index: 61; background: var(--bg); }
+  .workspace-panel { position: fixed; inset: var(--nav-h) 0 0 var(--nav-w); z-index: 61; background: var(--bg); }
   .workspace-panel[hidden] { display: none; }
   .workspace-panel iframe { width: 100%; height: 100%; border: 0; display: block; }
   .gc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 1200px; margin: 0 auto 12px; }
@@ -3529,25 +3660,24 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
   ${pixelCornerCss()}
 </style>
 </head>
-<body>
+<body${readSettings().navCollapsed ? ' class="nav-collapsed"' : ''}>
 <div id="photo-viewer" hidden onclick="if (event.target === this) closePhoto()">
   <img alt="">
   <div class="photo-bar"><a id="photo-viewer-link" href="#" target="_blank" rel="noopener">${escapeHtml(t('photoOpenInDrive'))}</a><button type="button" onclick="closePhoto()">${escapeHtml(t('photoClose'))}</button></div>
 </div>
-<main>
-  <header>
-    <h1>${escapeHtml(t('title'))}</h1>
-    <div class="when">${escapeHtml(t('updated'))} ${escapeHtml(time)}<button class="reload named"
+${appNav(gradesCenter, `<button class="reload named"
          id="refresh-button"
-         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button><button class="reload named${progress ? ' running' : ''}"
+         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button>
+  <button class="reload named${progress ? ' running' : ''}"
          id="freshcheck-button"
-         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button><button class="reload named"
-         id="workspace-button" style="display: none" onclick="openWorkspace()"
-         title="${escapeHtml(t('wsButtonTitle'))}"><span class="reload-label">${escapeHtml(t('wsTitle'))}</span></button><button class="reload"
-         id="settings-button" onclick="toggleSettingsPanel()"
-         title="${escapeHtml(t('settingsTitle'))}"><span class="pixel-icon icon-settings"></span><span class="settings-status" id="settings-status"></span></button>${checkStatusIndicator()}</div>
-    <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
+         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
+  ${checkStatusIndicator()}`)}
 ${checkStatusPanel()}
+<main>
+${settingsPanel()}
+  <header>
+    <div class="when">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>
+    <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
   </header>
 ${progressBar}
 ${inProgress}
@@ -3561,11 +3691,10 @@ ${pendingBanner}
 ${scheduleBanner}
 ${updateBanner}
 ${warning}
-${gradesCenterPanel()}
+${gradesCenter}
   <div class="workspace-panel" id="workspace-panel" hidden><iframe id="workspace-frame" title="${escapeHtml(t('wsTitle'))}"></iframe></div>
   <div class="columns">
   <div>
-${settingsPanel()}
 ${filtersPanel(allItems, announcements, now, rawItems)}
 ${emptyBanner}
 ${remindersSection(now)}
@@ -3834,7 +3963,7 @@ function openWorkspace() {
   var panel = document.getElementById('workspace-panel');
   if (!panel || !hasNativeBridge() || !panel.hidden) return;
   panel.hidden = false;
-  document.body.style.overflow = 'hidden';
+  syncPages();
   dispatchAction('workspacePage', '', function () {
     var frame = document.getElementById('workspace-frame');
     frame.src = WORKSPACE_ORIGIN + '/workspace.html' + (workspaceDoc ? '?doc=' + workspaceDoc : '');
@@ -3854,13 +3983,14 @@ function closeWorkspace() {
   if (!panel || panel.hidden || workspaceClosing) return;
   workspaceClosing = setTimeout(finishClosingWorkspace, 2000);
   toWorkspace({ type: 'flush' });
+  syncPages();
 }
 function finishClosingWorkspace() {
   clearTimeout(workspaceClosing);
   workspaceClosing = null;
   document.getElementById('workspace-panel').hidden = true;
   document.getElementById('workspace-frame').src = 'about:blank';
-  document.body.style.overflow = '';
+  syncPages();
   // The web panes' pages close with it (they reopen where they were).
   dispatchAction('webPane', JSON.stringify({ op: 'closeAll' }), null);
 }
@@ -4559,12 +4689,70 @@ function toggleSettingsPanel() {
   if (!panel) return;
   if (panel.hidden) {
     panel.hidden = false;
+    syncPages();
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     return;
   }
   panel.hidden = true;
+  syncPages();
   if (settingsDirty()) saveSettings();
 }
+
+// ── The sidebar's pages (appNav) ──
+//
+// The dashboard is the page itself; Workspace, the Grades center and
+// Settings each open over it, and showPage closes the one that's open
+// before opening the next, the way each one's own Close does (Settings
+// saves as it closes, the workspace saves before it goes). Which page is
+// showing is read from the panels rather than kept here, so the app's
+// own calls (the menu bar's Open Workspace and Settings…) light up the
+// right item too: every opener and closer ends in syncPages. A workspace
+// that's still saving on its way out already counts as closed.
+function currentPage() {
+  var workspace = document.getElementById('workspace-panel');
+  if (workspace && !workspace.hidden && !workspaceClosing) return 'workspace';
+  var center = document.getElementById('grades-center');
+  if (center && !center.hidden) return 'grades';
+  var settings = document.getElementById('settings-panel');
+  if (settings && !settings.hidden) return 'settings';
+  return 'dashboard';
+}
+function showPage(name) {
+  var from = currentPage();
+  if (from === name) return;
+  if (from === 'settings') toggleSettingsPanel();
+  else if (from === 'grades') toggleGradesCenter(false);
+  else if (from === 'workspace') closeWorkspace();
+  if (name === 'settings') toggleSettingsPanel();
+  else if (name === 'grades') toggleGradesCenter(true);
+  else if (name === 'workspace') openWorkspace();
+  syncPages();
+}
+// The ☰: folds the sidebar down to its icons and back. Remembered as a
+// setting (navCollapsed), fire-and-forget like the grades' Hide: it's
+// already done on screen.
+function toggleNav() {
+  var nav = document.getElementById('app-nav');
+  var button = document.getElementById('nav-toggle');
+  var collapsed = !nav.classList.contains('collapsed');
+  nav.classList.toggle('collapsed', collapsed);
+  document.body.classList.toggle('nav-collapsed', collapsed);
+  button.setAttribute('aria-expanded', String(!collapsed));
+  button.title = button.getAttribute(collapsed ? 'data-expand' : 'data-collapse');
+  dispatchAction('config', toBase64Url(JSON.stringify({ navCollapsed: collapsed })));
+}
+function syncPages() {
+  var page = currentPage();
+  document.body.setAttribute('data-page', page);
+  // The pages over the dashboard scroll inside themselves, not the page under them.
+  document.body.style.overflow = page === 'grades' || page === 'workspace' ? 'hidden' : '';
+  var items = document.querySelectorAll('.nav-item');
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].getAttribute('data-page') === page) items[i].setAttribute('aria-current', 'page');
+    else items[i].removeAttribute('aria-current');
+  }
+}
+syncPages();
 
 // The "some settings need a fresh check" notice's button. Starts the same
 // quick pass the home API's reload does (Classroom and Canvas, no
@@ -4926,7 +5114,7 @@ function toggleGradesCenter(open) {
   var panel = document.getElementById('grades-center');
   if (!panel) return;
   panel.hidden = !open;
-  document.body.style.overflow = open ? 'hidden' : '';
+  syncPages();
   if (open) { drawGradesChat(); gradesPicker(); var q = document.getElementById('gc-question'); if (q && !q.disabled) q.focus(); }
 }
 // The chat's model picker (51-model-picker.js), made the first time the
@@ -5150,8 +5338,7 @@ function updateGradesRows() {
 // rest of the settings; the field empties once it's saved.
 // From a Q problem on the Grades list: Settings, open at Grades.
 function openGradesSettings() {
-  var panel = document.getElementById('settings-panel');
-  if (panel && panel.hidden) toggleSettingsPanel();
+  showPage('settings');
   var btn = document.querySelector('.settings-nav-btn[onclick*=grades]');
   showSettingsSection('grades', btn);
   var field = document.getElementById('grades-password');
@@ -6174,11 +6361,7 @@ function announceSettings(text) {
 // error would land in a panel that's no longer on screen and the person
 // would believe it worked.
 function reopenSettingsWith(message) {
-  var panel = document.getElementById('settings-panel');
-  if (panel) {
-    panel.hidden = false;
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
+  showPage('settings');
   announceSettings(message);
 }
 

@@ -1,6 +1,6 @@
 # Workspace
 
-The **Workspace** button at the top of the page (or **Open Workspace** in the menu bar, ⌘O / Ctrl+O) opens a panel over the page for working on schoolwork: PDFs to write on, web pages like Google Docs and Desmos, and the AI, side by side. **Close** or Esc goes back, and it opens again the way you left it.
+**Workspace** in the sidebar (or **Open Workspace** in the menu bar, ⌘O / Ctrl+O) opens a page for working on schoolwork: PDFs to write on, web pages like Google Docs and Desmos, and the AI, side by side. **Close**, Esc or another page in the sidebar goes back, and it opens again the way you left it.
 
 ## Panes
 

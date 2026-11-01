@@ -599,6 +599,11 @@ const DICTIONARIES = {
     countCourses: n => `${n} ${pluralizeRu(n, 'новый курс', 'новых курса', 'новых курсов')}`,
     countPosts: n => `${n} ${pluralizeRu(n, 'сообщение', 'сообщения', 'сообщений')}`,
     countDue: n => `${n} горит`,
+    // The sidebar down the left of the page
+    navLabel: 'Разделы',
+    navDashboard: 'Главная',
+    navCollapse: 'Свернуть боковую панель',
+    navExpand: 'Развернуть боковую панель',
     // PDF workspace (46-workspace.js)
     wsTitle: 'Рабочая область',
     wsButtonTitle: 'Рабочая область: пишите на PDF',
@@ -1273,6 +1278,11 @@ const DICTIONARIES = {
     countCourses: n => `${n} new ${n === 1 ? 'course' : 'courses'}`,
     countPosts: n => `${n} ${n === 1 ? 'post' : 'posts'}`,
     countDue: n => `${n} due`,
+    // The sidebar down the left of the page
+    navLabel: 'Pages',
+    navDashboard: 'Dashboard',
+    navCollapse: 'Collapse the sidebar',
+    navExpand: 'Expand the sidebar',
     // PDF workspace (46-workspace.js)
     wsTitle: 'Workspace',
     wsButtonTitle: 'Workspace: write on PDFs',

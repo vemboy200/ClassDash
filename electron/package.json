@@ -44,7 +44,11 @@
           "loading-icon.png",
           "loading-icon-light.png",
           "stop-icon.png",
-          "warning-icon.png"
+          "warning-icon.png",
+          "workspace-icon.png",
+          "dashboard-icon.png",
+          "dashboard-outline-icon.png",
+          "grades-icon.png"
         ]
       },
       {
