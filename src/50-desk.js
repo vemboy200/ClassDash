@@ -201,8 +201,16 @@ function pageHtml() {
   .divider.row { cursor: col-resize; }
   .divider.col { cursor: row-resize; }
   .divider:hover, .divider.dragging { background: var(--accent); opacity: .5; }
-  .pane-head .move { display: none; padding: 0 6px; }
-  .pane-head .move.can { display: inline-block; }
+  .pane-head .move { display: none; padding: 0 3px; line-height: 0; }
+  .pane-head .move.can { display: inline-flex; align-items: center; }
+  /* The user's arrow, drawn pointing up at 16px: turned a quarter at a time
+     for the other ways, which keeps every pixel on a whole one. */
+  .move i { display: inline-block; width: 16px; height: 16px; background: currentColor;
+    -webkit-mask: url("data:image/png;base64,${ARROW_B64}") center / 16px 16px no-repeat;
+    mask: url("data:image/png;base64,${ARROW_B64}") center / 16px 16px no-repeat; }
+  .move[data-way="right"] i { transform: rotate(90deg); }
+  .move[data-way="down"] i { transform: rotate(180deg); }
+  .move[data-way="left"] i { transform: rotate(270deg); }
   .note-box { padding: 24px; color: var(--dim); text-align: center; }
   /* web */
   .web-bar { display: flex; gap: 4px; align-items: center; padding: 4px 6px; border-bottom: 2px solid var(--line); position: relative; }
@@ -278,6 +286,7 @@ ${PAGE_SCRIPT.replace('__STRINGS__', () => JSON.stringify(L).replace(/</g, '\\u0
 // Beside the scripts, like 08-page.js's icons (a template file, not data).
 const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
 const WARNING_B64 = readIcon('warning-icon.png');
+const ARROW_B64 = readIcon('arrow-icon.png');
 
 /** Writes workspace.html, the desk. */
 function writeDeskPage() {
@@ -505,8 +514,8 @@ function makePane(p) {
   el.className = 'pane';
   el.dataset.id = p.pane;
   el.innerHTML = '<div class="pane-head"><button class="small kind"></button><span class="pane-title"></span>' +
-    '<button class="small move" data-way="left">←</button><button class="small move" data-way="right">→</button>' +
-    '<button class="small move" data-way="up">↑</button><button class="small move" data-way="down">↓</button>' +
+    '<button class="small move" data-way="left"><i></i></button><button class="small move" data-way="right"><i></i></button>' +
+    '<button class="small move" data-way="up"><i></i></button><button class="small move" data-way="down"><i></i></button>' +
     '<button class="small split-r"></button><button class="small split-d"></button><button class="small shut">×</button></div><div class="pane-body"></div>';
   const head = el.querySelector('.pane-head');
   const kindBtn = head.querySelector('.kind');

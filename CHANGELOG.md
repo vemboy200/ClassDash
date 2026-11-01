@@ -6,6 +6,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 - **A sidebar**, like Home Assistant's: **Dashboard**, **Workspace**, **Grades center** and **Settings**, with the page you're on lit. Workspace, the Grades center and Settings now open as pages of their own instead of panels over the dashboard, and Settings saves when you go to another page. **Refresh**, **Fresh check**, the status dots (now one cloud for every service: ✓ all worked, ! some failed, ✕ fewer than half worked, with how many failed beside it) and when the page was updated moved to the bottom of the sidebar, ClassDash's name to its top (the list of platforms under it is gone), and **☰** folds it down to its icons (remembered). In a narrow window the sidebar is a bar across the top.
 - **Settings is a menu**, like Home Assistant's: a row for each part with what's in it, each opening as its own page with a **←** back (Esc works too). Account is now **Services**, Advanced is **System**, and **Language** moved to Display. There's no **Done** button anymore: going to another page in the sidebar saves, as before.
+- **New arrows** in the workspace: the buttons that move a pane (← → ↑ ↓) use the same pixel arrow as Settings' back button.
 
 ## v2.7.0 (2026-11-01)
 

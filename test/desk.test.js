@@ -97,6 +97,8 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     const top = id => parseFloat(d.querySelector(`.pane[data-id="${id}"]`).style.top);
     const ways = id => [...d.querySelectorAll(`.pane[data-id="${id}"] .move.can`)].map(b => b.dataset.way).join();
     ok('arrows only the ways there\'s a pane to go: p1 (top left) right and down, p3 (bottom left) right and up, the AI left', ways('p1') === 'right,down' && ways('p3') === 'right,up' && ways('p2') === 'left', [ways('p1'), ways('p3'), ways('p2')].join(' | '));
+    ok("each arrow is the user's arrow icon, with its name as the tooltip, no text", [...d.querySelectorAll('.pane[data-id="p1"] .move')].every(b => b.querySelector('i') && !b.textContent.trim() && b.title) &&
+      d.documentElement.outerHTML.includes('.move[data-way="left"] i { transform: rotate(270deg); }'));
     d.querySelector('.pane[data-id="p3"] .move[data-way="up"]').click();
     ok('...↑ puts the lower pane on top, without reloading either', top('p3') < top('p1') && d.querySelector('.pane[data-id="p1"] iframe') === frame1);
     await sleep(500);
