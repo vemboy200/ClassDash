@@ -31,9 +31,9 @@ const b64 = s => JSON.parse(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'),
   const scriptErrors = errors.filter(e => !/Not implemented: navigation/.test(e));
   ok('page script loads without errors', scriptErrors.length === 0, scriptErrors.join(' | '));
   ok('optimisticExclusions is gone', typeof w.optimisticExclusions === 'undefined');
-  ok('no Save button, one Done button in the panel',
-    d.querySelectorAll('.settings-actions button').length === 1 &&
-    d.querySelector('.settings-actions button').textContent === 'Done');
+  ok('no Save or Done button: leaving Settings saves it',
+    d.querySelectorAll('#settings-panel button').length > 0 && !d.querySelector('.settings-actions button') &&
+    ![...d.querySelectorAll('#settings-panel button')].some(b => /^(Done|Save)$/.test(b.textContent.trim())));
 
   const panel = d.getElementById('settings-panel');
   w.toggleSettingsPanel(); ok('opens', panel.hidden === false);

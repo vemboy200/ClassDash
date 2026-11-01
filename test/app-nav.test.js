@@ -99,5 +99,38 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
 
   w.openGradesSettings();
   ok("the grades' Open settings goes to the Settings page", !settings.hidden && lit(d).join() === 'settings');
+  const menu = d.getElementById('settings-menu');
+  const shown = () => [...d.querySelectorAll('.settings-section')].filter(x => !x.hidden).map(x => x.getAttribute('data-section')).join();
+  ok('...straight to its Grades section, not the menu', menu.hidden && shown() === 'grades');
+
+  // ── Settings as a menu ──
+  w.showPage('dashboard');
+  d.getElementById('settings-button').click();
+  ok('Settings opens on its menu, every section closed', !menu.hidden && shown() === '');
+  ok('a row per section, in order, each with what it holds', [...d.querySelectorAll('.settings-row')].map(r => r.getAttribute('data-open')).join() === 'services,ai,classes,schedule,calendar,grades,fetching,display,api,advanced' &&
+    [...d.querySelectorAll('.settings-row-desc')].every(x => x.textContent.trim()));
+  d.querySelector('.settings-row[data-open="ai"]').click();
+  ok('a row opens its section as a page, with its name and a back arrow', menu.hidden && shown() === 'ai' &&
+    d.querySelector('[data-section="ai"] .settings-section-head h2').textContent === 'AI' && !!d.querySelector('[data-section="ai"] .settings-back .icon-back'));
+  d.querySelector('[data-section="ai"] .settings-back').click();
+  ok('the back arrow goes to the menu, its row focused', !menu.hidden && shown() === '' && d.activeElement === d.querySelector('.settings-row[data-open="ai"]'));
+  d.querySelector('.settings-row[data-open="calendar"]').click();
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' }));
+  ok('Esc goes back to the menu too, and Settings stays open', !menu.hidden && !settings.hidden);
+  ok('Schedule and Calendar are pages of their own', !!d.querySelector('[data-section="schedule"] #schedule-settings') && !d.querySelector('[data-section="calendar"] #schedule-settings'));
+  ok('Language is under Display, other AI apps under AI', !!d.querySelector('[data-section="display"] [data-key="language"]') && !!d.querySelector('[data-section="ai"] #ai-mcp') && !d.querySelector('[data-section="api"] #ai-mcp'));
+  d.querySelector('.settings-row[data-open="display"]').click();
+  w.showPage('dashboard');
+  d.getElementById('settings-button').click();
+  ok('opening Settings again starts at the menu', !menu.hidden && shown() === '');
+
+  // No Done button: hiding the window with changes in Settings saves them.
+  const f2 = settings.querySelector('input[type="text"][data-key]');
+  f2.value = f2.value + 'y';
+  posted.length = 0;
+  Object.defineProperty(d, 'hidden', { configurable: true, get: () => true });
+  d.dispatchEvent(new w.Event('visibilitychange'));
+  ok('hiding the window with Settings changed saves them', posted.some(m => m.action === 'config'), JSON.stringify(posted.map(m => m.action)));
+  Object.defineProperty(d, 'hidden', { configurable: true, get: () => false });
 }
 process.exit(process.exitCode || 0);

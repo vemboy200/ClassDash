@@ -29,7 +29,7 @@ Open **ClassDash**. If it doesn't already know about a project folder, it asks: 
 - opens Settings so you can fill in your school email and (if your school uses it) your Canvas address — everything else has a default and can stay as-is
 - offers to sign you in — a real browser window opens and you log in by hand, the same as logging into any site. That session is saved and lasts for weeks; when it eventually expires, ClassDash tells you with a notification instead of silently showing stale data (macOS only for now — see [Troubleshooting](troubleshooting.md))
 
-Skipped a step, or want to redo one later — a different browser, signing in again? Both are still reachable any time afterward in **Settings → Account → Setup** (**Choose Browser…**, **Sign In…**), not just during that first run. **Settings → Advanced → Browser path** lets you pick any browser app directly, with a file picker instead of typing a path.
+Skipped a step, or want to redo one later — a different browser, signing in again? Both are still reachable any time afterward in **Settings → Services → Setup** (**Choose Browser…**, **Sign In…**), not just during that first run. **Settings → System → Browser path** lets you pick any browser app directly, with a file picker instead of typing a path.
 
 **On macOS specifically**, two permissions still need granting, both in **System Settings → Privacy & Security**:
 

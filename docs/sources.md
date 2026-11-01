@@ -5,7 +5,7 @@ Where ClassDash reads your schoolwork from, how to choose, and how each one work
 ## Classes and sources
 
 - **Link classes** in Settings → **Classes** when one class shows up on two platforms, like its Classroom class and its Canvas course: name the link, tick its classes, and they show as one class everywhere. A link with one class just renames it. Your Q classes are in the list too, marked Q (see [Grades](grades.md)), and classes the page hides aren't. If a teacher renames a Classroom class, ClassDash follows it, so it doesn't turn into a second class.
-- **Choosing your sources**: Settings → Account has a box for each thing ClassDash can read.
+- **Choosing your sources**: Settings → Services has a box for each thing ClassDash can read.
   - **Google Classroom** and **Edpuzzle** need a browser.
   - **Canvas — Google sign-in** reads Canvas through that browser, for schools whose Canvas opens with "Sign in with Google". Nothing extra to set up.
   - **Canvas — API** reads Canvas with an access token (Canvas → Account → Settings → **New Access Token**), with no browser or sign-in. Treat the token like a password; it expires, and then you make a new one. With both Canvas ways on, Google sign-in is the fallback for when the token fails.

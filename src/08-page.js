@@ -68,6 +68,7 @@ const ICON_CLOUD_OK_B64 = readIcon('cloud-ok-icon.png');
 const ICON_CLOUD_ATTENTION_B64 = readIcon('cloud-attention-icon.png');
 const ICON_CLOUD_BAD_B64 = readIcon('cloud-bad-icon.png');
 const ICON_CLOUD_B64 = readIcon('cloud-icon.png');
+const ICON_BACK_B64 = readIcon('back-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -1608,14 +1609,14 @@ ${items}
     browser: s.classroomEnabled !== false || !!s.edpuzzleEnabled || s.canvasSsoEnabled !== false,
   };
 
-  // Four sections behind a sidebar instead of one long scroll — fine at
-  // 8 settings, unwieldy at 17. The sidebar only shows/hides
-  // <div data-section> blocks with plain JS (showSettingsSection, in the
-  // page's own <script>); it changes nothing about how saveSettings()
-  // collects values — that still walks every [data-key]/[data-bool-key]
-  // under #settings-panel, hidden section or not.
+  // A menu of sections, like Home Assistant's settings: each row opens its
+  // section as a page of its own, with a back arrow to the menu. The menu
+  // only shows/hides <div data-section> blocks with plain JS
+  // (showSettingsSection, in the page's own <script>); it changes nothing
+  // about how saveSettings() collects values — that still walks every
+  // [data-key]/[data-bool-key] under #settings-panel, hidden section or not.
   const sections = [
-    { id: 'account', label: t('settingsSectionAccount'), body: `
+    { id: 'services', label: t('settingsSectionAccount'), desc: t('settingsDescServices'), body: `
 ${sourcesField()}
       <div data-needs="classroom"${needs.classroom ? '' : ' hidden'}>
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
@@ -1627,14 +1628,6 @@ ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
 ${field('canvasToken', t('settingsCanvasToken'), s.canvasToken, t('settingsCanvasTokenHint'), true)}
       </div>
 ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
-      <label class="setting-row">
-        <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
-        <select data-key="language">
-          <option value="ru"${s.language === 'ru' ? ' selected' : ''}>Русский</option>
-          <option value="en"${s.language === 'en' ? ' selected' : ''}>English</option>
-        </select>
-        <span class="field-hint"></span>
-      </label>
       <div class="setup-group" data-needs="browser" data-native-only${needs.browser ? '' : ' hidden'}>
         <div class="settings-subhead">${escapeHtml(t('settingsSetup'))}</div>
         <div class="setting-row">
@@ -1652,7 +1645,15 @@ ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHi
           <span class="field-hint">${escapeHtml(t('settingsSetupSignInHint'))}</span>
         </div>
       </div>` },
-    { id: 'display', label: t('settingsSectionDisplay'), body: `
+    { id: 'display', label: t('settingsSectionDisplay'), desc: t('settingsDescDisplay'), body: `
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
+        <select data-key="language">
+          <option value="ru"${s.language === 'ru' ? ' selected' : ''}>Русский</option>
+          <option value="en"${s.language === 'en' ? ' selected' : ''}>English</option>
+        </select>
+        <span class="field-hint"></span>
+      </label>
 ${field('summaryHours', t('settingsHours'), s.summaryHours.join(', '), t('settingsHoursHint'))}
 ${exclusionsField(s.exclusions)}
       <label class="setting-row">
@@ -1698,21 +1699,21 @@ ${exclusionsField(s.exclusions)}
         <input type="checkbox" class="toggle" data-bool-key="showKeyHints"${s.showKeyHints !== false ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsKeyHintsHint'))}</span>
       </label>` },
-    { id: 'classes', label: t('settingsSectionClasses'), body: `
+    { id: 'classes', label: t('settingsSectionClasses'), desc: t('settingsDescClasses'), body: `
 ${classLinksField(s.classLinks)}
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsAssignmentLinksSameClass'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="assignmentLinksSameClass"${s.assignmentLinksSameClass ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsAssignmentLinksSameClassHint'))}</span>
       </label>` },
-    { id: 'calendar', label: t('settingsSectionCalendar'), body: calendarSettings() },
-    { id: 'schedule', label: t('settingsSectionSchedule'), body: `
+    { id: 'calendar', label: t('settingsSectionCalendar'), desc: t('settingsDescCalendar'), body: calendarSettings() },
+    { id: 'schedule', label: t('settingsSectionSchedule'), desc: t('settingsDescSchedule'), body: `
       <p class="hint">${escapeHtml(t('scheduleIntro'))}</p>
       <div id="schedule-settings"></div>
       <span class="hint schedule-save-state"></span>` },
-    { id: 'grades', label: t('settingsSectionGrades'), body: gradesSettings(s, field) },
-    { id: 'ai', label: t('settingsSectionAi'), body: aiSettings(s, field) },
-    { id: 'api', label: t('settingsSectionApi'), body: `
+    { id: 'grades', label: t('settingsSectionGrades'), desc: t('settingsDescGrades'), body: gradesSettings(s, field) },
+    { id: 'ai', label: t('settingsSectionAi'), desc: t('settingsDescAi'), body: aiSettings(s, field) },
+    { id: 'api', label: t('settingsSectionApi'), desc: t('settingsDescApi'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="apiEnabled"${s.apiEnabled ? ' checked' : ''}
@@ -1753,7 +1754,7 @@ ${classLinksField(s.classLinks)}
           <span class="field-hint">${escapeHtml(t('settingsApiFingerprintHint'))}</span>
         </label>
       </div>` },
-    { id: 'fetching', label: t('settingsSectionFetching'), body: `
+    { id: 'fetching', label: t('settingsSectionFetching'), desc: t('settingsDescFetching'), body: `
       <label class="setting-row" data-native-only>
         <span class="field-name">${escapeHtml(t('settingsOpenAtLogin'))}</span>
         <input type="checkbox" class="toggle" data-bool-key="openAtLogin"${s.openAtLogin ? ' checked' : ''}>
@@ -1766,7 +1767,7 @@ ${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.fresh
         <input type="checkbox" class="toggle" data-bool-key="freshCheckOnlyWhenCharging"${s.freshCheckOnlyWhenCharging ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsFreshCheckChargingHint'))}</span>
       </label>` },
-    { id: 'advanced', label: t('settingsAdvanced'), body: `
+    { id: 'advanced', label: t('settingsAdvanced'), desc: t('settingsDescAdvanced'), body: `
 ${versionRow()}
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
@@ -1782,26 +1783,26 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
       </div>` },
   ];
 
-  const sidebarButtons = sections.map((sec, i) =>
-    `        <button type="button" class="settings-nav-btn${i === 0 ? ' active' : ''}"` +
-    ` onclick="showSettingsSection('${sec.id}', this)">${escapeHtml(sec.label)}</button>`).join('\n');
+  const ORDER = ['services', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'api', 'advanced'];
+  sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
-  const sectionBlocks = sections.map((sec, i) =>
-    `      <div class="settings-section" data-section="${sec.id}"${i === 0 ? '' : ' hidden'}>${sec.body}
+  const menuRows = sections.map(sec =>
+    `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
+    `<span class="settings-row-text"><span class="settings-row-name">${escapeHtml(sec.label)}</span>` +
+    `<span class="settings-row-desc">${escapeHtml(sec.desc)}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>`).join('\n');
+
+  const sectionBlocks = sections.map(sec =>
+    `      <div class="settings-section" data-section="${sec.id}" hidden>
+        <div class="settings-section-head"><button type="button" class="settings-back" onclick="showSettingsMenu()" title="${escapeHtml(t('settingsBack'))}" aria-label="${escapeHtml(t('settingsBack'))}"><span class="pixel-icon icon-back"></span></button><h2>${escapeHtml(sec.label)}</h2></div>${sec.body}
       </div>`).join('\n');
 
   return `  <div class="settings-panel" id="settings-panel" hidden>
-      <div class="name">${escapeHtml(t('settingsTitle'))}</div>
-      <div class="settings-body">
-      <div class="settings-sidebar">
-${sidebarButtons}
+      <div class="settings-menu" id="settings-menu">
+      <div class="settings-section-head"><h2>${escapeHtml(t('settingsTitle'))}</h2></div>
+${menuRows}
       </div>
-      <div class="settings-content">
 ${sectionBlocks}
-      </div>
-      </div>
       <div class="settings-actions">
-        <button onclick="toggleSettingsPanel()">${escapeHtml(t('settingsDone'))}</button>
         <span class="result" id="settings-result"></span>
       </div>
   </div>`;
@@ -2200,7 +2201,7 @@ function rasterSprite(N, shapeAt, edge, fill) {
 function pixelCornerCss() {
   const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai';
   const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, ' +
-    '.settings-actions button, .show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
+    '.show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
   const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
     '.setting-row select, #schedule-settings select, #schedule-settings input, .reminder-add input[type="text"], ' +
@@ -2822,6 +2823,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     --icon-cloud-attention: url("data:image/png;base64,${ICON_CLOUD_ATTENTION_B64}");
     --icon-cloud-bad: url("data:image/png;base64,${ICON_CLOUD_BAD_B64}");
     --icon-cloud: url("data:image/png;base64,${ICON_CLOUD_B64}");
+    --icon-back: url("data:image/png;base64,${ICON_BACK_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -3096,32 +3098,32 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     padding: 14px 16px; margin-bottom: 20px; font-size: 13px;
   }
   .settings-panel[hidden] { display: none; }
-  /* Sidebar + content, replacing what used to be one long scrolling
-     list of every setting in a row. saveSettings() doesn't care —
-     it walks [data-key]/[data-bool-key] under #settings-panel
-     regardless of which .settings-section is currently hidden. */
-  .settings-body { display: flex; gap: 18px; align-items: flex-start; margin-top: 10px; }
-  .settings-sidebar {
-    display: flex; flex-direction: column; gap: 2px; flex: 0 0 150px;
-    border-right: 1px solid var(--line); padding-right: 12px;
+  /* The menu, a row per section with what's in it, like Home Assistant's
+     settings; each section is a page of its own with a back arrow.
+     saveSettings() doesn't care — it walks [data-key]/[data-bool-key]
+     under #settings-panel regardless of which part is hidden. */
+  .settings-menu[hidden], .settings-section[hidden] { display: none; }
+  .settings-row {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    background: none; border: none; border-top: 1px solid var(--line);
+    text-align: left; color: var(--text); font: inherit; padding: 10px 8px; cursor: pointer;
   }
-  .settings-nav-btn {
-    background: none; border: none; text-align: left; color: var(--dim);
-    font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 7px;
-    cursor: pointer;
+  .settings-row:first-of-type { border-top: none; }
+  .settings-row:hover, .settings-row:focus-visible { background: var(--line); }
+  .settings-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+  .settings-row-name { font-size: 15px; font-weight: 600; }
+  .settings-row-desc { font-size: 13px; color: var(--dim); }
+  .settings-row-go { font-size: 22px; color: var(--dim); line-height: 1; }
+  .settings-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .settings-section-head h2 { margin: 0; }
+  .settings-menu .settings-section-head { min-height: 32px; }
+  .settings-back {
+    display: flex; background: none; border: none; color: var(--text);
+    padding: 2px; cursor: pointer;
   }
-  .settings-nav-btn:hover { color: var(--text); background: var(--bg); }
-  .settings-nav-btn.active { color: var(--text); background: var(--bg); font-weight: 600; }
-  .settings-content { flex: 1 1 auto; min-width: 0; }
-  .settings-section[hidden] { display: none; }
-  @media (max-width: 700px) {
-    .settings-body { flex-direction: column; }
-    .settings-sidebar {
-      flex-direction: row; flex-wrap: wrap; border-right: none;
-      border-bottom: 1px solid var(--line); padding-right: 0;
-      padding-bottom: 8px; width: 100%;
-    }
-  }
+  /* The user's arrow at its drawn size, like the sidebar's icons. */
+  .settings-back .icon-back { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; -webkit-mask-image: var(--icon-back); mask-image: var(--icon-back); }
+  .settings-back:hover { background: var(--line); }
   .setting-row {
     display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.1fr);
     gap: 10px; align-items: center; margin-bottom: 8px;
@@ -3221,12 +3223,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     display: flex; gap: 10px; align-items: center; margin-top: 12px;
     flex-wrap: wrap;
   }
-  .settings-actions button {
-    background: none; border: 2px solid var(--ink); border-radius: 8px;
-    color: var(--dim); font: inherit; font-size: 13px; padding: 6px 12px;
-    cursor: pointer;
-  }
-  .settings-actions button:hover { color: var(--text); border-color: var(--dim); }
+  .settings-actions:not(:has(#settings-result:not(:empty))) { display: none; }
   #settings-result { color: var(--dim); font-size: 12px; }
   /* Collapsible class list. */
   .class-picker {
@@ -3665,8 +3662,6 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
   }
 
   /* Selected settings section reads like a highlighted DOS menu row. */
-  .settings-nav-btn:hover { background: var(--line); }
-  .settings-nav-btn.active { background: var(--new); color: var(--card); }
 
   /* Chunky scrollbars to match. */
   ::-webkit-scrollbar { width: 14px; height: 14px; }
@@ -4702,6 +4697,7 @@ function toggleSettingsPanel() {
   var panel = document.getElementById('settings-panel');
   if (!panel) return;
   if (panel.hidden) {
+    showSettingsMenu();
     panel.hidden = false;
     syncPages();
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -4853,16 +4849,30 @@ function triggerSignIn(link) {
 // [data-key]/[data-bool-key] under #settings-panel regardless, so a
 // value changed in a section you've since clicked away from still
 // gets saved.
-function showSettingsSection(name, btn) {
+function showSettingsSection(name) {
   var sections = document.querySelectorAll('.settings-section');
   for (var i = 0; i < sections.length; i++) {
     sections[i].hidden = sections[i].getAttribute('data-section') !== name;
   }
-  var buttons = document.querySelectorAll('.settings-nav-btn');
-  for (var j = 0; j < buttons.length; j++) buttons[j].classList.remove('active');
-  if (btn) btn.classList.add('active');
+  document.getElementById('settings-menu').hidden = true;
+  window.scrollTo(0, 0);
   if (name === 'ai') refreshAiStates();
 }
+// The back arrow (and Esc): from a section back to the menu, with the row
+// it came from focused so the keyboard picks up where it was.
+function showSettingsMenu() {
+  var open = document.querySelector('.settings-section:not([hidden])');
+  var sections = document.querySelectorAll('.settings-section');
+  for (var i = 0; i < sections.length; i++) sections[i].hidden = true;
+  document.getElementById('settings-menu').hidden = false;
+  window.scrollTo(0, 0);
+  var row = open && document.querySelector('.settings-row[data-open="' + open.getAttribute('data-section') + '"]');
+  if (row) row.focus();
+}
+document.addEventListener('keydown', function (e) {
+  var panel = document.getElementById('settings-panel');
+  if (e.key === 'Escape' && panel && !panel.hidden && document.getElementById('settings-menu').hidden) showSettingsMenu();
+});
 
 // Reveals a masked field (email, Canvas address) the same way a password
 // field's own show/hide button does. The button sits right after the
@@ -5353,8 +5363,7 @@ function updateGradesRows() {
 // From a Q problem on the Grades list: Settings, open at Grades.
 function openGradesSettings() {
   showPage('settings');
-  var btn = document.querySelector('.settings-nav-btn[onclick*=grades]');
-  showSettingsSection('grades', btn);
+  showSettingsSection('grades');
   var field = document.getElementById('grades-password');
   if (field) field.focus();
 }
@@ -7063,6 +7072,10 @@ function pollLive() {
 }
 
 document.addEventListener('visibilitychange', function () {
+  // Settings has no Done button: leaving it saves. A window hidden (or
+  // closing) with Settings still open and changed saves too, so those
+  // changes aren't lost.
+  if (document.hidden && settingsPanelOpen() && settingsDirty()) saveSettings();
   if (!document.hidden && !livePushed) scheduleLivePoll(0);
 });
 scheduleLivePoll(0);
