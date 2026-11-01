@@ -2,7 +2,11 @@
 
 What's changed in each version of ClassDash. **Unreleased** is what's built and on `main` but not in a release yet: it becomes the next version's release notes. Earlier versions are on the [Releases page](https://github.com/vemboy200/ClassDash/releases).
 
-## Unreleased (v2.7.0)
+## Unreleased
+
+Nothing yet.
+
+## v2.7.0 (2026-11-01)
 
 ### ClassDash is now "the all-in-one app for school"
 

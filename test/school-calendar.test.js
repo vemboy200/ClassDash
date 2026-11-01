@@ -269,6 +269,7 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   w.importCalendarPdf(d.querySelector('#settings-panel [onclick*="importCalendarPdf"]'));
   const pick2 = sent.filter(x => x.action === 'pickCalendarPdf')[1];
   w.classdashBridgeResult(pick2.id, imported);
+  w.calendarMonth = '2026-10'; w.renderCalendar();
   ok('a newly read PDF shows at once, its days changed by hand gone', !day('2026-10-21').classList.contains('day-changed') &&
     !!setup.querySelector('select[data-mark="circle"]'));
   ok('the page script runs clean', errors.length === 0, errors.join(' | '));
