@@ -1,4 +1,4 @@
-// A platform read through its backup way is "fallback": a yellow dot, and the API says so.
+// A platform read through its backup way is "fallback": a yellow cloud, and the API says so.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs');
 const proj = T.makeProject({ 'settings.json': { language: 'en', canvas: 'https://school.instructure.com', canvasToken: 'T~1', canvasApiEnabled: true, canvasSsoEnabled: true } });
@@ -27,12 +27,27 @@ ok('/api/check-status says fallback, with the detail', HANDLERS['/api/check-stat
 const { writePage } = require(path.join(proj, '08-page.js'));
 writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [], now: new Date() }, 'p.html');
 const html = fs.readFileSync('p.html', 'utf8');
-ok('the sidebar has a yellow (fallback) cloud for Canvas', /<span class="status-cloud pixel-icon status-fallback" title="Canvas: Fallback/.test(html));
-ok('...with the reason in its tooltip', /Canvas: Fallback[^"]*Google sign-in was used/.test(html));
+ok('the sidebar has one yellow (fallback) cloud saying so', /title="Check status: 1 used backup"><span class="status-cloud pixel-icon status-fallback"><\/span><span class="reload-label check-summary">1 used backup</.test(html) &&
+  (html.match(/class="status-cloud /g) || []).length === 1);
 ok('the panel row says Fallback and shows the detail', /status-fallback"><\/span>\s*<span class="check-status-name">Canvas<\/span>\s*<span class="check-status-word">Fallback<\/span>/.test(html) && /check-status-detail-text">Fallback: the API/.test(html));
+ok("the panel lists only what's been checked: Classroom and Canvas, not Edpuzzle or Q", (html.match(/class="check-status-name"/g) || []).length === 2 && !/check-status-name">(Edpuzzle|Aequitas Q)</.test(html));
 ok('the cloud is yellow, with the ! cloud', /\.status-cloud\.status-fallback \{ color: #f2b600/.test(html) && /\.status-cloud\.status-fallback \{ -webkit-mask-image: var\(--icon-cloud-attention\)/.test(html));
 ok("the panel's yellow is styled (plain and pixel skins)", /\.status-dot\.status-fallback \{ background: #f2b600/.test(html) && /\.status-dot\.status-fallback \{ background-image:/.test(html));
 ok('...and gets the same 12px sizing as the other dots', /status-ok, \.status-dot\.status-fallback, \.status-dot\.status-problem/.test(html));
+
+// One cloud for them all: off ones don't count, under half working is red.
+{
+  const { checkStatusSummary: sum } = require(path.join(proj, '08-page.js'));
+  const of = (...xs) => ({ classroom: { status: xs[0] }, canvas: { status: xs[1] }, edpuzzle: { status: xs[2] }, q: { status: xs[3] } });
+  const is = (st, status, text) => sum(st).status === status && sum(st).text === text;
+  ok('nothing checked: the plain cloud', is(of('unknown', 'unknown', 'unknown', 'unknown'), 'unknown', 'Not checked yet'));
+  ok('all working: ✓', is(of('ok', 'ok', 'unknown', 'ok'), 'ok', 'All OK'));
+  ok('1 of 3 failed: !', is(of('ok', 'problem', 'unknown', 'ok'), 'fallback', '1 of 3 failed'));
+  ok('half working: still !', is(of('ok', 'problem', 'unknown', 'unknown'), 'fallback', '1 of 2 failed'));
+  ok('under half working: ✕', is(of('problem', 'problem', 'ok', 'unknown'), 'problem', '2 of 3 failed'));
+  ok('all failed: ✕', is(of('problem', 'unknown', 'unknown', 'unknown'), 'problem', '1 of 1 failed'));
+  ok('a backup way counts as working, but says so', is(of('ok', 'fallback', 'problem', 'ok'), 'fallback', '1 of 4 failed') && is(of('ok', 'fallback', 'unknown', 'unknown'), 'fallback', '1 used backup'));
+}
 
 // Russian
 fs.writeFileSync('settings.json', JSON.stringify({ language: 'ru', canvas: 'https://school.instructure.com', canvasToken: 'T~1' }));

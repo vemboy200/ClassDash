@@ -155,7 +155,7 @@ const FRAGMENT = `<div id="SP_Assignments"><input id="schedreccount" type="hidde
     await grades.check({ force: true, now: new Date(now + 5 * 3600000), reader: async () => { throw new Error('made-up timeout'); } });
     ok('...a problem when it failed, with why', status.checkStatus().q.status === 'problem' && status.checkStatus().q.detail === 'made-up timeout');
     d = open();
-    ok('...and a fourth cloud in the sidebar', d.querySelectorAll('.check-status .status-cloud').length === 4 && /Aequitas Q: Problem/.test(d.querySelectorAll('.check-status .status-cloud')[3].title), d.querySelectorAll('.check-status .status-cloud')[3] && d.querySelectorAll('.check-status .status-cloud')[3].title);
+    ok('...and counts in the sidebar cloud', / failed$/.test(d.querySelector('.check-status .check-summary').textContent) && /Aequitas Q/.test(d.getElementById('check-status-panel').textContent), d.querySelector('.check-status').title);
     fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ language: 'en' }));
     ok('Q off: unknown, like a platform that\'s off', status.checkStatus().q.status === 'unknown');
     await grades.check({ force: true, now: new Date(now + 6 * 3600000), reader: good });

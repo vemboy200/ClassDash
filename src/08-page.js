@@ -1809,7 +1809,7 @@ ${sectionBlocks}
 
 // The sidebar down the left, like Home Assistant's: ClassDash's name with
 // the ☰ that folds it down to its icons, the page's own parts, Settings at
-// the bottom, and under it Refresh, Fresh check and the check-status dots
+// the bottom, and under it Refresh, Fresh check and the check-status cloud
 // (actions: passed in as made for the header they used to sit in, with
 // their ids, so their click handlers and live updates are unchanged).
 // Workspace, the Grades center and Settings open as pages over the
@@ -2015,19 +2015,13 @@ ${parts.join('\n')}
 }
 
 /**
- * "Did the last check actually work?" — one small dot per platform, in
- * the header, click to expand into a full per-platform breakdown. See
+ * "Did the last check actually work?" — one cloud in the sidebar, click to
+ * expand into a full per-platform breakdown. See
  * 25-check-status.js for what ok/fallback/problem/unknown mean; this just
  * renders whatever checkStatus() already decided.
  *
- * The dots keep their own hover tooltips too (the quick answer for one
- * platform, no click needed) — the expanded panel is for the full
- * picture, timestamps and error detail included, which a tooltip can't
- * show for three platforms at once and doesn't work at all on touch.
- *
  * Platform display names are hardcoded English, not run through t() —
- * same call already made for the .platform line right below the header
- * and for every card's own platform label: these are product names,
+ * same call already made for every card's own platform label: these are product names,
  * not sentence text, and stay the same word regardless of language.
  */
 const CHECK_STATUS_ENTRIES = [
@@ -2049,17 +2043,29 @@ function checkStatusWhen(s) {
   }) : t('checkStatusNeverChecked');
 }
 
-/** The clickable row of dots itself — sits inline in the header's button row. */
+/**
+ * One cloud for every service together, so the sidebar stays the same
+ * size however many services there are: the plain cloud until something
+ * has been checked (services that are off don't count), ✓ when all of
+ * them worked, ✕ when fewer than half did, and ! for anything in between,
+ * or when none failed but one only got through the backup way. Its words
+ * say how many failed; the panel it opens has each one.
+ */
+function checkStatusSummary(status) {
+  const on = CHECK_STATUS_ENTRIES.map(([k]) => status[k].status).filter(s => s !== 'unknown');
+  const failed = on.filter(s => s === 'problem').length;
+  const backup = on.filter(s => s === 'fallback').length;
+  if (!on.length) return { status: 'unknown', text: t('checkSummaryNone') };
+  if (failed) return { status: (on.length - failed) / on.length < 0.5 ? 'problem' : 'fallback', text: t('checkSummaryFailed', failed, on.length) };
+  if (backup) return { status: 'fallback', text: t('checkSummaryBackup', backup, on.length) };
+  return { status: 'ok', text: t('checkSummaryOk') };
+}
+
+/** The clickable cloud itself, at the bottom of the sidebar. */
 function checkStatusIndicator() {
-  const status = checkStatus();
-  const dot = (key, label) => {
-    const s = status[key];
-    const tooltip = `${label}: ${checkStatusWord(s.status)} — ${checkStatusWhen(s)}` +
-      (s.detail ? `\n${s.detail}` : '');
-    return `<span class="status-cloud pixel-icon status-${s.status}" title="${escapeHtml(tooltip)}"></span>`;
-  };
+  const sum = checkStatusSummary(checkStatus());
   return `<button type="button" class="check-status" onclick="toggleCheckStatusDetail()"
-       title="${escapeHtml(t('checkStatusTitle'))}">${CHECK_STATUS_ENTRIES.map(([k, l]) => dot(k, l)).join('')}</button>`;
+       title="${escapeHtml(`${t('checkStatusTitle')}: ${sum.text}`)}"><span class="status-cloud pixel-icon status-${sum.status}"></span><span class="reload-label check-summary">${escapeHtml(sum.text)}</span></button>`;
 }
 
 /**
@@ -2080,9 +2086,12 @@ function checkStatusPanel() {
         ${s.detail ? `<span class="check-status-detail-text">${escapeHtml(s.detail)}</span>` : ''}
       </div>`;
   };
+  // Only the services that are on and have been checked: one that's off
+  // has nothing to say, and the cloud doesn't count it either.
+  const rows = CHECK_STATUS_ENTRIES.filter(([k]) => status[k].status !== 'unknown').map(([k, l]) => row(k, l));
   return `  <div class="check-status-panel" id="check-status-panel" hidden>
     <div class="check-status-panel-title">${escapeHtml(t('checkStatusTitle'))}</div>
-${CHECK_STATUS_ENTRIES.map(([k, l]) => row(k, l)).join('\n')}
+${rows.length ? rows.join('\n') : `      <div class="check-status-row"><span class="check-status-word">${escapeHtml(t('checkSummaryNone'))}</span></div>`}
   </div>`;
 }
 
@@ -2574,7 +2583,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   }
   .nav-toggle:hover { color: var(--text); background: var(--line); }
   .nav-burger { width: 16px; height: 2px; background: currentColor; box-shadow: 0 -5px 0 currentColor, 0 5px 0 currentColor; }
-  /* Refresh, Fresh check and the status dots: rows like the items above,
+  /* Refresh, Fresh check and the status cloud: rows like the items above,
      not the framed header buttons they were (the frames are border-images,
      hence border-image: none for each state that sets one). */
   .nav-actions { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 2px solid var(--line); }
@@ -2586,9 +2595,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   }
   .app-nav .reload:hover, .app-nav .check-status:hover { background: var(--line); }
   .app-nav .reload.spinning { color: var(--new); }
-  .app-nav .check-status { display: flex; flex-wrap: wrap; gap: 4px; }
-  /* At their drawn size, like the icons above. */
-  .app-nav .status-cloud { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .app-nav .check-status { display: flex; align-items: center; }
+  /* At its drawn size, like the icons above. */
+  .app-nav .status-cloud { flex: 0 0 32px; width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .check-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-updated { color: var(--dim); font-size: 12px; padding: 2px 10px 0; }
   /* Folded down to the icons: no names, each item centred. */
   body.nav-collapsed { --nav-w: 64px; }
@@ -2596,9 +2606,8 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .app-nav.collapsed .settings-status { display: none; }
   .app-nav.collapsed .nav-head { justify-content: center; }
   .app-nav.collapsed .nav-item, .app-nav.collapsed .reload, .app-nav.collapsed .check-status { justify-content: center; padding-left: 0; padding-right: 0; }
-  .app-nav.collapsed .check-status { flex-direction: column; align-items: center; gap: 2px; }
   .app-nav.collapsed .nav-updated { display: none; }
-  /* The check-status details open beside the sidebar, by the dots. */
+  /* The check-status details open beside the sidebar, by the cloud. */
   .check-status-panel { position: fixed; left: calc(var(--nav-w) + 8px); bottom: 12px; z-index: 75; width: 420px; max-width: calc(100vw - var(--nav-w) - 16px); margin: 0; }
   .nav-item {
     display: flex; align-items: center; gap: 10px; width: 100%;
@@ -2633,7 +2642,6 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     .app-nav::-webkit-scrollbar { display: none; }
     .nav-actions { flex-direction: row; margin: 0 0 0 4px; padding: 0 0 0 4px; border-top: none; border-left: 2px solid var(--line); }
     .app-nav .reload.named, .app-nav .check-status { width: auto; flex: 0 0 auto; padding: 6px 8px; }
-    .app-nav .check-status { flex-wrap: nowrap; }
     .nav-updated { display: none; }
     .app-nav .reload-label { display: none; }
     .check-status-panel { left: 8px; top: calc(var(--nav-h) + 8px); bottom: auto; }
@@ -7077,4 +7085,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, PIXEL_THEME };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME };
