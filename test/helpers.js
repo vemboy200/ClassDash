@@ -31,7 +31,8 @@ const REPO = path.resolve(__dirname, '..');
 // electron/package.json): nothing else in src/ is a project file.
 const ICONS = ['refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png',
                'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png', 'warning-icon.png', 'workspace-icon.png',
-               'dashboard-icon.png', 'dashboard-outline-icon.png', 'grades-icon.png'];
+               'dashboard-icon.png', 'dashboard-outline-icon.png', 'grades-icon.png',
+               'cloud-ok-icon.png', 'cloud-attention-icon.png', 'cloud-bad-icon.png', 'cloud-icon.png'];
 const isProjectFile = name =>
   name.endsWith('.js') || name === 'package.json' || name === 'settings.example.json' || ICONS.includes(name);
 

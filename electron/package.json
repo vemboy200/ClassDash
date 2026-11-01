@@ -48,7 +48,11 @@
           "workspace-icon.png",
           "dashboard-icon.png",
           "dashboard-outline-icon.png",
-          "grades-icon.png"
+          "grades-icon.png",
+          "cloud-ok-icon.png",
+          "cloud-attention-icon.png",
+          "cloud-bad-icon.png",
+          "cloud-icon.png"
         ]
       },
       {

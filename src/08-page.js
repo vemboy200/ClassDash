@@ -62,6 +62,12 @@ const ICON_WORKSPACE_B64 = readIcon('workspace-icon.png');
 const ICON_DASHBOARD_B64 = readIcon('dashboard-icon.png');
 const ICON_DASHBOARD_OUTLINE_B64 = readIcon('dashboard-outline-icon.png');
 const ICON_GRADES_B64 = readIcon('grades-icon.png');
+// Each platform's check status at the bottom of the sidebar (the user's
+// clouds): worked, worked the backup way, failed, not checked yet.
+const ICON_CLOUD_OK_B64 = readIcon('cloud-ok-icon.png');
+const ICON_CLOUD_ATTENTION_B64 = readIcon('cloud-attention-icon.png');
+const ICON_CLOUD_BAD_B64 = readIcon('cloud-bad-icon.png');
+const ICON_CLOUD_B64 = readIcon('cloud-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -2050,20 +2056,17 @@ function checkStatusIndicator() {
     const s = status[key];
     const tooltip = `${label}: ${checkStatusWord(s.status)} — ${checkStatusWhen(s)}` +
       (s.detail ? `\n${s.detail}` : '');
-    return `<span class="status-dot status-${s.status}" title="${escapeHtml(tooltip)}"></span>`;
+    return `<span class="status-cloud pixel-icon status-${s.status}" title="${escapeHtml(tooltip)}"></span>`;
   };
   return `<button type="button" class="check-status" onclick="toggleCheckStatusDetail()"
        title="${escapeHtml(t('checkStatusTitle'))}">${CHECK_STATUS_ENTRIES.map(([k, l]) => dot(k, l)).join('')}</button>`;
 }
 
 /**
- * The expanded breakdown, hidden until the dots above are clicked.
+ * The expanded breakdown, hidden until the clouds above are clicked.
  * ITS OWN FUNCTION, NOT PART OF checkStatusIndicator() — the button
- * lives inline inside .when (the header's button row); this is a real
- * block-level panel, and nesting it inside .when's own inline flow
- * would make it wrap into that row instead of dropping down below the
- * whole header the way it's meant to. Placed as its own sibling in the
- * header markup instead.
+ * lives in the sidebar, and this panel opens beside it, fixed, outside
+ * the sidebar's own scrolling column.
  */
 function checkStatusPanel() {
   const status = checkStatus();
@@ -2233,6 +2236,10 @@ function pixelCornerCss() {
   .status-dot.status-fallback { background-image: ${pixelDot(t.ink, t.amber)}; }
   .status-dot.status-problem { background-image: ${pixelDot(t.ink, t.hot)}; }
   .status-dot.status-unknown { background-image: ${pixelDot(t.ink, t.dim)}; }
+  .status-cloud.status-ok { color: ${t.new}; }
+  .status-cloud.status-fallback { color: ${t.amber}; }
+  .status-cloud.status-problem { color: ${t.hot}; }
+  .status-cloud.status-unknown { color: ${t.dim}; }
   ${calendarSprites(t)}
   .calendar-day.has-events::after { background-image: ${pixelEventDot(t.new)}; }
   .calendar-events li.active { ${src('pill', 'line', 'line')} }`;
@@ -2377,8 +2384,6 @@ function writePage(data, outputPath) {
   const announcements = [...(data.announcements || [])];
   const freshAnnouncementIds = data.freshAnnouncements || new Set();
 
-  // Which platforms are involved at all — shown in the header.
-  // Only two for now, Edpuzzle and DeltaMath will join later.
   // Materials only show new ones (old ones are already read, no reason
   // for them to hang around in the list — same logic as the popup).
   //
@@ -2389,12 +2394,6 @@ function writePage(data, outputPath) {
 
   // Everything that will actually land on the page — for the filter lists.
   const allItems = [...burning, ...later, ...newMaterials, ...deferred, ...overdue, ...gone];
-
-  const platforms = [...new Set(
-    [...burning, ...later, ...undated, ...deferred]
-      .map(x => x.platform || DEFAULT_PLATFORM)
-  )].sort();
-  if (!platforms.length) platforms.push(DEFAULT_PLATFORM);
 
   const time = now.toLocaleString(locale(), {
     day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
@@ -2587,14 +2586,18 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   }
   .app-nav .reload:hover, .app-nav .check-status:hover { background: var(--line); }
   .app-nav .reload.spinning { color: var(--new); }
-  .app-nav .check-status { display: flex; flex-wrap: wrap; gap: 6px; }
+  .app-nav .check-status { display: flex; flex-wrap: wrap; gap: 4px; }
+  /* At their drawn size, like the icons above. */
+  .app-nav .status-cloud { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .nav-updated { color: var(--dim); font-size: 12px; padding: 2px 10px 0; }
   /* Folded down to the icons: no names, each item centred. */
   body.nav-collapsed { --nav-w: 64px; }
   .app-nav.collapsed .nav-brand, .app-nav.collapsed .nav-label, .app-nav.collapsed .reload-label,
   .app-nav.collapsed .settings-status { display: none; }
   .app-nav.collapsed .nav-head { justify-content: center; }
   .app-nav.collapsed .nav-item, .app-nav.collapsed .reload, .app-nav.collapsed .check-status { justify-content: center; padding-left: 0; padding-right: 0; }
-  .app-nav.collapsed .check-status { display: grid; grid-template-columns: repeat(2, 9px); justify-content: center; gap: 5px; }
+  .app-nav.collapsed .check-status { flex-direction: column; align-items: center; gap: 2px; }
+  .app-nav.collapsed .nav-updated { display: none; }
   /* The check-status details open beside the sidebar, by the dots. */
   .check-status-panel { position: fixed; left: calc(var(--nav-w) + 8px); bottom: 12px; z-index: 75; width: 420px; max-width: calc(100vw - var(--nav-w) - 16px); margin: 0; }
   .nav-item {
@@ -2631,6 +2634,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     .nav-actions { flex-direction: row; margin: 0 0 0 4px; padding: 0 0 0 4px; border-top: none; border-left: 2px solid var(--line); }
     .app-nav .reload.named, .app-nav .check-status { width: auto; flex: 0 0 auto; padding: 6px 8px; }
     .app-nav .check-status { flex-wrap: nowrap; }
+    .nav-updated { display: none; }
     .app-nav .reload-label { display: none; }
     .check-status-panel { left: 8px; top: calc(var(--nav-h) + 8px); bottom: auto; }
     /* No folding in the top bar: it's already as small as it gets. */
@@ -2718,9 +2722,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     max-height: calc(100vh - 220px); overflow-y: auto;
     padding-right: 6px;
   }
-  header { margin-bottom: 24px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
-  .when { color: var(--dim); font-size: 13px; }
   /* Per-platform check status — three small dots, one per platform,
      colors matching the meaning: --new (blue) for the same positive
      sense the API's "running" indicator already uses, --hot (red) for
@@ -2808,6 +2810,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     --icon-dashboard: url("data:image/png;base64,${ICON_DASHBOARD_B64}");
     --icon-dashboard-outline: url("data:image/png;base64,${ICON_DASHBOARD_OUTLINE_B64}");
     --icon-grades: url("data:image/png;base64,${ICON_GRADES_B64}");
+    --icon-cloud-ok: url("data:image/png;base64,${ICON_CLOUD_OK_B64}");
+    --icon-cloud-attention: url("data:image/png;base64,${ICON_CLOUD_ATTENTION_B64}");
+    --icon-cloud-bad: url("data:image/png;base64,${ICON_CLOUD_BAD_B64}");
+    --icon-cloud: url("data:image/png;base64,${ICON_CLOUD_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -2845,6 +2851,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .icon-dashboard { -webkit-mask-image: var(--icon-dashboard-outline); mask-image: var(--icon-dashboard-outline); }
   [aria-current="page"] .icon-dashboard { -webkit-mask-image: var(--icon-dashboard); mask-image: var(--icon-dashboard); }
   .icon-grades { -webkit-mask-image: var(--icon-grades); mask-image: var(--icon-grades); }
+  .status-cloud.status-ok { -webkit-mask-image: var(--icon-cloud-ok); mask-image: var(--icon-cloud-ok); }
+  .status-cloud.status-fallback { -webkit-mask-image: var(--icon-cloud-attention); mask-image: var(--icon-cloud-attention); }
+  .status-cloud.status-problem { -webkit-mask-image: var(--icon-cloud-bad); mask-image: var(--icon-cloud-bad); }
+  .status-cloud.status-unknown { -webkit-mask-image: var(--icon-cloud); mask-image: var(--icon-cloud); }
   .reload:hover { color: var(--new); border-color: var(--new); }
   /* Spins while a check is running. Only the ICON spins, not the whole
      button — with a text label sitting next to it now, spinning the
@@ -2870,7 +2880,6 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   .announcement-filters .check-row .label-text { max-width: 210px; }
   /* The hidden attribute alone won't hide .post: it has its own display set */
   .post[hidden] { display: none; }
-  .platform { color: var(--dim); font-size: 13px; margin-top: 2px; }
   section { margin-bottom: 28px; }
   h2 {
     font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
@@ -3671,14 +3680,11 @@ ${appNav(gradesCenter, `<button class="reload named"
   <button class="reload named${progress ? ' running' : ''}"
          id="freshcheck-button"
          title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
-  ${checkStatusIndicator()}`)}
+  ${checkStatusIndicator()}
+  <div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`)}
 ${checkStatusPanel()}
 <main>
 ${settingsPanel()}
-  <header>
-    <div class="when">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>
-    <div class="platform">${escapeHtml(platforms.join(' · '))}</div>
-  </header>
 ${progressBar}
 ${inProgress}
 ${setupBanner}

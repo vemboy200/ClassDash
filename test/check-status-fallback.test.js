@@ -27,10 +27,11 @@ ok('/api/check-status says fallback, with the detail', HANDLERS['/api/check-stat
 const { writePage } = require(path.join(proj, '08-page.js'));
 writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [], now: new Date() }, 'p.html');
 const html = fs.readFileSync('p.html', 'utf8');
-ok('the dot row has a yellow (fallback) dot for Canvas', /<span class="status-dot status-fallback" title="Canvas: Fallback/.test(html));
+ok('the sidebar has a yellow (fallback) cloud for Canvas', /<span class="status-cloud pixel-icon status-fallback" title="Canvas: Fallback/.test(html));
 ok('...with the reason in its tooltip', /Canvas: Fallback[^"]*Google sign-in was used/.test(html));
 ok('the panel row says Fallback and shows the detail', /status-fallback"><\/span>\s*<span class="check-status-name">Canvas<\/span>\s*<span class="check-status-word">Fallback<\/span>/.test(html) && /check-status-detail-text">Fallback: the API/.test(html));
-ok('the yellow is styled (plain and pixel skins)', /\.status-dot\.status-fallback \{ background: #f2b600/.test(html) && /\.status-dot\.status-fallback \{ background-image:/.test(html));
+ok('the cloud is yellow, with the ! cloud', /\.status-cloud\.status-fallback \{ color: #f2b600/.test(html) && /\.status-cloud\.status-fallback \{ -webkit-mask-image: var\(--icon-cloud-attention\)/.test(html));
+ok("the panel's yellow is styled (plain and pixel skins)", /\.status-dot\.status-fallback \{ background: #f2b600/.test(html) && /\.status-dot\.status-fallback \{ background-image:/.test(html));
 ok('...and gets the same 12px sizing as the other dots', /status-ok, \.status-dot\.status-fallback, \.status-dot\.status-problem/.test(html));
 
 // Russian
