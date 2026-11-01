@@ -69,6 +69,10 @@ const ICON_CLOUD_ATTENTION_B64 = readIcon('cloud-attention-icon.png');
 const ICON_CLOUD_BAD_B64 = readIcon('cloud-bad-icon.png');
 const ICON_CLOUD_B64 = readIcon('cloud-icon.png');
 const ICON_BACK_B64 = readIcon('back-icon.png');
+const ICON_CLOUD_POLLING_B64 = readIcon('cloud-polling-icon.png');
+const ICON_BROWSER_B64 = readIcon('browser-icon.png');
+const ICON_BROWSER_HEAD_B64 = readIcon('browser-head-icon.png');
+const ICON_BROWSER_QUESTION_B64 = readIcon('browser-question-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -1025,7 +1029,7 @@ function classLinksField(links) {
   const hidden = require('./40-grades.js').canvasHiddenTest(readSettings(), classLinks.linkMap(links), classLinks);
   const status = knownClassStatus();
   const classes = [...status.keys()].filter(name => status.get(name) === 'known' && !hidden(name));
-  // Q's classes too (Settings → Grades), marked as Q's: linked to their
+  // Q's classes too (Settings → Services → Aequitas Q), marked as Q's: linked to their
   // Classroom or Canvas class, their grade goes with it (40-grades.js
   // gradesView, the API's classRoster).
   const grades = require('./40-grades.js');
@@ -1134,13 +1138,16 @@ function browserLabelFor(browserPath) {
 }
 
 /**
- * Settings → Grades: which system (only Aequitas Q so far), its address,
+ * Settings → Services → Aequitas Q: which system (only Aequitas Q so far), its address,
  * the username, and the password, which has a button of its own: it goes
  * to the keychain through its own action (saveGradesPassword), never into
  * settings.json, so the field is never filled in from anything saved and
  * has no data-key for saveSettings to pick up. Check now reads right away.
  */
-function gradesSettings(s, field) {
+/** Aequitas Q's page under Settings → Services: its address, sign-in and
+ *  Check now. gradesProvider stays the setting that says Q is on; Add
+ *  service and Turn off set it, so its select is hidden. */
+function qSettings(s, field) {
   const grades = require('./40-grades.js');
   const on = s.gradesProvider === 'q';
   const hidden = on ? '' : ' hidden';
@@ -1155,15 +1162,11 @@ function gradesSettings(s, field) {
     : view.checkedAt ? t('gradesLastRead', when(view.checkedAt), view.classes.length)
     : t('gradesNotYet');
   return `
-      <p class="hint">${escapeHtml(t('gradesIntro'))}</p>
-      <label class="setting-row">
-        <span class="field-name">${escapeHtml(t('gradesProvider'))}</span>
-        <select data-key="gradesProvider" onchange="updateGradesRows()">
-          <option value="none"${on ? '' : ' selected'}>${escapeHtml(t('gradesOff'))}</option>
-          <option value="q"${on ? ' selected' : ''}>Aequitas Q (StudentConnection)</option>
-        </select>
-        <span class="field-hint"></span>
-      </label>
+      <p class="hint">${escapeHtml(t('svcQHint'))}</p>
+      <select data-key="gradesProvider" onchange="updateGradesRows()" hidden>
+        <option value="none"${on ? '' : ' selected'}>${escapeHtml(t('gradesOff'))}</option>
+        <option value="q"${on ? ' selected' : ''}>Aequitas Q (StudentConnection)</option>
+      </select>
       <div data-grades-for="q"${hidden}>
 ${field('gradesAddress', t('gradesAddress'), s.gradesAddress, t('gradesAddressHint'))}
         <p class="field-hint calendar-error" id="grades-bare"${base && base.bare ? '' : ' hidden'}>${escapeHtml(t('gradesAddressBare'))}</p>
@@ -1186,7 +1189,15 @@ ${field('gradesUsername', t('gradesUsername'), s.gradesUsername, t('gradesUserna
           </span>
           <span class="field-hint" id="grades-check-status">${escapeHtml(status)}</span>
         </div>
-      </div>
+      </div>`;
+}
+
+/** Settings → Grades: what's left once Q's sign-in moved to its Services
+ *  page (qSettings above): the alerts, and where the grades come from. */
+function gradesSettings(s) {
+  return `
+      <p class="hint">${escapeHtml(t('gradesIntro'))}</p>
+      <p class="hint">${escapeHtml(t('gradesFromServices'))} <button type="button" class="mini-btn" onclick="showSettingsSection('services')">${escapeHtml(t('settingsSectionAccount'))}</button></p>
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('gradeAlerts'))}</span>
         <select data-key="gradeAlerts">
@@ -1564,43 +1575,68 @@ function settingsPanel() {
       </label>`;
   };
 
-  // The four sources, each a checkbox — Google Classroom, Canvas by Google
-  // sign-in, Canvas by API, Edpuzzle — and the fields below show only for
-  // the ones that use them (updateSourceRows, in the page's own script,
-  // keeps that true as boxes are ticked; this renders the same for whatever
-  // is saved). A hidden field is still saved with the rest, so unticking a
-  // box doesn't lose what was typed.
-  //
-  // They sit in a dropdown — the same <details> menu the exclusions list
-  // uses — because they're independent (Classroom AND Canvas AND Edpuzzle can
-  // all be on), so a single-choice <select> couldn't hold them, and four
-  // rows of hints made the Account section long. The summary names what's
-  // ticked, so the menu doesn't have to be opened to see it.
-  const SOURCES = [
-    ['classroomEnabled', 'settingsClassroomEnabled', 'settingsClassroomEnabledHint', s.classroomEnabled !== false],
-    ['canvasSsoEnabled', 'settingsCanvasSsoEnabled', 'settingsCanvasSsoEnabledHint', s.canvasSsoEnabled !== false],
-    ['canvasApiEnabled', 'settingsCanvasApiEnabled', 'settingsCanvasApiEnabledHint', s.canvasApiEnabled !== false],
-    ['edpuzzleEnabled', 'settingsEdpuzzleEnabled', 'settingsEdpuzzleEnabledHint', !!s.edpuzzleEnabled],
-  ];
-  const sourcesField = () => {
-    const items = SOURCES.map(([key, labelKey, hintKey, checked]) =>
-      `          <div class="source-item">
-            <label class="check-row"><input type="checkbox" data-bool-key="${key}"${checked ? ' checked' : ''} onchange="updateSourceRows()">` +
-      `<span class="label-text">${escapeHtml(t(labelKey))}</span></label>
-            <div class="source-hint">${escapeHtml(t(hintKey))}</div>
-          </div>`).join('\n');
-    const on = SOURCES.filter(x => x[3]).map(x => t(x[1])).join(', ');
-    return `      <div class="setting-row wide">
-        <span class="field-name">${escapeHtml(t('settingsSources'))}</span>
-        <details class="class-picker source-picker">
-          <summary><span class="picker-summary" id="source-summary">${escapeHtml(on || t('settingsSourcesNone'))}</span></summary>
-          <div class="class-list source-list">
-${items}
-          </div>
-        </details>
-        <span class="field-hint">${escapeHtml(t('settingsSourcesHint'))}</span>
-      </div>`;
+  // Services, like Home Assistant's integrations: a card for each one
+  // that's on, its last check and two badges (how ClassDash reaches it,
+  // and whether that takes a browser), opening a page of its own with its
+  // settings and Turn off. + Add service turns one on. What says a service
+  // is on is still its own setting (classroomEnabled, the two Canvas ways,
+  // edpuzzleEnabled, gradesProvider); updateSourceRows, in the page's own
+  // script, shows the cards and rows that follow from them. A service
+  // turned off keeps what was typed for it, since its fields stay in the
+  // panel and are saved with the rest.
+  const status = checkStatus();
+  const cal = schoolCalendar.readCalendar();
+  const ics = cal.ics && cal.ics.url ? cal.ics : null;
+  const icsWhen = ics && ics.fetchedAt ? new Date(ics.fetchedAt).toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+  const icsStatus = !ics ? null
+    : ics.error ? { status: 'problem', text: ics.error }
+    : ics.fetchedAt ? { status: 'ok', text: t('calendarIcsStatus', (ics.events || []).length, icsWhen) }
+    : { status: 'unknown', text: t('checkSummaryNone') };
+  const cardStatus = key => {
+    const st = status[key];
+    return st.status === 'unknown' ? { status: 'unknown', text: t('checkSummaryNone') }
+      : { status: st.status, text: `${checkStatusWord(st.status)} · ${checkStatusWhen(st)}` };
   };
+  const BADGE = {
+    browser: ['icon-browser', 'svcBrowser'],
+    head: ['icon-browser-head', 'svcBrowserHead'],
+    maybe: ['icon-browser-question', 'svcBrowserMaybe'],
+  };
+  const SERVICES = [
+    { id: 'classroom', name: 'Google Classroom', browser: 'browser', state: cardStatus('classroom') },
+    { id: 'canvas', name: 'Canvas', browser: 'maybe', state: cardStatus('canvas') },
+    { id: 'edpuzzle', name: 'Edpuzzle', browser: 'head', state: cardStatus('edpuzzle') },
+    { id: 'q', name: 'Aequitas Q', browser: 'browser', state: cardStatus('q') },
+    { id: 'calendar', name: t('calendarIcs'), browser: null, state: icsStatus, opens: 'calendar' },
+  ];
+  const badge = ([icon, words]) => `<span class="svc-badge pixel-icon ${icon}" title="${escapeHtml(t(words))}"></span>`;
+  const card = v => `        <button type="button" class="svc-card" data-svc-card="${v.id}" onclick="showSettingsSection('${v.opens || 'svc-' + v.id}')"${v.id === 'calendar' && !ics ? ' hidden' : ''}>
+          <span class="svc-name">${escapeHtml(v.name)}</span>
+          <span class="svc-status status-${v.state ? v.state.status : 'unknown'}">${escapeHtml(v.state ? v.state.text : '')}</span>
+          <span class="svc-badges">${badge(['icon-cloud-polling', 'svcPolling'])}${v.browser ? badge(BADGE[v.browser]) : ''}</span>
+        </button>`;
+  const servicesBody = () => `
+      <p class="hint svc-none" id="svc-none" hidden>${escapeHtml(t('svcNone'))}</p>
+      <div class="svc-grid">
+${SERVICES.map(card).join('\n')}
+      </div>
+      <div class="svc-add">
+        <button type="button" class="mini-btn" id="svc-add-btn" onclick="toggleAddService()" aria-expanded="false">${escapeHtml(t('svcAdd'))}</button>
+        <div class="svc-add-menu" id="svc-add-menu" hidden>
+${SERVICES.map(v => `          <button type="button" class="mini-btn" data-svc-add="${v.id}" onclick="addService('${v.id}')"${v.id === 'calendar' && ics ? ' hidden' : ''}>${escapeHtml(v.name)}</button>`).join('\n')}
+        </div>
+      </div>`;
+  const offButton = id => `
+      <div class="setting-row svc-off-row">
+        <span class="field-name"></span>
+        <span class="field-with-value"><button type="button" class="mini-btn" onclick="removeService('${id}')">${escapeHtml(t('svcOff'))}</button></span>
+        <span class="field-hint">${escapeHtml(t('svcOffHint'))}</span>
+      </div>`;
+  const toggleRow = (key, labelKey, hintKey, checked) => `      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t(labelKey))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="${key}"${checked ? ' checked' : ''} onchange="updateSourceRows()">
+        <span class="field-hint">${escapeHtml(t(hintKey))}</span>
+      </label>`;
   const needs = {
     classroom: s.classroomEnabled !== false,
     canvas: s.canvasSsoEnabled !== false || s.canvasApiEnabled !== false,
@@ -1616,18 +1652,27 @@ ${items}
   // about how saveSettings() collects values — that still walks every
   // [data-key]/[data-bool-key] under #settings-panel, hidden section or not.
   const sections = [
-    { id: 'services', label: t('settingsSectionAccount'), desc: t('settingsDescServices'), body: `
-${sourcesField()}
-      <div data-needs="classroom"${needs.classroom ? '' : ' hidden'}>
+    { id: 'svc-classroom', parent: 'services', label: 'Google Classroom', body: `
+      <p class="hint">${escapeHtml(t('settingsClassroomEnabledHint'))}</p>
+      <input type="checkbox" data-bool-key="classroomEnabled"${needs.classroom ? ' checked' : ''} hidden>
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
-      </div>
-      <div data-needs="canvas"${needs.canvas ? '' : ' hidden'}>
+${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
+${offButton('classroom')}` },
+    { id: 'svc-canvas', parent: 'services', label: 'Canvas', body: `
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
-      </div>
+${toggleRow('canvasSsoEnabled', 'settingsCanvasSsoEnabled', 'settingsCanvasSsoEnabledHint', s.canvasSsoEnabled !== false)}
+${toggleRow('canvasApiEnabled', 'settingsCanvasApiEnabled', 'settingsCanvasApiEnabledHint', s.canvasApiEnabled !== false)}
       <div data-needs="canvasApi"${needs.canvasApi ? '' : ' hidden'}>
 ${field('canvasToken', t('settingsCanvasToken'), s.canvasToken, t('settingsCanvasTokenHint'), true)}
       </div>
-${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
+${offButton('canvas')}` },
+    { id: 'svc-edpuzzle', parent: 'services', label: 'Edpuzzle', body: `
+      <p class="hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</p>
+      <input type="checkbox" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''} hidden>
+${offButton('edpuzzle')}` },
+    { id: 'svc-q', parent: 'services', label: 'Aequitas Q', body: `${qSettings(s, field)}
+${offButton('q')}` },
+    { id: 'services', label: t('settingsSectionAccount'), desc: t('settingsDescServices'), body: `${servicesBody()}
       <div class="setup-group" data-needs="browser" data-native-only${needs.browser ? '' : ' hidden'}>
         <div class="settings-subhead">${escapeHtml(t('settingsSetup'))}</div>
         <div class="setting-row">
@@ -1711,7 +1756,7 @@ ${classLinksField(s.classLinks)}
       <p class="hint">${escapeHtml(t('scheduleIntro'))}</p>
       <div id="schedule-settings"></div>
       <span class="hint schedule-save-state"></span>` },
-    { id: 'grades', label: t('settingsSectionGrades'), desc: t('settingsDescGrades'), body: gradesSettings(s, field) },
+    { id: 'grades', label: t('settingsSectionGrades'), desc: t('settingsDescGrades'), body: gradesSettings(s) },
     { id: 'ai', label: t('settingsSectionAi'), desc: t('settingsDescAi'), body: aiSettings(s, field) },
     { id: 'api', label: t('settingsSectionApi'), desc: t('settingsDescApi'), body: `
       <label class="setting-row">
@@ -1786,14 +1831,14 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
   const ORDER = ['services', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'api', 'advanced'];
   sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
-  const menuRows = sections.map(sec =>
+  const menuRows = sections.filter(sec => !sec.parent).map(sec =>
     `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
     `<span class="settings-row-text"><span class="settings-row-name">${escapeHtml(sec.label)}</span>` +
     `<span class="settings-row-desc">${escapeHtml(sec.desc)}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>`).join('\n');
 
   const sectionBlocks = sections.map(sec =>
-    `      <div class="settings-section" data-section="${sec.id}" hidden>
-        <div class="settings-section-head"><button type="button" class="settings-back" onclick="showSettingsMenu()" title="${escapeHtml(t('settingsBack'))}" aria-label="${escapeHtml(t('settingsBack'))}"><span class="pixel-icon icon-back"></span></button><h2>${escapeHtml(sec.label)}</h2></div>${sec.body}
+    `      <div class="settings-section" data-section="${sec.id}"${sec.parent ? ` data-parent="${sec.parent}"` : ''} hidden>
+        <div class="settings-section-head"><button type="button" class="settings-back" onclick="settingsBack()" title="${escapeHtml(t('settingsBack'))}" aria-label="${escapeHtml(t('settingsBack'))}"><span class="pixel-icon icon-back"></span></button><h2>${escapeHtml(sec.label)}</h2></div>${sec.body}
       </div>`).join('\n');
 
   return `  <div class="settings-panel" id="settings-panel" hidden>
@@ -2199,7 +2244,7 @@ function rasterSprite(N, shapeAt, edge, fill) {
 /** The stepped-corner rules — shared geometry once, then the sprite each
  *  kind of element uses, generated for both themes. */
 function pixelCornerCss() {
-  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai';
+  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai, .svc-card';
   const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, ' +
     '.show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
@@ -2250,6 +2295,9 @@ function pixelCornerCss() {
   .status-cloud.status-fallback { color: ${t.amber}; }
   .status-cloud.status-problem { color: ${t.hot}; }
   .status-cloud.status-unknown { color: ${t.dim}; }
+  .svc-status.status-ok { color: ${t.new}; }
+  .svc-status.status-fallback { color: ${t.amber}; }
+  .svc-status.status-problem { color: ${t.hot}; }
   ${calendarSprites(t)}
   .calendar-day.has-events::after { background-image: ${pixelEventDot(t.new)}; }
   .calendar-events li.active { ${src('pill', 'line', 'line')} }`;
@@ -2824,6 +2872,10 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     --icon-cloud-bad: url("data:image/png;base64,${ICON_CLOUD_BAD_B64}");
     --icon-cloud: url("data:image/png;base64,${ICON_CLOUD_B64}");
     --icon-back: url("data:image/png;base64,${ICON_BACK_B64}");
+    --icon-cloud-polling: url("data:image/png;base64,${ICON_CLOUD_POLLING_B64}");
+    --icon-browser: url("data:image/png;base64,${ICON_BROWSER_B64}");
+    --icon-browser-head: url("data:image/png;base64,${ICON_BROWSER_HEAD_B64}");
+    --icon-browser-question: url("data:image/png;base64,${ICON_BROWSER_QUESTION_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -3124,6 +3176,24 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   /* The user's arrow at its drawn size, like the sidebar's icons. */
   .settings-back .icon-back { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; -webkit-mask-image: var(--icon-back); mask-image: var(--icon-back); }
   .settings-back:hover { background: var(--line); }
+  /* Settings → Services: a card per service, like Home Assistant's integrations. */
+  .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .svc-card[hidden], .svc-add-menu[hidden] { display: none; }
+  .svc-card {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
+    background: var(--bg); color: var(--text); font: inherit; padding: 12px 14px; cursor: pointer;
+  }
+  .svc-name { font-size: 15px; font-weight: 600; }
+  .svc-status { font-size: 13px; color: var(--dim); }
+  .svc-badges { display: flex; gap: 6px; margin-top: 4px; color: var(--dim); }
+  /* At their drawn size, like the sidebar's icons. */
+  .svc-badge { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .icon-cloud-polling { -webkit-mask-image: var(--icon-cloud-polling); mask-image: var(--icon-cloud-polling); }
+  .icon-browser { -webkit-mask-image: var(--icon-browser); mask-image: var(--icon-browser); }
+  .icon-browser-head { -webkit-mask-image: var(--icon-browser-head); mask-image: var(--icon-browser-head); }
+  .icon-browser-question { -webkit-mask-image: var(--icon-browser-question); mask-image: var(--icon-browser-question); }
+  .svc-add { margin-bottom: 16px; }
+  .svc-add-menu { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .setting-row {
     display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.1fr);
     gap: 10px; align-items: center; margin-bottom: 8px;
@@ -3788,7 +3858,6 @@ const WORDS = ${JSON.stringify({
   checking: t('checking'),
   checkFailed: t('checkFailed'),
   pendingChecking: t('pendingFetchStarting'),
-  sourcesNone: t('settingsSourcesNone'),
   browserOwnBrave: t('browserOwnBrave'),
   browserSystemChrome: t('browserSystemChrome'),
   progressChecking: t('progressChecking'),
@@ -4869,10 +4938,48 @@ function showSettingsMenu() {
   var row = open && document.querySelector('.settings-row[data-open="' + open.getAttribute('data-section') + '"]');
   if (row) row.focus();
 }
+// The back arrow and Esc: a service's page goes back to Services, a
+// section to the menu, with what was opened focused again.
+function settingsBack() {
+  var open = document.querySelector('.settings-section:not([hidden])');
+  var parent = open && open.getAttribute('data-parent');
+  if (!parent) { showSettingsMenu(); return; }
+  showSettingsSection(parent);
+  var card = document.querySelector('[data-svc-card="' + open.getAttribute('data-section').replace(/^svc-/, '') + '"]');
+  if (card) card.focus();
+}
 document.addEventListener('keydown', function (e) {
   var panel = document.getElementById('settings-panel');
-  if (e.key === 'Escape' && panel && !panel.hidden && document.getElementById('settings-menu').hidden) showSettingsMenu();
+  if (e.key === 'Escape' && panel && !panel.hidden && document.getElementById('settings-menu').hidden) settingsBack();
 });
+
+// + Add service: the services that aren't on yet. Picking one turns it on
+// (Canvas with both its ways, as a new install has them) and opens its
+// page to fill in; the calendar feed is set up in Settings → Calendar.
+function toggleAddService(open) {
+  var menu = document.getElementById('svc-add-menu');
+  var show = open === undefined ? menu.hidden : open;
+  menu.hidden = !show;
+  document.getElementById('svc-add-btn').setAttribute('aria-expanded', String(show));
+}
+function setService(id, on) {
+  var box = function (key) { var b = document.querySelector('[data-bool-key="' + key + '"]'); if (b) b.checked = on; };
+  if (id === 'classroom') box('classroomEnabled');
+  else if (id === 'canvas') { box('canvasSsoEnabled'); box('canvasApiEnabled'); }
+  else if (id === 'edpuzzle') box('edpuzzleEnabled');
+  else if (id === 'q') { document.querySelector('[data-key="gradesProvider"]').value = on ? 'q' : 'none'; updateGradesRows(); }
+  updateSourceRows();
+}
+function addService(id) {
+  toggleAddService(false);
+  if (id === 'calendar') { showSettingsSection('calendar'); return; }
+  setService(id, true);
+  showSettingsSection('svc-' + id);
+}
+function removeService(id) {
+  setService(id, false);
+  showSettingsSection('services');
+}
 
 // Reveals a masked field (email, Canvas address) the same way a password
 // field's own show/hide button does. The button sits right after the
@@ -4923,9 +5030,14 @@ function updateSourceRows() {
     var box = document.querySelector('[data-bool-key="' + key + '"]');
     return !!(box && box.checked);
   };
-  var needs = {
+  var provider = document.querySelector('[data-key="gradesProvider"]');
+  var services = {
     classroom: on('classroomEnabled'),
     canvas: on('canvasSsoEnabled') || on('canvasApiEnabled'),
+    edpuzzle: on('edpuzzleEnabled'),
+    q: !!provider && provider.value === 'q'
+  };
+  var needs = {
     canvasApi: on('canvasApiEnabled'),
     browser: on('classroomEnabled') || on('edpuzzleEnabled') || on('canvasSsoEnabled')
   };
@@ -4933,6 +5045,20 @@ function updateSourceRows() {
   for (var i = 0; i < rows.length; i++) {
     rows[i].hidden = !needs[rows[i].getAttribute('data-needs')];
   }
+  // A card for each service that's on, and + Add service offers the rest.
+  // The calendar feed's card and menu item are drawn as they are: it's
+  // set up in Settings → Calendar, not turned on here.
+  var any = false;
+  for (var id in services) {
+    var card = document.querySelector('[data-svc-card="' + id + '"]');
+    if (card) card.hidden = !services[id];
+    var add = document.querySelector('[data-svc-add="' + id + '"]');
+    if (add) add.hidden = services[id];
+    any = any || services[id];
+  }
+  var calendarCard = document.querySelector('[data-svc-card="calendar"]');
+  var none = document.getElementById('svc-none');
+  if (none) none.hidden = any || !!(calendarCard && !calendarCard.hidden);
   // The setup buttons drive native dialogs (a file picker, the browser
   // window), so they only exist inside the app; in a plain browser tab they
   // stay hidden, and the browser path is an ordinary text field again.
@@ -4942,16 +5068,6 @@ function updateSourceRows() {
   }
   var pathField = document.querySelector('[data-key="browserPath"]');
   if (pathField) pathField.readOnly = hasNativeBridge();
-  // The dropdown's summary names what's ticked, so it needn't be opened.
-  var summary = document.getElementById('source-summary');
-  if (summary) {
-    var names = [];
-    var boxes = document.querySelectorAll('.source-picker input[type="checkbox"]');
-    for (var j = 0; j < boxes.length; j++) {
-      if (boxes[j].checked) names.push(boxes[j].parentNode.querySelector('.label-text').textContent);
-    }
-    summary.textContent = names.length ? names.join(', ') : WORDS.sourcesNone;
-  }
 }
 
 // ── Setup: the browser and signing in ──
@@ -5351,7 +5467,7 @@ function toggleGradesHidden(button) {
   dispatchAction('config', toBase64Url(JSON.stringify({ gradesHidden: hide })));
 }
 
-// Settings → Grades: the Q rows show only with Q picked.
+// Settings → Services → Aequitas Q: the Q rows show only with Q picked.
 function updateGradesRows() {
   var on = document.querySelector('[data-key="gradesProvider"]').value === 'q';
   var rows = document.querySelectorAll('[data-grades-for]');
@@ -5360,10 +5476,10 @@ function updateGradesRows() {
 
 // The password goes to the keychain through its own action, never with the
 // rest of the settings; the field empties once it's saved.
-// From a Q problem on the Grades list: Settings, open at Grades.
+// From a Q problem on the Grades list: Settings, open at Aequitas Q's page.
 function openGradesSettings() {
   showPage('settings');
-  showSettingsSection('grades');
+  showSettingsSection('svc-q');
   var field = document.getElementById('grades-password');
   if (field) field.focus();
 }

@@ -163,7 +163,7 @@ function quickCheck() {
 }
 
 /** Opens the real, visible sign-in browser window — same script and
- *  flag the Settings → Account → Setup "Sign In…" button and `npm run
+ *  flag the Settings → Services → Setup "Sign In…" button and `npm run
  *  login` both already use. Detached and fire-and-forget like
  *  fullCheck()/quickCheck() above, but for a different reason: this one
  *  isn't waiting on a result that'll be ready in a minute, it's waiting
@@ -578,7 +578,7 @@ function main(action, arg) {
         return { ...result, action };
       });
     }
-    // Settings → Grades: the Q password, as base64url JSON (a string; empty
+    // Settings → Services → Aequitas Q: the Q password, as base64url JSON (a string; empty
     // removes it). Into the keychain, never settings.json; see 40-grades.js.
     // Answers with whether one's saved now, nothing more.
     case 'saveGradesPassword': {
@@ -602,7 +602,7 @@ function main(action, arg) {
       }
       return { ...result, action };
     }
-    // Settings → Grades → Check now: signs in to Q and reads the grades right
+    // Settings → Services → Aequitas Q → Check now: signs in to Q and reads the grades right
     // away (not waiting out the hour), then redraws.
     case 'checkGrades': {
       const grades = require('./40-grades.js');

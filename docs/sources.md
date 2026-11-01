@@ -5,11 +5,12 @@ Where ClassDash reads your schoolwork from, how to choose, and how each one work
 ## Classes and sources
 
 - **Link classes** in Settings → **Classes** when one class shows up on two platforms, like its Classroom class and its Canvas course: name the link, tick its classes, and they show as one class everywhere. A link with one class just renames it. Your Q classes are in the list too, marked Q (see [Grades](grades.md)), and classes the page hides aren't. If a teacher renames a Classroom class, ClassDash follows it, so it doesn't turn into a second class.
-- **Choosing your sources**: Settings → Services has a box for each thing ClassDash can read.
+- **Choosing your sources**: Settings → **Services** has a card for each service that's on, like Home Assistant's integrations: its name, how its last check went, and two badges. The cloud with ↑ means ClassDash asks it on a schedule (polling). The browser badge says what it takes: a hidden browser in the background, a browser with a face for a visible browser window (Edpuzzle), or a browser with a ? when it depends on how it's set up (Canvas). Click a card for that service's settings and **Turn off**; **+ Add service** turns one on. Turning one off keeps what you typed for it.
   - **Google Classroom** and **Edpuzzle** need a browser.
-  - **Canvas — Google sign-in** reads Canvas through that browser, for schools whose Canvas opens with "Sign in with Google". Nothing extra to set up.
-  - **Canvas — API** reads Canvas with an access token (Canvas → Account → Settings → **New Access Token**), with no browser or sign-in. Treat the token like a password; it expires, and then you make a new one. With both Canvas ways on, Google sign-in is the fallback for when the token fails.
-- **Only use Canvas?** Pick **Only Canvas** and an access token in the first-run setup (or untick everything but Canvas — API), and ClassDash never opens a browser at all.
+  - **Canvas** has two ways, both switches on its page. **Google sign-in** reads Canvas through that browser, for schools whose Canvas opens with "Sign in with Google", with nothing extra to set up. **API** reads Canvas with an access token (Canvas → Account → Settings → **New Access Token**), with no browser or sign-in. Treat the token like a password; it expires, and then you make a new one. With both ways on, Google sign-in is the fallback for when the token fails.
+  - **Aequitas Q** is for grades (see [Grades](grades.md)).
+  - A **calendar feed** gets a card too, once there is one; it's set up in Settings → **Calendar**.
+- **Only use Canvas?** Pick **Only Canvas** and an access token in the first-run setup (or turn off everything but Canvas, and Canvas's Google sign-in), and ClassDash never opens a browser at all.
 
 ## How the sources compare
 

@@ -121,8 +121,9 @@ const FRAGMENT = `<div id="SP_Assignments"><input id="schedreccount" type="hidde
     return w.document;
   };
   let d = open();
-  const section = d.querySelector('[data-section="grades"]');
-  ok('Settings has a Grades section, Q picked, its rows shown', !!section && d.querySelector('[data-key="gradesProvider"]').value === 'q' && !section.querySelector('[data-grades-for]').hidden);
+  const section = d.querySelector('[data-section="svc-q"]');
+  ok("Q's sign-in has its own page under Services, Q picked, its rows shown", !!section && section.getAttribute('data-parent') === 'services' && d.querySelector('[data-key="gradesProvider"]').value === 'q' && !section.querySelector('[data-grades-for]').hidden);
+  ok('...and a card on Services', !d.querySelector('[data-svc-card="q"]').hidden && !!d.querySelector('[data-section="grades"] [data-key="gradeAlerts"]') && !d.querySelector('[data-section="grades"] [data-grades-for]'));
   const pw = d.getElementById('grades-password');
   ok('the password field is empty, has no data-key, and says one is saved', pw.value === '' && !pw.hasAttribute('data-key') && /Saved/.test(pw.placeholder));
   ok('the password is nowhere in the page', !fs.readFileSync(path.join(proj, 'summary.html'), 'utf8').includes('made-up-pass'));

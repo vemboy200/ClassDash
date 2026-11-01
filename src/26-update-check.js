@@ -156,7 +156,7 @@ function isNewer(a, b) {
 /**
  * Records which version of the app is ACTUALLY running.
  *
- * The version shown in Settings → Advanced (and the "update available"
+ * The version shown in Settings → System (and the "update available"
  * banner) is read from this file when the page is BUILT, and the page is a
  * static snapshot. The app rewrites currentVersion itself, but only as the
  * result of an update check that finishes after the page has already been

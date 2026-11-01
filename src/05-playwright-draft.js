@@ -2890,7 +2890,7 @@ function recordGradeChanges() {
 }
 
 /**
- * Grades (Settings → Grades, 40-grades.js): at most once an hour it signs in
+ * Grades (Settings → Services → Aequitas Q, 40-grades.js): at most once an hour it signs in
  * to the school's Q and reads them. In a process of its own, detached, like
  * the announcement scan: its own headless browser, and never a reason for
  * the check to fail or wait. It decides itself whether one's due.

@@ -1441,7 +1441,7 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         // "Choose Browser…" and "Sign In…" used to sit here, reachable any
-        // time after the one-time wizard. They moved into Settings → Account →
+        // time after the one-time wizard. They moved into Settings → Services →
         // Setup (see the native setup actions in userContentController below),
         // next to the sources that need them, so they aren't a hidden second
         // place to look.
@@ -1714,7 +1714,7 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         }
     }
 
-    // Settings → Account → Setup, and Advanced's browser path picker. Each
+    // Settings → Services → Setup, and Advanced's browser path picker. Each
     // answers the page with the same {ok, ...} shape as any bridge action.
     //
     //   setupBrowser    the "Set Up a Browser" dialog (install Brave / Chrome /
@@ -2256,7 +2256,7 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
     }
 
     // The browser-choice step — the wizard's own, but also reachable any
-    // time afterward from Settings → Account → Setup (see
+    // time afterward from Settings → Services → Setup (see
     // handleNativeSetupAction() above). Testing the wizard live turned up
     // a real gap: skipping this (or wanting to redo it later) left no
     // way back short of deleting the project folder and starting the

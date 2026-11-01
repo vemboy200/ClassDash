@@ -54,7 +54,11 @@
           "cloud-bad-icon.png",
           "cloud-icon.png",
           "back-icon.png",
-          "arrow-icon.png"
+          "arrow-icon.png",
+          "cloud-polling-icon.png",
+          "browser-icon.png",
+          "browser-head-icon.png",
+          "browser-question-icon.png"
         ]
       },
       {

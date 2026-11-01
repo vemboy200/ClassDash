@@ -101,7 +101,7 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
   ok("the grades' Open settings goes to the Settings page", !settings.hidden && lit(d).join() === 'settings');
   const menu = d.getElementById('settings-menu');
   const shown = () => [...d.querySelectorAll('.settings-section')].filter(x => !x.hidden).map(x => x.getAttribute('data-section')).join();
-  ok('...straight to its Grades section, not the menu', menu.hidden && shown() === 'grades');
+  ok("...straight to Aequitas Q's page under Services, not the menu", menu.hidden && shown() === 'svc-q');
 
   // ── Settings as a menu ──
   w.showPage('dashboard');

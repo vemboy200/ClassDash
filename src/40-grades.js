@@ -1,5 +1,5 @@
 /**
- * Grades from the school's student information system (Settings → Grades).
+ * Grades from the school's student information system (Settings → Services → Aequitas Q).
  * The first and only provider so far is Aequitas Q ("Q StudentConnection").
  *
  * ── What Q looks like ──
@@ -741,7 +741,7 @@ module.exports = {
 };
 
 // node 40-grades.js --if-due   after a check (05-playwright-draft.js)
-// node 40-grades.js --now      Check now, in Settings → Grades
+// node 40-grades.js --now      Check now, in Settings → Services → Aequitas Q
 if (require.main === module && (process.argv.includes('--if-due') || process.argv.includes('--now'))) {
   if (!takeLock()) process.exit(0);
   check({ force: process.argv.includes('--now') }).then(r => {

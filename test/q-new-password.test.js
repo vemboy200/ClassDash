@@ -102,18 +102,18 @@ const pages = {
     T.redraw(proj);
     const d = new JSDOM(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8'), { virtualConsole: new VirtualConsole() }).window.document;
     const note = d.querySelector('#grades-section .grades-problem');
-    ok('the Grades list passes Q\'s words on, and what to do', note && note.textContent.includes(`It said: "${SAID}"`) && /Set a new password on Q's site in your browser, then save it in Settings → Grades/.test(note.textContent), note && note.textContent);
+    ok('the Grades list passes Q\'s words on, and what to do', note && note.textContent.includes(`It said: "${SAID}"`) && /Set a new password on Q's site in your browser, then save it in Settings → Services → Aequitas Q/.test(note.textContent), note && note.textContent);
     const open = d.querySelector('#grades-section .grades-fix a');
-    ok('...with Open Q (Q\'s sign-in page, in the browser) and a way to Settings → Grades', open && open.getAttribute('href') === 'https://q.made-up.example/Production/StudentPortal/' && open.getAttribute('target') === '_blank' &&
+    ok('...with Open Q (Q\'s sign-in page, in the browser) and a way to Aequitas Q\'s settings', open && open.getAttribute('href') === 'https://q.made-up.example/Production/StudentPortal/' && open.getAttribute('target') === '_blank' &&
       /openGradesSettings/.test(d.querySelector('#grades-section .grades-fix button').getAttribute('onclick')));
-    ok('Settings → Grades says it too', /Q wants a new password/.test(d.getElementById('grades-check-status').textContent));
+    ok("Aequitas Q's settings page says it too", /Q wants a new password/.test(d.getElementById('grades-check-status').textContent));
   }
   {
     const w = new JSDOM(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8'), { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://classdash.localhost/summary.html', virtualConsole: new VirtualConsole(),
       beforeParse(win) { win.setTimeout = () => 0; win.setInterval = () => 0; win.Element.prototype.scrollIntoView = () => {}; } }).window;
     w.document.querySelector('#grades-section .grades-fix button').click();
     const shown = [...w.document.querySelectorAll('.settings-section')].filter(x => !x.hidden).map(x => x.getAttribute('data-section'));
-    ok('the button opens Settings at Grades, on the password box', !w.document.getElementById('settings-panel').hidden && JSON.stringify(shown) === '["grades"]' &&
+    ok("the button opens Aequitas Q's page, on the password box", !w.document.getElementById('settings-panel').hidden && JSON.stringify(shown) === '["svc-q"]' &&
       w.document.activeElement === w.document.getElementById('grades-password'), JSON.stringify(shown));
     w.close();
   }

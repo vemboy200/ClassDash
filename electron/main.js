@@ -403,7 +403,7 @@ ipcMain.on('classdash-action', async (_event, body) => {
   deliverResult(id, result);
 });
 
-// Settings → Account → Setup, and Advanced's browser path picker. Each
+// Settings → Services → Setup, and Advanced's browser path picker. Each
 // answers the page with the same {ok, ...} shape as any bridge action.
 //
 //   setupBrowser    the "Set Up a Browser" dialog (install Brave / Chrome /
@@ -936,7 +936,7 @@ function showBusyWindow(message) {
 }
 
 // The browser-choice step — the wizard's own, but also reachable any
-// time afterward from Settings → Account → Setup (see
+// time afterward from Settings → Services → Setup (see
 // runNativeSetupAction() above) — same gap testing the macOS wizard
 // live turned up there: skipping this (or wanting to redo it later)
 // left no way back short of deleting the project folder and starting
@@ -1052,7 +1052,7 @@ async function presentBrowserSetup(completion) {
       dialog.showErrorBox(
         "Couldn't find Chrome",
         "Chrome isn't in any of its usual install locations. Use \"Choose Browser…\" in " +
-        'Settings → Account → Setup to point directly at chrome.exe, or install Brave instead.'
+        'Settings → Services → Setup to point directly at chrome.exe, or install Brave instead.'
       );
       completion();
     }
@@ -1352,9 +1352,9 @@ function attemptLogin() {
       // I picked", because nothing was ever actually saved to forget.
       const detail = errorText
         ? `Here's exactly what happened:\n\n${errorText.slice(-800)}\n\nUse "Choose Browser…" ` +
-          'in Settings → Account → Setup to install Brave or point directly at a browser\'s .exe, then try again.'
+          'in Settings → Services → Setup to install Brave or point directly at a browser\'s .exe, then try again.'
         : 'This usually means no compatible browser is installed. Use "Choose ' +
-          'Browser…" in Settings → Account → Setup to install Brave or pick one, then try again.';
+          'Browser…" in Settings → Services → Setup to install Brave or pick one, then try again.';
       const { response } = await dialog.showMessageBox(win, {
         type: 'warning',
         message: "Couldn't open a browser to sign in",
