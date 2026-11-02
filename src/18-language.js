@@ -758,6 +758,15 @@ const DICTIONARIES = {
     wsWebNoBookmarks: 'Закладок пока нет: добавьте одну ниже.',
     wsWebDownloaded: 'Скачано в «Загрузки»:',
     wsPages: n => `${n} ${pluralizeRu(n, 'страница', 'страницы', 'страниц')}`,
+    tpTitle: 'транскрипт',
+    tpBack: '← к сводке',
+    tpOpenAssignment: 'открыть задание',
+    tpMachine: 'Распознано машиной. Обычные слова записаны верно, но <b>имена и термины могут быть искажены</b> — если слово выглядит странно, перемотай видео по отметке времени и послушай сам. Изредка в паузах распознавалка выдумывает фразы вроде «Thanks for watching».',
+    tpAuthor: 'Субтитры автора видео — им можно верить.',
+    tpRead: 'Читать',
+    tpTimed: 'По времени',
+    tpQuestion: '??? здесь Edpuzzle остановит видео и спросит',
+    tpFooter: 'Распознано на этом компьютере, без интернета и без затрат.',
   },
 
   en: {
@@ -1462,6 +1471,15 @@ const DICTIONARIES = {
     wsWebNoBookmarks: 'No bookmarks yet: add one below.',
     wsWebDownloaded: 'Downloaded to Downloads:',
     wsPages: n => `${n} ${n === 1 ? 'page' : 'pages'}`,
+    tpTitle: 'transcript',
+    tpBack: '← back to the dashboard',
+    tpOpenAssignment: 'open the assignment',
+    tpMachine: "Machine captions. Everyday words come out right, but <b>names and terms can be garbled</b>: if a word looks odd, skip to its time in the video and listen. Now and then, in a pause, the captions make up a phrase like “Thanks for watching”.",
+    tpAuthor: "The video's own captions, from its author: you can trust them.",
+    tpRead: 'Read',
+    tpTimed: 'By time',
+    tpQuestion: '??? Edpuzzle stops the video here and asks a question',
+    tpFooter: 'Transcribed on this computer, offline and free.',
   },
 };
 

@@ -7,15 +7,14 @@
  * text. On its own page there's room for both the plain text and the
  * timestamped breakdown.
  *
- * Note: unlike the rest of the app, this page's on-screen text is not run
- * through 18-language.js's translation system — it's hardcoded Russian,
- * same as it's always been, since this feature isn't wired into the
- * collector yet (see the README). Only the code around it — identifiers
- * and comments — is translated here.
+ * Its on-screen text goes through 18-language.js like the rest of the
+ * app, even though this feature isn't wired into the collector yet (see
+ * CONTRIBUTING.md).
  */
 
 const fs = require('fs');
 const path = require('path');
+const { t, currentLanguage } = require('./18-language.js');
 
 const escapeHtml = s => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -77,18 +76,15 @@ function writeTranscript(data, outputPath) {
   }
 
   const warning = source === 'machine'
-    ? `<div class="warn">Распознано машиной. Обычные слова записаны верно, но
-       <b>имена и термины могут быть искажены</b> — если слово выглядит странно,
-       перемотай видео по отметке времени и послушай сам. Изредка в паузах
-       распознавалка выдумывает фразы вроде «Thanks for watching».</div>`
-    : `<div class="ok">Субтитры автора видео — им можно верить.</div>`;
+    ? `<div class="warn">${t('tpMachine')}</div>`
+    : `<div class="ok">${t('tpAuthor')}</div>`;
 
   const html = `<!doctype html>
-<html lang="ru">
+<html lang="${currentLanguage()}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} — транскрипт</title>
+<title>${escapeHtml(title)} — ${t('tpTitle')}</title>
 <style>
   :root {
     --bg:#f6f7f9; --card:#fff; --text:#1a1c1e; --dim:#6b7280; --line:#e5e7eb;
@@ -134,30 +130,30 @@ function writeTranscript(data, outputPath) {
 </head>
 <body>
 <main>
-  <a class="back" href="../summary.html">← к сводке</a>
+  <a class="back" href="../summary.html">${t('tpBack')}</a>
   <h1>${escapeHtml(title)}</h1>
   <div class="meta">
     <span>${escapeHtml(platform || 'Edpuzzle')}</span>
     <span>${escapeHtml(className || '')}</span>
     ${duration ? `<span>${escapeHtml(duration)}</span>` : ''}
-    ${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">открыть задание</a>` : ''}
+    ${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">${t('tpOpenAssignment')}</a>` : ''}
   </div>
   ${warning}
 
   <div class="tabs">
-    <button class="selected" onclick="showTab('plain', this)">Читать</button>
-    <button onclick="showTab('timed', this)">По времени</button>
+    <button class="selected" onclick="showTab('plain', this)">${t('tpRead')}</button>
+    <button onclick="showTab('timed', this)">${t('tpTimed')}</button>
   </div>
 
   <div class="text" id="plain">${escapeHtml(text)}</div>
 
   <div class="text" id="timed" hidden>
 ${withMarkers.map(c => c.question
-    ? `    <div class="question"><span class="label">${escapeHtml(c.label)}</span><span>??? здесь Edpuzzle остановит видео и спросит</span></div>`
+    ? `    <div class="question"><span class="label">${escapeHtml(c.label)}</span><span>${t('tpQuestion')}</span></div>`
     : `    <div class="row"><span class="label">${escapeHtml(c.label)}</span><span>${escapeHtml(c.text)}</span></div>`).join('\n')}
   </div>
 
-  <footer>Распознано на этом компьютере, без интернета и без затрат.</footer>
+  <footer>${t('tpFooter')}</footer>
 </main>
 <script>
 function showTab(which, button) {
