@@ -147,7 +147,7 @@ if command -v swiftc >/dev/null; then
   mkdir -p "$TEMPLATE_DIR"
   cp ./src/*.js "$TEMPLATE_DIR/"
   cp package.json "$TEMPLATE_DIR/"
-  cp src/settings.example.json src/refresh-icon.png src/freshcheck-icon.png src/settings-icon.png src/loading-icon.png src/loading-icon-light.png src/stop-icon.png src/warning-icon.png src/workspace-icon.png src/dashboard-icon.png src/dashboard-outline-icon.png src/grades-icon.png src/cloud-ok-icon.png src/cloud-attention-icon.png src/cloud-bad-icon.png src/cloud-icon.png src/back-icon.png src/arrow-icon.png src/cloud-polling-icon.png src/browser-icon.png src/browser-head-icon.png src/browser-question-icon.png "$TEMPLATE_DIR/"
+  cp src/settings.example.json src/refresh-icon.png src/freshcheck-icon.png src/settings-icon.png src/loading-icon.png src/loading-icon-light.png src/stop-icon.png src/warning-icon.png src/workspace-icon.png src/dashboard-icon.png src/dashboard-outline-icon.png src/grades-icon.png src/cloud-ok-icon.png src/cloud-attention-icon.png src/cloud-bad-icon.png src/cloud-icon.png src/back-icon.png src/arrow-icon.png src/cloud-polling-icon.png src/browser-icon.png src/browser-head-icon.png src/browser-question-icon.png src/edit-icon.png "$TEMPLATE_DIR/"
   cp -R node_modules "$TEMPLATE_DIR/node_modules"
   # PDF.js (Settings → Calendar, 32-calendar-pdf.js) only needs its legacy
   # build's two minified files and the cmaps; the rest of the package is

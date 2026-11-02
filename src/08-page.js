@@ -73,6 +73,7 @@ const ICON_CLOUD_POLLING_B64 = readIcon('cloud-polling-icon.png');
 const ICON_BROWSER_B64 = readIcon('browser-icon.png');
 const ICON_BROWSER_HEAD_B64 = readIcon('browser-head-icon.png');
 const ICON_BROWSER_QUESTION_B64 = readIcon('browser-question-icon.png');
+const ICON_EDIT_B64 = readIcon('edit-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -2727,6 +2728,9 @@ ${cardHtml[id]}
   .dash-edit-bar { position: fixed; right: 16px; bottom: 16px; z-index: 60; }
   body:not([data-page="dashboard"]) .dash-edit-bar { display: none; }
   body.dash-editing .dash-edit { color: var(--new); }
+  /* The user's pencil, at its drawn size like the sidebar's icons. */
+  .icon-edit { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; -webkit-mask-image: var(--icon-edit); mask-image: var(--icon-edit); }
+  .dash-edit { padding-left: 6px; }
   /* No sidebar while editing (nor the check details it opens): Done, or Esc,
      is the only way out, so nothing else happens halfway through. */
   html body.dash-editing { --nav-w: 0px; --nav-h: 0px; }
@@ -2925,6 +2929,7 @@ ${cardHtml[id]}
     --icon-browser: url("data:image/png;base64,${ICON_BROWSER_B64}");
     --icon-browser-head: url("data:image/png;base64,${ICON_BROWSER_HEAD_B64}");
     --icon-browser-question: url("data:image/png;base64,${ICON_BROWSER_QUESTION_B64}");
+    --icon-edit: url("data:image/png;base64,${ICON_EDIT_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -3806,7 +3811,7 @@ ${appNav(gradesCenter, `<button class="reload named"
   <div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`)}
 ${checkStatusPanel()}
 <div class="dash-edit-bar">
-  <button type="button" class="dash-edit" id="dash-edit" onclick="toggleDashEdit()" aria-pressed="false" title="${escapeHtml(t('dashEditHint'))}" data-edit="${escapeHtml(t('dashEdit'))}" data-done="${escapeHtml(t('dashEditDone'))}"><span class="dash-edit-label">${escapeHtml(t('dashEdit'))}</span></button>
+  <button type="button" class="dash-edit" id="dash-edit" onclick="toggleDashEdit()" aria-pressed="false" title="${escapeHtml(t('dashEditHint'))}" data-edit="${escapeHtml(t('dashEdit'))}" data-done="${escapeHtml(t('dashEditDone'))}"><span class="pixel-icon icon-edit" aria-hidden="true"></span><span class="dash-edit-label">${escapeHtml(t('dashEdit'))}</span></button>
 </div>
 <main>
 ${settingsPanel()}
