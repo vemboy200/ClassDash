@@ -6,7 +6,7 @@ This is the technical companion to [README.md](README.md) and the [docs](docs/) 
 
 ## Platform support
 
-The README has the user-facing version of this, with pros and cons, in [How the sources compare](docs/sources.md#how-the-sources-compare). This is the same four rows from the code's side.
+The README has the user-facing version of this, with pros and cons, in [How the services compare](docs/services.md#how-the-services-compare). This is the same four rows from the code's side.
 
 | Platform | Collection method | Official? |
 |---|---|---|

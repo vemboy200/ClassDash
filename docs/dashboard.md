@@ -1,6 +1,6 @@
 # Using the dashboard
 
-The main page: everything due, announcements, reminders and the status of each source. Where the assignments come from is in [Sources](sources.md).
+The main page: everything due, announcements, reminders and the status of each source. Where the assignments come from is in [Services](services.md).
 
 ## Everyday
 

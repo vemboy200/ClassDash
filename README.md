@@ -18,7 +18,7 @@ Four different sites, each with its own idea of what "your assignments" means. C
 
 | | |
 |---|---|
-| **Dashboard** | Everything due from Classroom, Canvas and Edpuzzle on one page, checked by itself every 10 minutes during the school day. The teacher's instructions under each assignment, announcements with their attachments, and reminders for what was only said out loud. A notification only when something changes. [Using the dashboard](docs/dashboard.md) · [Sources](docs/sources.md) |
+| **Dashboard** | Everything due from Classroom, Canvas and Edpuzzle on one page, checked by itself every 10 minutes during the school day. The teacher's instructions under each assignment, announcements with their attachments, and reminders for what was only said out loud. A notification only when something changes. [Using the dashboard](docs/dashboard.md) · [Services](docs/services.md) |
 | **Grades** | Your grade in each class from Aequitas Q, Canvas and Classroom, its history, alerts when it changes, and a Grades center with every assignment's score and an estimate from the category weights. [Grades](docs/grades.md) |
 | **Calendar and schedule** | Your school's calendar (from its PDF or a calendar feed), your class schedule with A/B or odd/even days and flipped days, and "class tomorrow" on the work that's due. [Calendar and schedule](docs/calendar.md) |
 | **Workspace** | Write on worksheets and export them ready to hand in, with Google Docs, Desmos or another PDF beside them, up to five panes. [Workspace](docs/workspace.md) |
@@ -42,7 +42,7 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 
 - [Getting started](docs/getting-started.md): installing, the first run, keeping it running, updates
 - [Using the dashboard](docs/dashboard.md): the page, keyboard shortcuts, assignments, reminders
-- [Sources](docs/sources.md): Classroom, Canvas, Edpuzzle and Q, and how each one is read
+- [Services](docs/services.md): a page for each one (Google Classroom, Canvas, Edpuzzle, Aequitas Q, calendar feeds), and how they compare
 - [Calendar and schedule](docs/calendar.md)
 - [Grades](docs/grades.md)
 - [Workspace](docs/workspace.md): PDFs, web pages and the AI pane
