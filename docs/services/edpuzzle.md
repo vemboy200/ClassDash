@@ -4,7 +4,7 @@ ClassDash reads your Edpuzzle assignments through Edpuzzle's own site, from a re
 
 ## Before you start
 
-- Your Edpuzzle account, signed in in ClassDash's browser (**Settings → Services → Setup → Sign In…**).
+- Your Edpuzzle account, signed in in ClassDash's browser: **Settings → Services → Setup → Sign In…** opens an Edpuzzle tab of its own. Edpuzzle keeps its own sign-in, so signing in to your school Google account doesn't sign you in to Edpuzzle, even if you use Edpuzzle's "Log in with Google" button there.
 
 ## Setting it up
 
@@ -16,8 +16,7 @@ None. If your teachers already post every Edpuzzle assignment in Google Classroo
 
 ## What it reads
 
-- **Edpuzzle assignments**, with their due dates. When the same Edpuzzle shows up in Classroom too, you can **Link** the two cards into one (see [Using the dashboard](../dashboard.md#assignments)).
-- **Transcripts** of the videos, so you can read what was said, are coming later (the dashboard's **Edpuzzle transcripts** card is their place). ClassDash will never pull the embedded questions or their answers, on purpose: that's a deliberate line, not a missing feature.
+**Edpuzzle assignments**, with their due dates. When the same Edpuzzle shows up in Classroom too, you can **Link** the two cards into one (see [Using the dashboard](../dashboard.md#assignments)).
 
 ## How often it checks
 
@@ -27,11 +26,12 @@ Only on full checks, since each one opens a browser window: twice a day (at 8 AM
 
 - A browser window opens during a full check.
 - It uses endpoints Edpuzzle doesn't document, found by watching the site's own traffic, so it can break without notice.
+- No video transcripts yet. The dashboard's **Edpuzzle transcripts** card is a placeholder for them. ClassDash will never pull the embedded questions or their answers, on purpose: that's a deliberate line, not a missing feature.
 
 ## Troubleshooting
 
 - **Edpuzzle didn't update:** it's only read on full checks. Click **Fresh check** at the bottom of the sidebar.
-- **The status cloud shows Edpuzzle failed:** click the cloud to see what went wrong. If you were signed out, sign in again with **Settings → Services → Setup → Sign In…**.
+- **The status cloud shows Edpuzzle failed:** click the cloud to see what went wrong. If you were signed out, sign in again with **Settings → Services → Setup → Sign In…**, in its Edpuzzle tab.
 
 ## Turning it off
 

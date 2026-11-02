@@ -30,7 +30,7 @@ Four different sites, each with its own idea of what "your assignments" means. C
 - **Free to run.** Collecting your assignments is an ordinary program: no tokens, no API keys, no cost per run. AI is an optional extra and can run entirely on your own computer.
 - **Your account, your computer.** Every request goes through your own logged-in browser session (or, for Canvas, your own access token) and sees exactly what your account can already see. Everything ClassDash keeps stays on your computer.
 - **Read-only.** It never submits, answers, or changes anything on your behalf, and the AI can't either.
-- **Not an answer machine.** It can fetch a transcript of an Edpuzzle video so you can read what was said, but it will not pull the embedded questions or their answers, and the AI is built to help you learn, not to do the work for you. That's a deliberate line, not a missing feature.
+- **Not an answer machine.** It reads your Edpuzzle assignments, but it will not pull the embedded questions or their answers, and the AI is built to help you learn, not to do the work for you. That's a deliberate line, not a missing feature.
 
 ## Get it
 
