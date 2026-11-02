@@ -2245,7 +2245,7 @@ function rasterSprite(N, shapeAt, edge, fill) {
  *  kind of element uses, generated for both themes. */
 function pixelCornerCss() {
   const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai, .svc-card';
-  const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, ' +
+  const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, .dash-edit, .dash-hide, ' +
     '.show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
   const FIELDS = '.setting-row input[type="text"], .setting-row input[type="password"], ' +
@@ -2575,6 +2575,26 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   };
 
   const gradesCenter = gradesCenterPanel();
+  // The cards edit mode can hide (DASH_CARDS), each in a wrapper with its
+  // Hide / Show, marked dash-off when it's hidden. A card with nothing to
+  // draw (grades with no grades) gets no wrapper.
+  const dashHidden = new Set(readSettings().dashHidden || []);
+  const cardHtml = {
+    filters: filtersPanel(allItems, announcements, now, rawItems),
+    reminders: remindersSection(now),
+    grades: gradesSection(),
+    calendar: calendarSection(now),
+    announcements: announcementsSection(announcements, freshAnnouncementIds),
+    transcripts: `    <section>
+      <h2>${escapeHtml(t('transcripts'))}</h2>
+      <p class="hint">${escapeHtml(t('transcriptsCaption'))}</p>
+    </section>`,
+  };
+  const cardNames = { filters: t('dashFilters'), reminders: t('reminders'), grades: t('gradesTitle'), calendar: t('calendarTitle'), announcements: t('announcements'), transcripts: t('transcripts') };
+  const dashCard = id => cardHtml[id] ? `  <div class="dash-card${dashHidden.has(id) ? ' dash-off' : ''}" data-dash-card="${id}">
+    <button type="button" class="dash-hide" onclick="toggleDashCard('${id}')" title="${escapeHtml(t('dashHideHint'))}" aria-label="${escapeHtml(cardNames[id])}" aria-pressed="${dashHidden.has(id)}" data-hide="${escapeHtml(t('dashHide'))}" data-show="${escapeHtml(t('dashShow'))}">${escapeHtml(t(dashHidden.has(id) ? 'dashShow' : 'dashHide'))}</button>
+${cardHtml[id]}
+  </div>` : '';
   const html = `<!doctype html>
 <html lang="ru">
 <head>
@@ -2698,6 +2718,35 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
     body.nav-collapsed { --nav-w: 0px; }
     .app-nav.collapsed .nav-label { display: inline; }
   }
+  /* Edit, in the dashboard's bottom right corner: turns the dashboard's
+     edit mode on and off (body.dash-editing). Only on the Dashboard. */
+  .dash-edit {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: inherit; font-size: 14px; padding: 6px 12px; cursor: pointer; color: var(--text);
+  }
+  .dash-edit-bar { position: fixed; right: 16px; bottom: 16px; z-index: 60; }
+  body:not([data-page="dashboard"]) .dash-edit-bar { display: none; }
+  body.dash-editing .dash-edit { color: var(--new); }
+  /* No sidebar while editing (nor the check details it opens): Done, or Esc,
+     is the only way out, so nothing else happens halfway through. */
+  html body.dash-editing { --nav-w: 0px; --nav-h: 0px; }
+  body.dash-editing .app-nav, body.dash-editing .check-status-panel { display: none; }
+  /* A hidden card is gone from the dashboard, but edit mode shows it greyed
+     out where it sits, with Show on it to bring it back. */
+  body:not(.dash-editing) .dash-card.dash-off { display: none; }
+  body.dash-editing .dash-card.dash-off > :not(.dash-hide) { opacity: .35; filter: grayscale(1); pointer-events: none; user-select: none; }
+  body.dash-editing .dash-card.dash-off { outline-color: var(--line); }
+  /* Edit mode: each card that can be hidden gets a dashed outline and a Hide. */
+  .dash-card { position: relative; }
+  .dash-hide { display: none; }
+  /* Room at the top for Hide, so it covers nothing (the grades' Hide is up there). */
+  body.dash-editing .dash-card { outline: 2px dashed var(--dim); outline-offset: 4px; margin-bottom: 16px; padding-top: 24px; }
+  body.dash-editing .dash-hide {
+    display: block; position: absolute; top: -10px; right: -6px; z-index: 5;
+    padding: 3px 10px; font: inherit; font-size: 13px; line-height: 1.3;
+    cursor: pointer; color: var(--text);
+  }
+  body.dash-editing .dash-hide:hover { color: var(--hot); }
   /* Settings is a page of its own: while it's open, it's all main shows. */
   body[data-page="settings"] main > :not(#settings-panel) { display: none; }
   /* Assignments on the left, announcements on the right. Stacked on narrow screens. */
@@ -3756,6 +3805,9 @@ ${appNav(gradesCenter, `<button class="reload named"
   ${checkStatusIndicator()}
   <div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`)}
 ${checkStatusPanel()}
+<div class="dash-edit-bar">
+  <button type="button" class="dash-edit" id="dash-edit" onclick="toggleDashEdit()" aria-pressed="false" title="${escapeHtml(t('dashEditHint'))}" data-edit="${escapeHtml(t('dashEdit'))}" data-done="${escapeHtml(t('dashEditDone'))}"><span class="dash-edit-label">${escapeHtml(t('dashEdit'))}</span></button>
+</div>
 <main>
 ${settingsPanel()}
 ${progressBar}
@@ -3774,9 +3826,9 @@ ${gradesCenter}
   <div class="workspace-panel" id="workspace-panel" hidden><iframe id="workspace-frame" title="${escapeHtml(t('wsTitle'))}"></iframe></div>
   <div class="columns">
   <div>
-${filtersPanel(allItems, announcements, now, rawItems)}
+${dashCard('filters')}
 ${emptyBanner}
-${remindersSection(now)}
+${dashCard('reminders')}
 ${overdueSection(overdue, now)}
 ${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
 ${section(t('ahead'), later, now, freshIds)}
@@ -3785,13 +3837,10 @@ ${section(t('mutedSection'), deferred, now, freshIds, t('mutedCaption'))}
 ${section(t('removed'), gone, now, freshIds, t('removedCaption'))}
   </div>
   <div>
-${gradesSection()}
-${calendarSection(now)}
-${announcementsSection(announcements, freshAnnouncementIds)}
-    <section>
-      <h2>${escapeHtml(t('transcripts'))}</h2>
-      <p class="hint">${escapeHtml(t('transcriptsCaption'))}</p>
-    </section>
+${dashCard('grades')}
+${dashCard('calendar')}
+${dashCard('announcements')}
+${dashCard('transcripts')}
   </div>
   </div>
   <footer>${escapeHtml(t(readSettings().aiProvider && readSettings().aiProvider !== 'none' ? 'footerNoteAi' : 'footerNote'))}</footer>
@@ -4820,9 +4869,46 @@ function toggleNav() {
   button.title = button.getAttribute(collapsed ? 'data-expand' : 'data-collapse');
   dispatchAction('config', toBase64Url(JSON.stringify({ navCollapsed: collapsed })));
 }
+// Edit in the bottom right corner: the dashboard's edit mode, on and off.
+// Leaving the Dashboard ends it.
+function toggleDashEdit(on) {
+  var editing = on === undefined ? !document.body.classList.contains('dash-editing') : on;
+  var button = document.getElementById('dash-edit');
+  document.body.classList.toggle('dash-editing', editing);
+  button.setAttribute('aria-pressed', String(editing));
+  button.querySelector('.dash-edit-label').textContent = button.getAttribute(editing ? 'data-done' : 'data-edit');
+}
+// Edit mode's Hide / Show on a card: the card greys out or comes back at
+// once, and dashHidden is remembered, fire-and-forget like the ☰. Hiding
+// the filters resets them first, so no box left unchecked keeps hiding
+// assignments with nothing to show why. Esc ends edit mode, like Done.
+function dashHiddenNow() {
+  var off = [];
+  var cards = document.querySelectorAll('.dash-card[data-dash-card]');
+  for (var i = 0; i < cards.length; i++) if (cards[i].classList.contains('dash-off')) off.push(cards[i].getAttribute('data-dash-card'));
+  return off;
+}
+function setDashCard(id, on) {
+  var card = document.querySelector('.dash-card[data-dash-card="' + id + '"]');
+  if (!card) return;
+  if (!on && id === 'filters') resetFilters();
+  card.classList.toggle('dash-off', !on);
+  var button = card.querySelector('.dash-hide');
+  button.textContent = button.getAttribute(on ? 'data-hide' : 'data-show');
+  button.setAttribute('aria-pressed', String(!on));
+  dispatchAction('config', toBase64Url(JSON.stringify({ dashHidden: dashHiddenNow() })));
+}
+function toggleDashCard(id) {
+  var card = document.querySelector('.dash-card[data-dash-card="' + id + '"]');
+  if (card) setDashCard(id, card.classList.contains('dash-off'));
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && document.body.classList.contains('dash-editing')) toggleDashEdit(false);
+});
 function syncPages() {
   var page = currentPage();
   document.body.setAttribute('data-page', page);
+  if (page !== 'dashboard' && document.body.classList.contains('dash-editing')) toggleDashEdit(false);
   // The pages over the dashboard scroll inside themselves, not the page under them.
   document.body.style.overflow = page === 'grades' || page === 'workspace' ? 'hidden' : '';
   var items = document.querySelectorAll('.nav-item');
@@ -7101,6 +7187,9 @@ function reloadWhenQuiet() {
   if (now - lastInteraction < QUIET_BEFORE_RELOAD_MS) return;
   var panel = document.getElementById('settings-panel');
   if (panel && !panel.hidden) return;
+  // Nor in the dashboard's edit mode: a reload would end it. Hiding a card
+  // saves a setting, which redraws the page, so one was always on its way.
+  if (document.body.classList.contains('dash-editing')) return;
   // Nor while the Grades center is open: it reloads once that's closed.
   var center = document.getElementById('grades-center');
   if (center && !center.hidden) return;

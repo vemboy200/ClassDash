@@ -34,6 +34,66 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
   ok("ClassDash's name is at the top of the sidebar, not the header", d.querySelector('#app-nav .nav-brand').textContent === 'ClassDash' && !d.querySelector('header h1'));
   ok('Refresh, Fresh check and the status dots are under Settings', ['refresh-button', 'freshcheck-button'].every(id => d.querySelector('#app-nav .nav-actions #' + id)) &&
     !!d.querySelector('#app-nav .nav-actions .check-status') && !d.querySelector('header .reload, header .check-status'));
+  const edit = d.getElementById('dash-edit');
+  ok('an Edit button on the dashboard, with what it does as its tooltip', !!edit && edit.textContent.trim() === 'Edit' && /Edit the dashboard/.test(edit.title) && !d.body.classList.contains('dash-editing'));
+  edit.click();
+  ok('Edit turns edit mode on and says Done', d.body.classList.contains('dash-editing') && edit.textContent.trim() === 'Done' && edit.getAttribute('aria-pressed') === 'true');
+  edit.click();
+  ok('Done turns it off again', !d.body.classList.contains('dash-editing') && edit.textContent.trim() === 'Edit');
+  edit.click();
+  w.showPage('settings');
+  ok('leaving the Dashboard ends edit mode', !d.body.classList.contains('dash-editing') && edit.textContent.trim() === 'Edit');
+  w.showPage('dashboard');
+  const cards = [...d.querySelectorAll('.dash-card')].map(c => c.getAttribute('data-dash-card')).join();
+  ok('the cards that can come off, each with a Hide; no grades card without grades', cards === 'filters,reminders,calendar,announcements,transcripts' &&
+    d.querySelectorAll('.dash-card > .dash-hide').length === 5, cards);
+  ok('no assignment list is in one', !d.querySelector('.dash-card [data-has-items]'));
+  ok('the corner has just Edit, no Hidden cards list', d.querySelectorAll('.dash-edit-bar button').length === 1 && !d.getElementById('dash-hidden-menu'));
+}
+
+// ── edit mode: taking cards off and putting them back ──
+{
+  const soon = new Date(Date.now() + 2 * 86400000);
+  const proj = T.makeProject({ 'settings.json': { language: 'en', dashHidden: ['transcripts'] },
+    'last-collection.json': [{ class: 'Made-up Math', id: 'r1', type: 'Assignment', title: 'Problem Set 7', due: null, due_iso: soon.toISOString(), link: 'x' }] });
+  const posted = [];
+  const w = open(proj, posted);
+  const d = w.document;
+  const card = id => d.querySelector('.dash-card[data-dash-card="' + id + '"]');
+  const last = () => { const m = posted.filter(x => x.action === 'config').pop(); return m && JSON.parse(Buffer.from(m.arg, 'base64url').toString()); };
+  ok('a card off in settings is drawn hidden, its button saying Show', card('transcripts').classList.contains('dash-off') && card('transcripts').querySelector('.dash-hide').textContent === 'Show');
+  d.getElementById('dash-edit').click();
+  ok('edit mode hides the sidebar, nothing else to click halfway through', d.body.classList.contains('dash-editing') && w.getComputedStyle(d.getElementById('app-nav')).display === 'none');
+  card('calendar').querySelector('.dash-hide').click();
+  ok('Hide hides a card at once and remembers it', card('calendar').classList.contains('dash-off') && card('calendar').querySelector('.dash-hide').textContent === 'Show' && JSON.stringify(last().dashHidden) === '["calendar","transcripts"]', JSON.stringify(last()));
+  card('transcripts').querySelector('.dash-hide').click();
+  card('calendar').querySelector('.dash-hide').click();
+  ok('Show brings them back', !card('calendar').classList.contains('dash-off') && JSON.stringify(last().dashHidden) === '[]', JSON.stringify(last()));
+  const box = d.querySelector('.filters input[data-group]');
+  box.checked = false;
+  card('filters').querySelector('.dash-hide').click();
+  ok('hiding the filters resets them first, so nothing stays filtered out unseen', box.checked && card('filters').classList.contains('dash-off'));
+  card('filters').querySelector('.dash-hide').click();
+  ok("a hidden card's Show, greyed out in edit mode, brings it back", !card('filters').classList.contains('dash-off') && card('filters').querySelector('.dash-hide').textContent === 'Hide');
+  w.pageLoadedAt = w.lastInteraction = Date.now() - 60000;
+  w.reloadWhenQuiet();
+  ok("a redrawn page doesn't reload itself while editing (that ended edit mode)", !w.reloadingForLive);
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' }));
+  ok('Esc ends edit mode, like Done, and the sidebar is back', !d.body.classList.contains('dash-editing') && w.getComputedStyle(d.getElementById('app-nav')).display !== 'none');
+  w.lastInteraction = Date.now() - 60000;
+  w.reloadWhenQuiet();
+  ok('...and after it the page reloads as usual', w.reloadingForLive === true);
+}
+
+{
+  const S = require('../src/19-settings.js');
+  ok('dashHidden takes only known cards', S.validate('dashHidden', ['grades', 'grades']).value.join() === 'grades' && !S.validate('dashHidden', ['overdue']).ok);
+}
+
+// ── folded sidebar, and the rest of the first page ──
+{
+  const proj = T.makeProject({ 'settings.json': { language: 'en' } });
+  const d = open(proj).document;
   ok('starts unfolded', !d.getElementById('app-nav').classList.contains('collapsed') && !d.body.classList.contains('nav-collapsed'));
 }
 

@@ -212,7 +212,7 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   ok('no "Coming up" list beside the assignments (the calendar shows those days)', !strip);
   const section = d.getElementById('calendar-section');
   ok('the month has its own section, not inside Settings', section && !section.closest('#settings-panel') &&
-    section.parentElement.querySelector('.calendar-section + *, .calendar-section ~ section') !== null);
+    section.closest('.dash-card').parentElement.querySelector('[data-dash-card="calendar"] ~ .dash-card section') !== null);
   const setup = d.getElementById('calendar-settings-view');
   ok('...and what sets it up is in Settings → Calendar, saying which PDF it came from', setup && !!setup.closest('#settings-panel') &&
     /made-up-calendar\.pdf/.test(d.getElementById('calendar-source').textContent) && !!d.getElementById('calendar-source').closest('#settings-panel'));

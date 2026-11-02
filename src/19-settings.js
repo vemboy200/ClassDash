@@ -349,6 +349,9 @@ const DEFAULTS = {
   // The page's sidebar folded down to its icons (its ☰ button). Remembered
   // here, like gradesHidden, so a reload doesn't unfold it.
   navCollapsed: false,
+  // Cards taken off the dashboard in its edit mode (DASH_CARDS below);
+  // + Add card puts them back.
+  dashHidden: [],
   // Cloud AIs the Grades center's sidebar may send grades and teacher
   // comments to (41-grades-center.js): the box in the sidebar. Separate
   // from aiAgreed, which only covers announcement text.
@@ -360,6 +363,10 @@ const DEFAULTS = {
   // 'all', 'drops' (only when it goes down) or 'off'.
   gradeAlerts: 'all',
 };
+
+// The dashboard's cards that edit mode can take off. The assignment lists
+// themselves can't be.
+const DASH_CARDS = ['filters', 'reminders', 'grades', 'calendar', 'announcements', 'transcripts'];
 
 const TYPES = {
   email: 'string', canvas: 'string', canvasToken: 'token', language: 'language',
@@ -379,7 +386,7 @@ const TYPES = {
   filterUnchecked: 'filterState', classLinks: 'classLinks', assignmentLinksSameClass: 'boolean',
   aiProvider: 'aiProvider', aiModel: 'aiModel', aiLocalUrl: 'aiLocalUrl', aiChatProvider: 'aiChatProvider', aiChatEffort: 'aiEffort', aiEffort: 'aiEffort', aiChatModel: 'aiModel', aiChatUrl: 'aiLocalUrl', aiOllamaUrl: 'aiLocalUrl', aiLmstudioUrl: 'aiLocalUrl', aiThinking: 'boolean', aiSkipClasswork: 'boolean', aiAgreed: 'aiAgreed', aiMcpExternal: 'boolean', aiMcpGrades: 'boolean',
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
-  gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', navCollapsed: 'boolean', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
+  gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', navCollapsed: 'boolean', dashHidden: 'dashCards', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
   gradeAlerts: 'gradeAlerts',
 };
 
@@ -552,6 +559,13 @@ function validate(key, raw) {
       }
       if (Object.keys(one).length) out[cls] = one;
     }
+    return { ok: true, value: out };
+  }
+  if (kind === 'dashCards') {
+    // Which dashboard cards are off. Only known ids, each once.
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(',');
+    const out = [...new Set(list.map(x => String(x).trim()).filter(Boolean))];
+    if (out.some(x => !DASH_CARDS.includes(x))) return { ok: false, why: 'unknown dashboard card' };
     return { ok: true, value: out };
   }
   if (kind === 'aiAgreed') {
@@ -822,7 +836,7 @@ function applyBatch(chunk) {
 
 module.exports = { read, write, validate, writeExample, applyBatch,
                    markApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
-                   DEFAULTS, TYPES, FILE };
+                   DEFAULTS, TYPES, FILE, DASH_CARDS };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
