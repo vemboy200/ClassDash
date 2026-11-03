@@ -46,7 +46,7 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 - [Calendar and schedule](docs/calendar.md)
 - [Grades](docs/grades.md)
 - [Workspace](docs/workspace.md): PDFs, web pages and the AI pane
-- [AI](docs/ai.md): setting one up, picking a model, announcements, other AI apps
+- [AI](docs/ai.md): a page for each AI, setting one up, picking a model, announcements, other AI apps
 - [Using AI with ClassDash](docs/ai-use.md): what the AI will and won't do, and advice about AI and school
 - [Home API](docs/home-api.md)
 - [Troubleshooting](docs/troubleshooting.md)

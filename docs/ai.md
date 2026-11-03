@@ -6,11 +6,47 @@ ClassDash doesn't come with an AI of its own: you bring yours, and nothing AI-re
 
 Settings → **AI** lists every AI ClassDash can use, each with its state beside its name (ready, how many models it has, or what it still needs: not running, not signed in, a key, its box ticked). Open one to set it up: its notes, its age rule and box for a cloud one, its key or address, and **Test**. **Which one should I pick?** at the top of that section explains the choices, the age rules, and why there's no Google plan option.
 
-- **On your own computer** (recommended): Apple Intelligence, Ollama, LM Studio, or Microsoft's Foundry Local, which also runs on Windows. Your class text never leaves your computer. ClassDash finds them by itself; give Ollama or LM Studio an address only when it's on another computer at home. Foundry Local's address changes each time it starts, so ClassDash asks it for the address each time and starts it when it isn't running; download and load a model with its own `foundry model` commands first. Foundry Local support was built from Microsoft's documentation and hasn't been tried on a real install yet.
-- **In the cloud**: ChatGPT through Codex, Claude through Claude Code, and the OpenAI, Anthropic and Gemini APIs. These send that text to a company, and each has an age rule you confirm first.
-  - ChatGPT through Codex works on ChatGPT's free plan too, with tighter limits; Claude through Claude Code needs at least Claude Pro ($20 a month).
-  - Both companies can train on what you send through them unless you turn it off, and Settings → AI links to the switch: ChatGPT's "Improve the model for everyone" (Settings → Data controls, which covers Codex too) and Claude's "Help improve Claude" (Settings → Privacy).
-  - Claude through Claude Code is a gray area: Anthropic's docs say other apps may not offer Claude plan logins or rate limits without its approval. ClassDash never signs in or sees your login, it runs the Claude Code you signed in yourself, but what it asks still uses your plan and its rate limits indirectly, through Claude Code. That's why it's a gray area rather than clearly against the rules, so you tick a box saying you know that first, and the Anthropic API with a key is the sure way.
+Each AI has a page of its own, like the [services](services.md):
+
+| AI | Runs | Cost |
+|---|---|---|
+| [Apple Intelligence](ai/apple-intelligence.md) | On your Mac | Free, built into macOS |
+| [Ollama](ai/ollama.md) | On your computer | Free, but needs a powerful computer |
+| [LM Studio](ai/lm-studio.md) | On your computer | Free, but needs a powerful computer |
+| [Foundry Local](ai/foundry-local.md) | On your computer | Free, but needs a powerful computer |
+| [ChatGPT through Codex](ai/codex.md) | In the cloud | Your ChatGPT plan, free one included |
+| [Claude through Claude Code](ai/claude-code.md) | In the cloud | Your Claude plan, Pro ($20 a month) or more |
+| [OpenAI API](ai/openai-api.md) | In the cloud | Paid per use |
+| [Anthropic API](ai/anthropic-api.md) | In the cloud | Paid per use |
+| [Gemini API](ai/gemini-api.md) | In the cloud | Paid per use, or a free tier Google trains on |
+
+- **On your own computer** (recommended): your class text never leaves your computer. ClassDash finds them by itself.
+- **In the cloud**: these send that text to a company, and each has an age rule you confirm first.
+
+### What "a powerful computer" means
+
+A local AI is free to use, but your computer does all the work, so how well it goes depends on the computer. As a rough guide:
+
+- **Memory matters most.** A small model (1 to 4 billion parameters, like Llama 3.2 3B) gets by with 8 GB. A mid-size one (7 to 8 billion) wants 16 GB. Bigger ones want 32 GB or more, or a graphics card with plenty of its own memory.
+- **Macs with Apple silicon** do well for their size, since the graphics share the computer's memory. So do PCs with a recent graphics card.
+- **On a weak laptop** it still works, but an answer can take minutes, and the computer is slow and warm while it thinks.
+- **Smaller models make more mistakes**: they sometimes stop short or look up the wrong thing. A bigger model does better, if the computer can run it.
+
+Apple Intelligence is the exception: the model is built into macOS and made for the Macs that can run it.
+
+### What the details on each page mean
+
+Each AI's page ends with a **Details** table:
+
+- **Introduced**: the ClassDash version it first came in.
+- **Runs**: on your computer, or in the cloud.
+- **Platforms**: where ClassDash can use it.
+- **Cost**: what it takes to use. For a local AI, that's a powerful enough computer.
+- **Sees images**: whether it can see a picture of a web page in the workspace (the **Image** setting).
+- **Thinking**: whether you can set how hard it thinks in the picker.
+- **Looks things up**: whether it can look up your assignments, instructions, announcements and PDFs by itself while answering.
+- **Age rule**: the company's own age rule, for a cloud AI.
+- **Code owners**: who looks after that AI's code, on GitHub. An AI with none has no one assigned yet.
 
 ## Picking the AI and model
 
@@ -38,3 +74,10 @@ The announcement AI finds homework your teachers post as announcements instead o
 ## Other AI apps
 
 ClassDash can also hand its tools to AI apps you use yourself, like Antigravity, OpenCode, Claude Desktop or Cursor, through MCP (the standard way those apps take in tools). The AI in that app can then look at your assignments, the teachers' instructions, announcements and the text of PDFs in your workspace, and your grades if you allow that too. It can only read: nothing gets changed, hidden or turned in. Web pages in your workspace are never shared this way. It's off until you turn on **Let other AI apps use ClassDash** in Settings → AI → **Other AI apps**, because ClassDash can't see which AI that app sends your schoolwork to. That section also has the config to paste into the app, with a Copy button. Turning it off works right away, even in an app that's already running.
+
+## Not supported yet
+
+AIs that would fit ClassDash but aren't built yet, in case anyone wants to pick one up (see [CONTRIBUTING.md](../CONTRIBUTING.md)). Whoever builds one becomes its code owner.
+
+- **OpenRouter**: one key for models from many companies, with an OpenAI-style API, so it would work much like the [OpenAI API](ai/openai-api.md). Each model's own company and its age rule would still apply.
+- **OpenCode**: an open-source coding agent like Codex and Claude Code. It can already use ClassDash's tools (see [Other AI apps](#other-ai-apps)); as an AI in ClassDash, it would work the way [ChatGPT through Codex](ai/codex.md) does, with ClassDash running your own `opencode` command.
