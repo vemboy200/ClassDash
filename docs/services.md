@@ -49,6 +49,22 @@ Some services can only be read through ClassDash's own browser, signed in as you
 
 **Link classes** in Settings → **Classes** when one class shows up on two services, like its Classroom class and its Canvas course: name the link, tick its classes, and they show as one class everywhere. A link with one class just renames it. Your Q classes are in the list too, marked Q (see [Grades](grades.md)), and classes the page hides aren't. If a teacher renames a Classroom class, ClassDash follows it, so it doesn't turn into a second class.
 
+## Not supported yet
+
+Services that would fit ClassDash but aren't built yet, in case anyone wants to pick one up (see [CONTRIBUTING.md](../CONTRIBUTING.md)). Adding one needs someone with an account on it to test against, since ClassDash only reads what your own account can see. Whoever builds one becomes its code owner.
+
+What's known about reading each one is a starting point, not checked against the real thing:
+
+- **Assignments**
+  - **Schoology**, **Blackboard** and **Moodle**: each has an official API, but whether a student can use it depends on the school (an access key, an app the school registers, or web services the school turns on). Reading the pages in the browser, the way Classroom is read, is the fallback.
+  - **Microsoft Teams for Education**: assignments are in Microsoft Graph, which usually needs the school's admin to approve the app.
+- **Grades**
+  - **PowerSchool**, **Infinite Campus**, **Aeries** and **Skyward**: student portals with no API for students, like Aequitas Q, so they'd be read from the portal the same way. Each district has its own address.
+- **Email**
+  - **Gmail**: Google restricts apps that read Gmail, and school admins often block them. A narrow "emails from teachers" version, read through the signed-in browser, is the part worth trying.
+- **Practice sites**
+  - **Khan Academy**, **IXL** and **Quizlet**: assignments teachers give there. None has an API for students, so they'd be read from their pages.
+
 ## How the services compare
 
 Canvas appears twice because the two ways ask Canvas for the same information but sign in differently.

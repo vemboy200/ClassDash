@@ -1,5 +1,8 @@
 # Claude through Claude Code
 
+> [!WARNING]
+> **This one is a gray area.** Anthropic's docs say apps other than its own may not offer Claude plan logins or plan rate limits without its approval. ClassDash never signs in or sees your login (it runs your own Claude Code), but what it asks still uses your plan and its rate limits, through Claude Code. That's why it's gray rather than clearly against the rules, and why you tick a box saying you know first. The [Anthropic API](anthropic-api.md) with a key is the sure way.
+
 Uses your own Claude plan through Anthropic's Claude Code: the `claude` command, which you sign in to yourself. ClassDash never sees your login.
 
 ## Before you start
@@ -11,7 +14,7 @@ Uses your own Claude plan through Anthropic's Claude Code: the `claude` command,
 ## Setting it up
 
 1. Install Claude Code and run `claude auth login`.
-2. Settings → **AI** → **Claude (through Claude Code)**: read its notes, including the gray area below, and tick its box. Its **Test** button checks that ClassDash can reach it and get an answer.
+2. Settings → **AI** → **Claude (through Claude Code)**: read its notes, including the gray area above, and tick its box. Its **Test** button checks that ClassDash can reach it and get an answer.
 
 ## Options
 
@@ -34,8 +37,8 @@ Anthropic can also train its models on your Claude Code sessions. To turn that o
 
 ## Known limitations
 
-- **A gray area.** Anthropic's docs say apps other than its own may not offer Claude plan logins or plan rate limits without its approval. ClassDash never signs in or sees your login (it runs your own Claude Code), but what it asks still uses your plan and its rate limits, through Claude Code. That's why it's gray rather than clearly against the rules, and why you tick a box saying you know first. The [Anthropic API](anthropic-api.md) with a key is the sure way.
 - It uses your plan's limits, shared with your own Claude use.
+- **It may use your 5-hour limit faster than Claude Code does by itself.** ClassDash runs Claude Code headless (`claude -p`), and an open issue, [anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074), reports that headless use takes roughly 1.8 to 3 times as much of the 5-hour window for the same work. Some think the doubled 5-hour limits Anthropic gave Claude Code in May 2026, after its compute deal with SpaceX, weren't applied to headless use; Anthropic hasn't said. Weekly limits are reported as unaffected. ClassDash's default, Haiku, uses the least of your plan.
 
 ## Troubleshooting
 
