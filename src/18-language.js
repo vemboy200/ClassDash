@@ -768,6 +768,12 @@ const DICTIONARIES = {
     tpTimed: 'По времени',
     tpQuestion: '??? здесь Edpuzzle остановит видео и спросит',
     tpFooter: 'Распознано на этом компьютере, без интернета и без затрат.',
+    // The sign-in page for opening ClassDash in a browser (17-api.js).
+    loginTitle: 'Вход в ClassDash',
+    loginExplain: 'Вставь ключ доступа из Настройки → Home API в приложении ClassDash. Этот браузер запомнит его.',
+    loginToken: 'Ключ доступа',
+    loginButton: 'Войти',
+    loginWrong: 'Это не тот ключ. Скопируй его ещё раз из Настройки → Home API.',
   },
 
   en: {
@@ -1482,6 +1488,12 @@ const DICTIONARIES = {
     tpTimed: 'By time',
     tpQuestion: '??? Edpuzzle stops the video here and asks a question',
     tpFooter: 'Transcribed on this computer, offline and free.',
+    // The sign-in page for opening ClassDash in a browser (17-api.js).
+    loginTitle: 'Sign in to ClassDash',
+    loginExplain: 'Paste the access token from Settings → Home API in the ClassDash app. This browser will remember it.',
+    loginToken: 'Access token',
+    loginButton: 'Sign in',
+    loginWrong: 'That\'s not the right token. Copy it again from Settings → Home API.',
   },
 };
 

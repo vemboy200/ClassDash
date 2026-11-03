@@ -4089,6 +4089,14 @@ function hasNativeBridge() {
             window.webkit.messageHandlers.classdash);
 }
 
+// Whether the page's buttons can reach ClassDash and hear back: through the
+// app's bridge, or through the server that served this page (see
+// dispatchAction). Things that need the app itself -- the workspace, file
+// pickers, the browser window -- still check hasNativeBridge().
+function canAct() {
+  return hasNativeBridge() || location.protocol === 'https:';
+}
+
 // Called BY THE NATIVE APP, by this exact name, once a bridge action it
 // ran has actually finished — see 16-summary.swift's deliver(). Not
 // wired up through any DOM event, so the fixed global name matters.
@@ -4104,11 +4112,17 @@ window.classdashBridgeResult = function (id, result) {
 // -- IF the caller wants to know what happened -- onResult fires later
 // with the real result object once the native side reports it.
 //
-// Without one (a plain browser tab): the only way left to reach outside
-// the page is the old napominalka:// link, which has no way to answer
-// back at all. onResult, if given, is simply never called on this path
-// -- exactly the "fire it and hope" behavior this page has always had
-// there, unchanged.
+// Served by ClassDash's own server (https://, see 17-api.js) with no
+// bridge, in a browser or on another device: posts the same {action, arg}
+// to /api/action, which runs the same main() the bridge does and answers
+// with the same result. Signed out (the token was rolled), it goes back
+// to the sign-in page.
+//
+// Without either (a file:// page in a plain browser tab): the only way
+// left to reach outside the page is the old napominalka:// link, which
+// has no way to answer back at all. onResult, if given, is simply never
+// called on this path -- exactly the "fire it and hope" behavior this
+// page has always had there, unchanged.
 // ── The PDF workspace (46-workspace.js) ──
 //
 // A panel over the page like the Grades center, holding the workspace's desk
@@ -4239,6 +4253,20 @@ function dispatchAction(action, arg, onResult) {
     var id = 'r' + bridgePageToken + '-' + (++bridgeRequestCounter);
     if (onResult) bridgeCallbacks[id] = onResult;
     window.webkit.messageHandlers.classdash.postMessage({ id: id, action: action, arg: arg || '' });
+  } else if (location.protocol === 'https:') {
+    fetch('/api/action', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, arg: arg || '' })
+    }).then(function (r) {
+      if (r.status === 401) { location.href = '/login'; return null; }
+      return r.json();
+    }).then(function (result) {
+      if (result && onResult) onResult(result);
+    }).catch(function () {
+      if (onResult) onResult({ ok: false, action: action, why: 'unreachable' });
+    });
   } else {
     location.href = 'napominalka://' + action + (arg ? '/' + arg : '');
   }
@@ -4267,7 +4295,7 @@ function napominalkaActionFromHref(href) {
 // nothing and returns true, which is exactly what these callers already
 // checked for: let the href navigate on its own, same as always.
 function sendLinkViaBridge(e, link) {
-  if (!hasNativeBridge()) return true;
+  if (!canAct()) return true;
   var parsed = napominalkaActionFromHref(link.getAttribute('href'));
   dispatchAction(parsed.action, parsed.arg);
   if (e) e.preventDefault();
@@ -4973,7 +5001,7 @@ syncPages();
 function startPendingCheck(link) {
   var original = link.textContent;
   link.textContent = WORDS.pendingChecking;
-  if (!hasNativeBridge()) {
+  if (!canAct()) {
     dispatchAction('reload', '');
     return;
   }
@@ -5325,7 +5353,7 @@ function askAiChoices() {
 var aiScanPicker = null;
 var aiStatesShown = false;
 function refreshAiStates(again) {
-  if (!hasNativeBridge() || (aiStatesShown && !again)) return;
+  if (!canAct() || (aiStatesShown && !again)) return;
   aiStatesShown = true;
   var found = document.getElementById('ai-found');
   var look = document.getElementById('ai-look');
@@ -5360,7 +5388,7 @@ function refreshAiStates(again) {
 // ticked isn't saved or asked. show() says what went wrong; then() runs
 // once it's saved, with whether it was.
 function aiSaveFirst(id, show, then) {
-  if (!hasNativeBridge()) { show(WORDS.aiTestNeedsApp, true); return false; }
+  if (!canAct()) { show(WORDS.aiTestNeedsApp, true); return false; }
   var box = document.querySelector('[data-key="aiAgreed"][value="' + id + '"]');
   if (box && !box.checked) { show(WORDS.aiAgreeFirst, true); return false; }
   var sent = JSON.stringify(collectSettings());
@@ -5393,7 +5421,7 @@ function toggleGradesCenter(open) {
 var gradesPickerMade = false;
 function gradesPicker() {
   var host = document.getElementById('gc-pick');
-  if (gradesPickerMade || !host || !hasNativeBridge()) return;
+  if (gradesPickerMade || !host || !canAct()) return;
   gradesPickerMade = true;
   modelPicker(host, {
     words: WORDS,
@@ -5503,7 +5531,7 @@ function askGrades(button) {
   var status = document.getElementById('gc-status');
   var question = field.value.trim();
   if (!question) return;
-  if (!hasNativeBridge()) { status.textContent = WORDS.gcNeedsApp; return; }
+  if (!canAct()) { status.textContent = WORDS.gcNeedsApp; return; }
   button.disabled = true; field.disabled = true; status.textContent = '';
   drawGradesChat([{ role: 'user', text: question }, { role: 'ai', text: WORDS.gcThinking, pending: true }]);
   var live = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -5618,7 +5646,7 @@ function saveGradesPassword(button) {
   var status = document.getElementById('grades-password-status');
   var field = document.getElementById('grades-password');
   var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
-  if (!hasNativeBridge()) { show(WORDS.gradesNeedsApp, true); return; }
+  if (!canAct()) { show(WORDS.gradesNeedsApp, true); return; }
   if (!field.value) { show(WORDS.gradesPasswordEmpty, true); return; }
   button.disabled = true;
   dispatchAction('saveGradesPassword', toBase64Url(JSON.stringify(field.value)), function (r) {
@@ -5633,7 +5661,7 @@ function saveGradesPassword(button) {
 function checkGradesNow(button) {
   var status = document.getElementById('grades-check-status');
   var show = function (text, failed) { status.textContent = text; status.classList.toggle('calendar-error', !!failed); };
-  if (!hasNativeBridge()) { show(WORDS.gradesNeedsApp, true); return; }
+  if (!canAct()) { show(WORDS.gradesNeedsApp, true); return; }
   var done = function () { button.textContent = WORDS.gradesCheckNow; button.disabled = false; };
   button.textContent = WORDS.gradesChecking; button.disabled = true;
   show('', false);
@@ -6654,7 +6682,7 @@ function saveSettings(then) {
   // is exactly what happened for one whole evening — see
   // 21-notifier-actions.js's own PATH comment), looked identical to a
   // working save.
-  if (hasNativeBridge()) {
+  if (canAct()) {
     announceSettings(WORDS.saving);
     dispatchAction('config', encoded, function (res) {
       if (!res || !res.ok) {
@@ -6977,13 +7005,13 @@ function linkHere(button) {
   var a = linkSource.getAttribute('data-id');
   var b = button.closest('.row').getAttribute('data-id');
   dispatchAction('linkAssignments', a + ',' + b, afterLinkChange);
-  if (!hasNativeBridge()) setTimeout(function () { location.reload(); }, 1500);
+  if (!canAct()) setTimeout(function () { location.reload(); }, 1500);
 }
 
 function unlinkItem(e, button) {
   if (e) e.preventDefault();
   dispatchAction('unlinkAssignment', button.closest('.row').getAttribute('data-id'), afterLinkChange);
-  if (!hasNativeBridge()) setTimeout(function () { location.reload(); }, 1500);
+  if (!canAct()) setTimeout(function () { location.reload(); }, 1500);
   return false;
 }
 

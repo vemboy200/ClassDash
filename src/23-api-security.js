@@ -98,18 +98,40 @@ function rollToken() {
   return token;
 }
 
-/** Timing-safe, and tolerant of a missing/malformed header or a
+/** The cookie a browser showing the page sends instead of the header: a
+ *  page loaded by typing an address can't add an Authorization header to
+ *  its own requests, its scripts or its images. Set by /login in 17-api.js,
+ *  HttpOnly (the page's scripts can't read it), Secure, and SameSite=Strict
+ *  (another website's page can't make the browser send it). */
+const COOKIE_NAME = 'classdash_token';
+
+/** The token a request carries, from the Authorization header, or failing
+ *  that the cookie. */
+function givenToken(req) {
+  const header = req.headers['authorization'] || '';
+  const prefix = 'Bearer ';
+  if (header.startsWith(prefix)) return header.slice(prefix.length);
+  for (const part of (req.headers['cookie'] || '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq !== -1 && part.slice(0, eq).trim() === COOKIE_NAME) return part.slice(eq + 1).trim();
+  }
+  return '';
+}
+
+/** Whether a token is this install's, timing-safe. */
+function isToken(given) {
+  const token = currentToken();
+  if (!token || !given) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(token);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/** Timing-safe, and tolerant of a missing/malformed header or cookie or a
  *  not-yet-generated token — those are just "not authorized", not a
  *  crash. */
 function isAuthorized(req) {
-  const token = currentToken();
-  if (!token) return false;
-  const header = req.headers['authorization'] || '';
-  const prefix = 'Bearer ';
-  if (!header.startsWith(prefix)) return false;
-  const given = Buffer.from(header.slice(prefix.length));
-  const expected = Buffer.from(token);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+  return isToken(givenToken(req));
 }
 
 /** When this computer last started, to the second or so: now minus how long
@@ -172,5 +194,5 @@ function clearPid() {
 module.exports = {
   CERT_FILE, KEY_FILE, TOKEN_FILE, PID_FILE,
   ensureCert, certFingerprint, ensureToken, currentToken, rollToken,
-  isAuthorized, isServerRunning, readPid, writePid, clearPid,
+  COOKIE_NAME, isToken, isAuthorized, isServerRunning, readPid, writePid, clearPid,
 };

@@ -86,6 +86,7 @@ const { isClassStale } = require('./22-class-activity.js');
 // comment for why generation specifically can't just happen lazily here.
 const {
   ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized,
+  isToken, COOKIE_NAME,
   writePid, clearPid,
 } = require('./23-api-security.js');
 // The exact same dispatcher 16-summary.swift's bridge calls for a click
@@ -950,6 +951,168 @@ function sendHeartbeat() {
   for (const res of sseClients) res.write(`event: heartbeat\ndata: ${payload}\n\n`);
 }
 
+// ── The page itself ──
+//
+// The server also hands out the summary page, the same summary.html every
+// check writes, so a browser (or the app, or another device) can show
+// ClassDash from this address instead of opening the file from disk. It's
+// still built at the end of each check, not here: this only serves it.
+//
+// The page loads a few things next to it by relative address: the live/
+// scripts it polls (28-live-state.js), the AI's answer as it's written
+// (chat-live/answer.js) and announcement photos. Only those, by exact
+// pattern, so no other file in the project folder can be read this way
+// (settings.json, the token, the certificate's key).
+const PAGE_FILE = path.join(PROJECT_ROOT, 'summary.html');
+const PAGE_FILES = [
+  { pattern: /^\/live\/(page-version|check-run)\.js$/, type: 'text/javascript; charset=utf-8' },
+  { pattern: /^\/chat-live\/answer\.js$/, type: 'text/javascript; charset=utf-8' },
+  { pattern: /^\/announcement-photos\/[a-f0-9]+\.jpg$/, type: 'image/jpeg' },
+  { pattern: /^\/announcement-photos\/[a-f0-9]+\.png$/, type: 'image/png' },
+  { pattern: /^\/announcement-photos\/[a-f0-9]+\.webp$/, type: 'image/webp' },
+  { pattern: /^\/announcement-photos\/[a-f0-9]+\.gif$/, type: 'image/gif' },
+];
+
+/** Sends one of the page's files, or false when urlPath isn't one. A file
+ *  that isn't there (yet) is a 404, which is how the page's live polling
+ *  already reads a missing file. */
+function sendPageFile(urlPath, res) {
+  const isPage = urlPath === '/';
+  const match = isPage ? { type: 'text/html; charset=utf-8' } : PAGE_FILES.find(f => f.pattern.test(urlPath));
+  if (!match) return false;
+  const file = isPage ? PAGE_FILE : path.join(PROJECT_ROOT, urlPath);
+  fs.readFile(file, (err, data) => {
+    // Never cached: the page and its live files change under the same
+    // address after every check.
+    res.setHeader('Cache-Control', 'no-store');
+    if (err) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.writeHead(404).end('not found');
+    }
+    res.setHeader('Content-Type', match.type);
+    res.writeHead(200).end(data);
+  });
+  return true;
+}
+
+/** Whether a request is a browser asking for a page, as opposed to a
+ *  program asking the API. "/" answers both: the page for a browser, the
+ *  list of handles (as it always has) for everything else. */
+function wantsHtml(req) {
+  return /text\/html/.test(req.headers['accept'] || '') && !(req.headers['authorization'] || '');
+}
+
+/** The sign-in page a browser gets before it has the cookie. Plain on
+ *  purpose: it only ever asks for the token. */
+function loginPage(wrong) {
+  return `<!doctype html>
+<html lang="${currentLanguage()}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>${t('loginTitle')}</title>
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 26rem; margin: 15vh auto; padding: 0 16px; }
+  input { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; margin: 8px 0 12px; }
+  button { font: inherit; padding: 8px 16px; }
+  .wrong { color: #c62828; }
+</style>
+</head>
+<body>
+<h1>${t('loginTitle')}</h1>
+<p>${t('loginExplain')}</p>
+${wrong ? `<p class="wrong">${t('loginWrong')}</p>` : ''}
+<form method="post" action="/login">
+  <label for="token">${t('loginToken')}</label>
+  <input id="token" name="token" type="password" autocomplete="current-password" autofocus required>
+  <button type="submit">${t('loginButton')}</button>
+</form>
+</body>
+</html>`;
+}
+
+/** Reads a sign-in form (application/x-www-form-urlencoded, or JSON) and
+ *  answers the token in it. */
+function readLoginToken(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 4096) { reject(new Error('body too large')); req.destroy(); }
+    });
+    req.on('end', () => {
+      if (/application\/json/.test(req.headers['content-type'] || '')) {
+        try { resolve(String(JSON.parse(raw).token || '')); } catch { resolve(''); }
+      } else {
+        resolve(new URLSearchParams(raw).get('token') || '');
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/** POST /login: a right token sets the cookie and goes to the page; a wrong
+ *  one shows the form again. The cookie lasts a year; rolling the token in
+ *  Settings → Home API signs every browser out. */
+function handleLogin(req, res) {
+  readLoginToken(req).then((token) => {
+    token = token.trim();
+    if (!isToken(token)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.writeHead(401).end(loginPage(true));
+    }
+    res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`);
+    res.setHeader('Location', '/');
+    res.writeHead(303).end();
+  }).catch(() => res.writeHead(400).end());
+}
+
+// ── Page actions, for a page shown without the app ──
+//
+// In the app, the page's buttons go across its native bridge to
+// 21-notifier-actions.js's main(). A page shown from this server in a
+// plain browser has no bridge, so it sends the same {action, arg} here
+// instead, and gets back the same result the bridge would have given it.
+//
+// Not every action, though. These stay with the app:
+//   - ensureApi and restartApi start and stop THIS process, and a settings
+//     save that switches the Home API on or off or onto the network does
+//     too (see '/api/settings' above for why that can't run from in here).
+//   - rollApiToken would sign out the very page that asked, mid-request.
+//   - importCalendarPdf and workspaceImport take a path to a file on this
+//     computer, which the app's own file picker chose. From a browser they'd
+//     read whatever path they were given.
+const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'rollApiToken', 'importCalendarPdf', 'workspaceImport']);
+
+/** Whether a settings save (the page's base64url-JSON chunk) would switch
+ *  the Home API on or off or change where it listens. */
+function changesApi(chunk) {
+  let given;
+  try {
+    given = JSON.parse(Buffer.from(String(chunk), 'base64url').toString('utf8'));
+  } catch {
+    return false; // not a chunk at all — main() refuses it the usual way
+  }
+  if (!given || typeof given !== 'object') return false;
+  const now = require('./19-settings.js').read();
+  return ['apiEnabled', 'apiNetwork'].some(k => k in given && given[k] !== now[k]);
+}
+
+function handleAction(req, respond) {
+  readJsonBody(req)
+    .then(async (body) => {
+      const action = typeof body.action === 'string' ? body.action : '';
+      const arg = typeof body.arg === 'string' ? body.arg : '';
+      if (!action) return respond(400, { error: 'expected {"action": "...", "arg": "..."}' });
+      if (APP_ONLY_ACTIONS.has(action) || (action === 'config' && changesApi(arg))) {
+        return respond(403, { ok: false, action, why: 'appOnly', error: 'this one only works in the ClassDash app' });
+      }
+      respond(200, await notifierActions.main(action, arg));
+    })
+    .catch((e) => respond(400, { error: e.message }));
+}
+
 // Started from the settings panel, this runs for days with its output going
 // to api-log.txt (see startApiServer() in 21-notifier-actions.js): every line
 // gets a timestamp, and an error nothing else caught is written down and the
@@ -1034,8 +1197,30 @@ function start() {
     // EVERY route needs the token, root included — this API only exists
     // to read out (and now write) personal data, so there's no handle
     // worth leaving open just for discoverability.
+    // Signing in is the one thing that can't need the token: it's how a
+    // browser gets it.
+    if (urlPath === '/login' && req.method === 'POST') return handleLogin(req, res);
+    if (urlPath === '/login' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.writeHead(200).end(loginPage(false));
+    }
+
     if (!isAuthorized(req)) {
+      // A browser asking for the page goes to sign in instead of getting
+      // JSON it can't do anything with.
+      if (req.method === 'GET' && urlPath === '/' && wantsHtml(req)) {
+        res.setHeader('Location', '/login');
+        return res.writeHead(303).end();
+      }
       return respond(401, { error: 'missing or wrong bearer token' });
+    }
+
+    if (urlPath === '/api/action') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return respond(405, { error: 'this handle changes something — POST only' });
+      }
+      return handleAction(req, respond);
     }
 
     const writeHandler = WRITE_HANDLERS[urlPath];
@@ -1061,7 +1246,8 @@ function start() {
       return respond(405, { error: 'this handle only reads — GET only' });
     }
 
-    if (urlPath === '/') return respond(200, index());
+    if (urlPath === '/api' || (urlPath === '/' && !wantsHtml(req))) return respond(200, index());
+    if (sendPageFile(urlPath, res)) return;
 
     if (urlPath === '/api/stream') {
       res.writeHead(200, {
