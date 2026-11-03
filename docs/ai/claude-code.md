@@ -9,7 +9,7 @@ Uses your own Claude plan through Anthropic's Claude Code: the `claude` command,
 
 - Claude Code installed, and signed in once with `claude auth login` in a terminal.
 - Claude Pro ($20 a month), Max ($100 a month) or Ultra ($200 a month): Claude's free plan doesn't include Claude Code. Ultra replaced Max 20x on 2026-10-30.
-- Being 18 or older. Anthropic's own Claude apps are 18+, and apps that let under-18s use Claude need safeguards ClassDash doesn't have, so this one is for people like college students.
+- Being 18 or older. Claude Code runs on your own Claude account, and Anthropic's terms for Claude accounts require you to be 18 or older, so this one is for people like college students.
 
 ## Setting it up
 

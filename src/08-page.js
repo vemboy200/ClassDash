@@ -1436,7 +1436,7 @@ function aiSettings(s, field) {
 
   const notice = id => {
     const p = P[id];
-    const age = p.minAge === 13 ? t('aiAge13', p.company) : p.company === 'Anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
+    const age = p.minAge === 13 ? t('aiAge13', p.company) : id === 'claudecode' ? t('aiAgeClaudeCode') : p.company === 'Anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
     const agree = (p.minAge === 13 ? t('aiAgree13', p.company) : t('aiAgree18', p.company)) + (p.grayZone ? ' ' + t('aiAgreeGrayZone') : '');
     return `          <div class="warn ai-notice">
 ${p.grayZone ? `            <p class="ai-gray">${escapeHtml(t('aiGrayZone'))}</p>\n` : ''}            <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>

@@ -22,9 +22,12 @@
  *
  *   OpenAI API, ChatGPT through Codex   13+, under 18 with a parent's or
  *                                       guardian's permission
- *   Anthropic API, Claude through       18+ (Claude's own apps are 18+, and
- *   Claude Code                         apps minors use need safeguards
+ *   Anthropic API                       18+ (Claude's own apps are 18+, and
+ *                                       apps minors use need safeguards
  *                                       ClassDash doesn't have)
+ *   Claude through Claude Code          18+ (it's the person's own Claude
+ *                                       account, under Anthropic's consumer
+ *                                       terms, which are 18+)
  *   Gemini API                          18+, and not in apps likely used by
  *                                       under-18s (Google's API terms)
  *
