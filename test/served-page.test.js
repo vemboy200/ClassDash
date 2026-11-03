@@ -83,7 +83,7 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   const quiet = await act('quiet', 'made-up-id');
   ok('an action runs and answers like the bridge would', quiet.status === 200 && JSON.parse(quiet.body).ok === true, quiet.body);
   ok('...and did what it says', fs.readFileSync(path.join(proj, 'не-срочно.txt'), 'utf8').includes('made-up-id'));
-  for (const action of ['rollApiToken', 'restartApi', 'ensureApi', 'importCalendarPdf', 'workspaceImport']) {
+  for (const action of ['rollApiToken', 'restartApi', 'ensureApi', 'stopApi', 'importCalendarPdf', 'workspaceImport']) {
     const r = await act(action, '/etc/hosts');
     ok(`app-only: ${action}`, r.status === 403 && JSON.parse(r.body).why === 'appOnly', r.body);
   }

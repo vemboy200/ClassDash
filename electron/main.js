@@ -9,7 +9,7 @@
 // underlying logic those already-cross-platform files already own.
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, powerMonitor, shell, protocol } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, powerMonitor, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -41,6 +41,8 @@ let installPromptOpen = false;
 let freshCheckTimer = null;
 let updateCheckTimer = null;
 let installPromptTimer = null;
+let tray = null;
+let quitting = false;
 
 // Set true only by setUpNewProject() succeeding — gates
 // continueNewProjectSetupIfNeeded() so an existing-folder launch (the
@@ -627,6 +629,84 @@ function applyOpenAtLogin() {
   if (app.getLoginItemSettings({ args: [AT_LOGIN_ARG] }).openAtLogin !== on) app.setLoginItemSettings(options);
 }
 
+// ── The tray icon: the server's face ──
+//
+// ClassDash runs a server (17-api.js) that keeps going while the window is
+// closed: the automatic checks, Home Assistant and a browser depend on it.
+// Something that keeps running should show it's there and offer a way to
+// stop it, so closing the window leaves ClassDash in the tray, and Quit
+// ClassDash there stops the server too. Same as the Mac app's menu bar item
+// (setupMenuBar() in 16-summary.swift).
+//
+// The icon is the app icon itself, colours and all (build/icon.ico, packed
+// as tray-icon.ico; it has the 16, 24 and 32px sizes the tray picks from).
+function trayIconPath() {
+  return app.isPackaged ? path.join(process.resourcesPath, 'tray-icon.ico') : path.join(__dirname, 'build', 'icon.ico');
+}
+
+function showWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// The pid file 17-api.js writes once it's listening ({pid, boot}, or a bare
+// number from before that), and whether that process is alive.
+function isServerRunning() {
+  try {
+    const text = fs.readFileSync(path.join(projectDir, 'api-server.pid'), 'utf8');
+    let pid;
+    try { const j = JSON.parse(text); pid = typeof j === 'object' ? j.pid : j; } catch { pid = text; }
+    pid = parseInt(pid, 10);
+    if (!(pid > 0)) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// When the last check finished: last-collection.json's own mtime, the same
+// signal /api/status calls collectedAt.
+function lastCheckLine() {
+  let minutes;
+  try {
+    minutes = Math.floor((Date.now() - fs.statSync(path.join(projectDir, 'last-collection.json')).mtimeMs) / 60000);
+  } catch {
+    return 'Not checked yet';
+  }
+  if (minutes < 1) return 'Last check: just now';
+  if (minutes < 60) return `Last check: ${minutes} min ago`;
+  if (minutes < 48 * 60) return `Last check: ${Math.floor(minutes / 60)} h ago`;
+  return `Last check: ${Math.floor(minutes / (24 * 60))} days ago`;
+}
+
+// Built each time it opens, so the three status lines are current.
+function trayMenu() {
+  let settings = {};
+  try { settings = JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8')); } catch { /* defaults */ }
+  const lan = typeof settings.apiLan === 'boolean' ? settings.apiLan
+    : settings.apiEnabled === true && settings.apiNetwork !== false;
+  return Menu.buildFromTemplate([
+    { label: isServerRunning() ? 'Server running' : 'Server not running', enabled: false },
+    { label: lan ? 'LAN access on' : 'This computer only', enabled: false },
+    { label: lastCheckLine(), enabled: false },
+    { type: 'separator' },
+    { label: 'Open ClassDash', click: showWindow },
+    { label: 'Check Now', click: () => runAction('check', '') },
+    { type: 'separator' },
+    { label: 'Quit ClassDash', click: () => app.quit() },
+  ]);
+}
+
+function setupTray() {
+  tray = new Tray(trayIconPath());
+  tray.setToolTip('ClassDash');
+  tray.on('click', showWindow);
+  tray.on('right-click', () => tray.popUpContextMenu(trayMenu()));
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1100,
@@ -654,9 +734,10 @@ function createWindow() {
   loadSummary();
 
   win.webContents.on('did-finish-load', pushLiveState);
-  // Closing (which quits, on Windows) with the workspace open: its last
-  // change goes out first (classdashWorkspaceFlush in 08-page.js asks the
-  // panel to save now), with a moment for the save to land.
+  // Closing with the workspace open: its last change goes out first
+  // (classdashWorkspaceFlush in 08-page.js asks the panel to save now), with
+  // a moment for the save to land. Then the window hides: ClassDash stays in
+  // the tray (see setupTray()). Only while quitting does it really close.
   let flushed = false;
   win.on('close', (e) => {
     if (flushed) return;
@@ -665,7 +746,10 @@ function createWindow() {
     closing.webContents.executeJavaScript('window.classdashWorkspaceFlush ? window.classdashWorkspaceFlush() : false')
       .catch(() => false)
       .then(sent => new Promise(resolve => setTimeout(resolve, sent ? 500 : 0)))
-      .then(() => { flushed = true; if (!closing.isDestroyed()) closing.close(); });
+      .then(() => {
+        if (closing.isDestroyed()) return;
+        if (quitting) { flushed = true; closing.close(); } else closing.hide();
+      });
   });
   startLiveWatcher();
   win.once('closed', () => {
@@ -1800,13 +1884,7 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    }
-  });
+  app.on('second-instance', showWindow);
 
   app.whenReady().then(async () => {
     projectDir = await resolveProjectDir();
@@ -1825,22 +1903,25 @@ if (!gotLock) {
     registerWorkspaceScheme();
     buildMenu();
     createWindow();
+    setupTray();
     setupAutoFreshCheck();
     setupUpdateCheck();
     continueNewProjectSetupIfNeeded();
   });
 
+  // Closing the window hides it: ClassDash and its server stay in the tray
+  // (see setupTray()). Quit ClassDash there, or in the app's own menu, is
+  // what actually quits. Nothing else closes the window for good, so
+  // window-all-closed only happens while quitting.
   app.on('window-all-closed', () => {
-    // Same convention 16-summary.swift's
-    // applicationShouldTerminateAfterLastWindowClosed(false) follows on
-    // Mac — EXCEPT Windows apps don't have that convention at all
-    // (closing the last window normally does quit a Windows app). Quitting
-    // here matches the platform's own expectation rather than copying the
-    // Mac behavior verbatim.
     app.quit();
   });
 
   app.on('before-quit', () => {
+    quitting = true;
+    // The server goes with the app (see setupTray()). Synchronous, so it's
+    // stopped before this process is gone: at most about two seconds.
+    if (projectDir) runNodeScriptSync('21-notifier-actions.js', ['stopApi'], projectDir);
     clearInterval(freshCheckTimer);
     clearInterval(updateCheckTimer);
     clearInterval(installPromptTimer);

@@ -1121,7 +1121,7 @@ extension WebPanes: WKDownloadDelegate {
 }
 // END Web panes
 
-class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
     var livePusher: LiveStatePusher?
@@ -1156,6 +1156,9 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
     // fully running. See setupAutoFreshCheck() below.
     var isDisplayAsleep = false
     var autoFreshCheckTimer: Timer?
+    // The menu bar item: the server's face (see setupMenuBar()).
+    var menuBarItem: NSStatusItem?
+    var menuBarStatusItems: [NSMenuItem] = []
     var updateCheckTimer: Timer?
     var installPromptTimer: Timer?
     // Which ready version this launch has already asked about and been
@@ -1309,6 +1312,7 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         applyOpenAtLogin()
 
         buildMainMenu()
+        setupMenuBar()
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 850),
@@ -1324,6 +1328,15 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         // pointer in applicationShouldHandleReopen and crashed with
         // EXC_BAD_ACCESS — confirmed from the actual crash report.
         window.isReleasedWhenClosed = false
+        // With the window closed, ClassDash lives in the menu bar only: no
+        // Dock icon for a window that isn't there. It comes back as soon as
+        // the window shows again, from wherever it's shown.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            NSApp.setActivationPolicy(.accessory)
+        }
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { _ in
+            if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+        }
         window.title = "ClassDash"
         window.center()
         // Remembers the window's size and position between launches.
@@ -1603,9 +1616,110 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
         }
     }
 
+    // MARK: - Menu bar
+
+    // THE SERVER'S FACE. ClassDash runs a server (17-api.js) that keeps
+    // going while the window is closed: the automatic checks, Home
+    // Assistant and a browser all depend on it. Something that keeps
+    // running should show it's there and offer a way to stop it, so the
+    // menu bar has an item saying how the server is, with Open ClassDash,
+    // Check Now and Quit ClassDash, which stops the server too.
+    //
+    // (A status item existed once before and was removed, when all it did
+    // was repeat the app menu. This one is for the server.)
+    //
+    // The icon is the app icon as a template image (assets/menubar-icon.png,
+    // see build.sh): only its shape, which macOS paints in the menu bar's
+    // own colour. 32px drawn, shown at 16pt, a whole 2:1 like the page's
+    // pixel icons.
+    func setupMenuBar() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let path = Bundle.main.path(forResource: "menubar-icon", ofType: "png"),
+           let image = NSImage(contentsOfFile: path) {
+            image.size = NSSize(width: 16, height: 16)
+            image.isTemplate = true
+            item.button?.image = image
+        } else {
+            item.button?.title = "CD"
+        }
+        item.button?.toolTip = "ClassDash"
+
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.autoenablesItems = false
+        // Three lines saying how the server is, filled in each time the
+        // menu opens (menuWillOpen), not on a timer.
+        menuBarStatusItems = (0..<3).map { _ in
+            let line = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            return line
+        }
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Open ClassDash", action: #selector(openFromMenuBar), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Check Now", action: #selector(checkFromMenuBar), keyEquivalent: "").target = self
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(withTitle: "Quit ClassDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        item.menu = menu
+        menuBarItem = item
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === menuBarItem?.menu, menuBarStatusItems.count == 3 else { return }
+        let settings = (FileManager.default.contents(atPath: projectDir + "/settings.json"))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let lan = (settings["apiLan"] as? Bool)
+            ?? ((settings["apiEnabled"] as? Bool) == true && (settings["apiNetwork"] as? Bool) != false)
+        menuBarStatusItems[0].title = isServerRunning() ? "Server running" : "Server not running"
+        menuBarStatusItems[1].title = lan ? "LAN access on" : "This computer only"
+        menuBarStatusItems[2].title = lastCheckLine()
+    }
+
+    // The pid file 17-api.js writes once it's listening ({pid, boot}, or a
+    // bare number from before that), and whether that process is alive.
+    private func isServerRunning() -> Bool {
+        guard let data = FileManager.default.contents(atPath: projectDir + "/api-server.pid"),
+              let text = String(data: data, encoding: .utf8) else { return false }
+        var pid: Int32 = 0
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let n = obj["pid"] as? Int {
+            pid = Int32(n)
+        } else if let n = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            pid = n
+        }
+        return pid > 0 && kill(pid, 0) == 0
+    }
+
+    // When the last check finished: last-collection.json's own mtime, the
+    // same signal /api/status calls collectedAt.
+    private func lastCheckLine() -> String {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: projectDir + "/last-collection.json"),
+              let date = attrs[.modificationDate] as? Date else { return "Not checked yet" }
+        let minutes = Int(Date().timeIntervalSince(date) / 60)
+        if minutes < 1 { return "Last check: just now" }
+        if minutes < 60 { return "Last check: \(minutes) min ago" }
+        if minutes < 48 * 60 { return "Last check: \(minutes / 60) h ago" }
+        return "Last check: \(minutes / (24 * 60)) days ago"
+    }
+
+    @objc func openFromMenuBar() {
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func checkFromMenuBar() {
+        runAction("check", "") { _ in }
+    }
+
+    // Quitting quits the server too (see setupMenuBar()). Synchronous, so
+    // it's stopped before this process is gone; it waits at most about two
+    // seconds (stopApiServer() in 21-notifier-actions.js).
+    func applicationWillTerminate(_ notification: Notification) {
+        runNodeScriptSync("21-notifier-actions.js", args: ["stopApi"], in: projectDir)
+    }
+
     // FALSE, NOT TRUE — paired with applicationShouldHandleReopen right
-    // below, not with the status item that briefly existed and was
-    // removed again. This used to be true (closing the window quit the
+    // below and the menu bar item above: the window closing leaves
+    // ClassDash (and its server) running in the menu bar. This used to be true (closing the window quit the
     // whole app), which is fine on its own, but doesn't match how any
     // other normal Mac app behaves: closing every window on Safari or
     // Mail doesn't quit them either. "Quit ClassDash" in the app menu,

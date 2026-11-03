@@ -126,6 +126,11 @@ if command -v swiftc >/dev/null; then
   # resampling, specifically to keep the pixel art crisp instead of
   # blurring it at the larger sizes macOS actually needs (up to 1024x1024).
   cp assets/AppIcon.icns "$APP_NAME.app/Contents/Resources/AppIcon.icns"
+  # The menu bar icon: the app icon as a template image (only its shape;
+  # macOS paints it in the menu bar's own colour, light or dark). Made from
+  # icon-source.png: cyan clear, the body, the speed lines and the screen's
+  # lines solid, the white screen a hole. 32px, shown at 16pt (a whole 2:1).
+  cp assets/menubar-icon.png "$APP_NAME.app/Contents/Resources/menubar-icon.png"
 
   # ── Project template, bundled for the new-project setup wizard ──
   #

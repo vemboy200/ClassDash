@@ -31,6 +31,14 @@ cleanup();
   let fresh = 0;
   for (let i = 0; i < 40 && !fresh; i++) { await sleep(150); try { fresh = readPidFile(); } catch {} if (fresh === old.pid) fresh = 0; }
   ok(fresh && fresh !== old.pid && alive(fresh), '2 a NEW server is running (pid ' + fresh + ', not ' + old.pid + ')');
+
+  // 3. quitting the app (stopApi) stops it, and says so
+  const stop = () => JSON.parse(cp.spawnSync('node', ['21-notifier-actions.js', 'stopApi'], { cwd: PROJ, encoding: 'utf8' }).stdout.trim().split('\n').pop());
+  r = stop();
+  await sleep(300);
+  ok(r.ok && r.stopped === true && !alive(fresh) && !fs.existsSync(PID), '3 stopApi stops the running server: ' + JSON.stringify(r));
+  r = stop();
+  ok(r.ok && r.stopped === false, '3 ...and with nothing running, says so: ' + JSON.stringify(r));
   cleanup();
 
   console.log(`restart-api: ${pass} pass, ${fail} fail`); process.exit(fail ? 1 : 0);

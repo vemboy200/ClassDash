@@ -1079,13 +1079,13 @@ function handleLogin(req, res) {
 // instead, and gets back the same result the bridge would have given it.
 //
 // Not every action, though. These stay with the app:
-//   - ensureApi and restartApi start and stop THIS process, and a settings
+//   - ensureApi, restartApi and stopApi start and stop THIS process, and a settings
 //     save that turns LAN access on or off does too (see '/api/settings' above for why that can't run from in here).
 //   - rollApiToken would sign out the very page that asked, mid-request.
 //   - importCalendarPdf and workspaceImport take a path to a file on this
 //     computer, which the app's own file picker chose. From a browser they'd
 //     read whatever path they were given.
-const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'rollApiToken', 'importCalendarPdf', 'workspaceImport']);
+const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'importCalendarPdf', 'workspaceImport']);
 
 /** Whether a settings save (the page's base64url-JSON chunk) would change
  *  where the server listens. */

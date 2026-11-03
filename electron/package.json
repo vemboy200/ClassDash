@@ -33,6 +33,10 @@
     ],
     "extraResources": [
       {
+        "from": "build/icon.ico",
+        "to": "tray-icon.ico"
+      },
+      {
         "from": "../src",
         "to": "ProjectTemplate",
         "filter": [

@@ -692,6 +692,16 @@ function main(action, arg) {
       logAction(wasRunning ? '  API server restarted (scripts were refreshed)' : '  API server started (scripts were refreshed)');
       return { ok: true, action, restarted: wasRunning };
     }
+    // Quitting the app (the menu bar's or the app menu's Quit ClassDash):
+    // the server goes too, so nothing keeps running once ClassDash is
+    // quit. Closing the window doesn't quit; the app stays in the menu bar
+    // (or the tray) with the server running.
+    case 'stopApi': {
+      const wasRunning = require('./23-api-security.js').isServerRunning();
+      stopApiServer();
+      if (wasRunning) logAction('  API server stopped (ClassDash quit)');
+      return { ok: true, action, stopped: wasRunning };
+    }
     // The page reporting that it hid its own progress bar while it believed
     // a collection was still going. Nothing to do here: main() already
     // logged the arg above, which is the whole point — the page has no
