@@ -2,7 +2,7 @@
   "name": "classdash",
   "version": "1.0.0",
   "description": "The all-in-one app for school: assignments, grades, calendar and a workspace, from Google Classroom, Canvas, Edpuzzle and Aequitas Q",
-  "license": "GPL-3.0-or-later",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "engines": {
     "node": ">=18"

@@ -2,7 +2,7 @@
  * School Digest — collects school assignments into one summary.
  * Copyright (C) 2026 Artem
  *
- * Free software: distributed under the terms of the GNU GPL version 3,
+ * Free software: distributed under the terms of the GNU AGPL version 3,
  * or (at your option) any later version. Full text in the LICENSE file.
  * Distributed WITHOUT ANY WARRANTY.
  */

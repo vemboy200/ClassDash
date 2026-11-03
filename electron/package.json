@@ -2,7 +2,7 @@
   "name": "classdash-windows",
   "version": "1.0.0",
   "description": "Windows wrapper for ClassDash — the Electron equivalent of the macOS app's mac/16-summary.swift",
-  "license": "GPL-3.0-or-later",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "main": "main.js",
   "scripts": {

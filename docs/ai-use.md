@@ -81,7 +81,7 @@ The point of most schoolwork is the practice, not the finished answer. A workshe
 
 ## For contributors: the rules any AI feature has to follow
 
-ClassDash is open source under the GPL-3.0, so anyone can change their own copy, including taking these limits out. That's their choice and their responsibility, and it doesn't change what this project does: features that let the AI do someone's work for them won't be added here, and pull requests that add them won't be accepted.
+ClassDash is open source under the AGPL-3.0, so anyone can change their own copy, including taking these limits out. That's their choice and their responsibility, and it doesn't change what this project does: features that let the AI do someone's work for them won't be added here, and pull requests that add them won't be accepted.
 
 - **Read freely, write only in scratch spaces.** The AI can read schoolwork (with the person's OK where it's personal, like grades). It may act only in places that are its own, like a whiteboard to explain on, a Desmos graph to show an idea, or scrolling a pane to the right spot, and never in anything that gets turned in.
 - **Helping to learn is the default.** Hints only starts on. Anything that gives full answers is something the person turns on.

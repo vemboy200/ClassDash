@@ -57,12 +57,12 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 
 ## License
 
-GNU General Public License v3.0 — see [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 — see [LICENSE](LICENSE). Versions up to v2.7.0 were released under the GNU General Public License v3.0, and stay under it.
 
     ClassDash — the all-in-one app for school Copyright (C) 2026 Artem
 
-    This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+    This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more details.
 
-In plain terms: use it, change it, share it. If you distribute a modified version, that version has to stay open too.
+In plain terms: use it, change it, share it. If you distribute a modified version, or run one as a service other people use over the internet, its code has to stay open too.
