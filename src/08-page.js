@@ -75,11 +75,11 @@ const ICON_BROWSER_HEAD_B64 = readIcon('browser-head-icon.png');
 const ICON_BROWSER_QUESTION_B64 = readIcon('browser-question-icon.png');
 const ICON_EDIT_B64 = readIcon('edit-icon.png');
 // The Settings menu's rows (the user's drawings): Services a filled cloud,
-// AI a little creature, Classes a classroom, Schedule a clock, Calendar a calendar
+// AI Clawd, Claude's mascot,, Classes a classroom, Schedule a clock, Calendar a calendar
 // (redrawn one column wider and one row shorter so it's an even 28x30 and
 // sits exactly in the middle), Checking a magnifying glass, Display a
 // monitor, the Home API a computer on a network. Grades and System reuse the
-// Grades center's A+ and the gear. The creature was redrawn with 2-3px
+// Grades center's A+ and the gear. Clawd was redrawn with 2-3px
 // blocks instead of 2px ones (30x22, was 24x16) so it isn't the smallest,
 // the monitor moved up a row to sit in the middle, and the classroom got a
 // room around it.
