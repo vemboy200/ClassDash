@@ -15,7 +15,7 @@ Each AI has a page of its own, like the [services](services.md):
 | [LM Studio](ai/lm-studio.md) | On your computer | Free, but needs a powerful computer |
 | [Foundry Local](ai/foundry-local.md) | On your computer | Free, but needs a powerful computer |
 | [ChatGPT through Codex](ai/codex.md) | In the cloud | Your ChatGPT plan, free one included |
-| [Claude through Claude Code](ai/claude-code.md) | In the cloud | Your Claude plan, Pro ($20 a month) or more |
+| [Claude through Claude Code](ai/claude-code.md) | In the cloud | Your Claude plan: Pro ($20 a month), Max or Ultra |
 | [OpenAI API](ai/openai-api.md) | In the cloud | Paid per use |
 | [Anthropic API](ai/anthropic-api.md) | In the cloud | Paid per use |
 | [Gemini API](ai/gemini-api.md) | In the cloud | Paid per use, or a free tier Google trains on |

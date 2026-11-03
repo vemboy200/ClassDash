@@ -8,7 +8,7 @@ Uses your own Claude plan through Anthropic's Claude Code: the `claude` command,
 ## Before you start
 
 - Claude Code installed, and signed in once with `claude auth login` in a terminal.
-- Claude Pro ($20 a month) or Max: Claude's free plan doesn't include Claude Code.
+- Claude Pro ($20 a month), Max ($100 a month) or Ultra ($200 a month): Claude's free plan doesn't include Claude Code. Ultra replaced Max 20x on 2026-10-30.
 - Being 18 or older. Anthropic's own Claude apps are 18+, and apps that let under-18s use Claude need safeguards ClassDash doesn't have, so this one is for people like college students.
 
 ## Setting it up
@@ -38,7 +38,7 @@ Anthropic can also train its models on your Claude Code sessions. To turn that o
 ## Known limitations
 
 - It uses your plan's limits, shared with your own Claude use.
-- **It may use your 5-hour limit faster than Claude Code does by itself.** ClassDash runs Claude Code headless (`claude -p`), and an open issue, [anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074), reports that headless use takes roughly 1.8 to 3 times as much of the 5-hour window for the same work. Some think the doubled 5-hour limits Anthropic gave Claude Code in May 2026, after its compute deal with SpaceX, weren't applied to headless use; Anthropic hasn't said. Weekly limits are reported as unaffected. ClassDash's default, Haiku, uses the least of your plan.
+- **It may use your 5-hour limit faster than Claude Code does by itself.** ClassDash runs Claude Code headless (`claude -p`), and an open issue, [anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074), reports that headless use takes roughly 1.8 to 3 times as much of the 5-hour window for the same work. Some think the doubled 5-hour limits Anthropic gave Claude Code in May 2026, after its compute deal with SpaceX, weren't applied to headless use; Anthropic hasn't said. Weekly limits are reported as unaffected. On Ultra this hardly matters: a verified Ultra account has no 5-hour limit at all (an unverified one still has a temporary one), so only the weekly limit counts. ClassDash's default, Haiku, uses the least of your plan.
 
 ## Troubleshooting
 
@@ -55,7 +55,7 @@ Pick another AI in the picker, or untick its box in Settings → **AI**: a cloud
 | **Introduced** | v2.6.0 |
 | **Runs** | In the cloud (Anthropic) |
 | **Platforms** | Mac and Windows |
-| **Cost** | Your Claude plan: Pro ($20 a month) or Max |
+| **Cost** | Your Claude plan: Pro ($20 a month), Max ($100) or Ultra ($200) |
 | **Sees images** | Yes |
 | **Thinking** | Low, medium or high |
 | **Looks things up** | Yes |
