@@ -22,6 +22,10 @@ None. If your teachers already post every Edpuzzle assignment in Google Classroo
 
 Only on full checks, since each one opens a browser window: twice a day (at 8 AM and 6 PM by default), and whenever you click **Fresh check**. The regular every-10-minutes check skips it.
 
+## How it's read
+
+ClassDash asks Edpuzzle's own site endpoints from a real browser window. They aren't official: they're undocumented, found by watching the site's own traffic. It's the only way ClassDash has to see Edpuzzle.
+
 ## Known limitations
 
 - A browser window opens during a full check.
@@ -36,6 +40,14 @@ Only on full checks, since each one opens a browser window: twice a day (at 8 AM
 ## Turning it off
 
 **Turn off** on its page in Settings → Services. That stops it on every check, Fresh check included, so a full check never needs a browser window.
+
+## Code
+
+For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+- [`11-edpuzzle.js`](../../src/11-edpuzzle.js) asks Edpuzzle's internal REST endpoints. They're unofficial: no public docs, no token. They were found by watching the site's own network traffic, and the shape of what they return was confirmed against real responses, not a spec. That file's top comment lists them.
+- Edpuzzle detects and refuses headless browsers ("Error 18"), so any check that includes it needs a real, visible browser window, opened off-screen (`--window-position=-3000,-3000`). `withEdpuzzle` in [`05-playwright-draft.js`](../../src/05-playwright-draft.js) decides when that's worth it.
+- [`13-transcripts.js`](../../src/13-transcripts.js) and [`14-transcript-page.js`](../../src/14-transcript-page.js) are written and tested on their own, but not wired into the collector yet.
 
 ## Details
 

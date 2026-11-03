@@ -8,20 +8,17 @@ Settings → **AI** lists every AI ClassDash can use, each with its state beside
 
 Each AI has a page of its own, like the [services](services.md):
 
-| AI | Runs | Cost |
-|---|---|---|
-| [Apple Intelligence](ai/apple-intelligence.md) | On your Mac | Free, built into macOS |
-| [Ollama](ai/ollama.md) | On your computer | Free, but needs a powerful computer |
-| [LM Studio](ai/lm-studio.md) | On your computer | Free, but needs a powerful computer |
-| [Foundry Local](ai/foundry-local.md) | On your computer | Free, but needs a powerful computer |
-| [ChatGPT through Codex](ai/codex.md) | In the cloud | Your ChatGPT plan, free one included |
-| [Claude through Claude Code](ai/claude-code.md) | In the cloud | Your Claude plan: Pro ($20 a month), Max or Ultra |
-| [OpenAI API](ai/openai-api.md) | In the cloud | Paid per use |
-| [Anthropic API](ai/anthropic-api.md) | In the cloud | Paid per use |
-| [Gemini API](ai/gemini-api.md) | In the cloud | Paid per use, or a free tier Google trains on |
-
-- **On your own computer** (recommended): your class text never leaves your computer. ClassDash finds them by itself.
-- **In the cloud**: these send that text to a company, and each has an age rule you confirm first.
+- **On your own computer** (recommended): your class text never leaves your computer, and ClassDash finds them by itself. They're free, but need a powerful computer (see below), except Apple Intelligence, which is built into macOS.
+  - [Apple Intelligence](ai/apple-intelligence.md)
+  - [Ollama](ai/ollama.md)
+  - [LM Studio](ai/lm-studio.md)
+  - [Foundry Local](ai/foundry-local.md)
+- **In the cloud**: these send that text to a company, and each has an age rule you confirm first. What each costs is on its page.
+  - [ChatGPT through Codex](ai/codex.md)
+  - [Claude through Claude Code](ai/claude-code.md)
+  - [OpenAI API](ai/openai-api.md)
+  - [Anthropic API](ai/anthropic-api.md)
+  - [Gemini API](ai/gemini-api.md)
 
 ### What "a powerful computer" means
 

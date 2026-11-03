@@ -27,6 +27,10 @@ The feed's events, from a year back to two years ahead. Your school's calendar P
 
 Once a day, or now with **Read again**.
 
+## How it's read
+
+ClassDash downloads the feed and reads it. A calendar feed (ICS) is a standard format made for other apps to read, so this is the official way.
+
 ## Troubleshooting
 
 - **"Couldn't read it":** check that the link is the feed itself (it starts with `https://` or `webcal://` and downloads a calendar file), not the page that shows the calendar.
@@ -34,6 +38,13 @@ Once a day, or now with **Read again**.
 ## Turning it off
 
 Clear the link in Settings → Calendar and click **Save link**. ClassDash forgets the feed, and its card leaves Settings → Services.
+
+## Code
+
+For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+- [`34-calendar-ics.js`](../../src/34-calendar-ics.js) downloads and reads the feed, with no dependency: ICS is plain text.
+- [`33-school-calendar.js`](../../src/33-school-calendar.js) keeps the events, guesses what each kind of event means, and keeps the meanings the person picks.
 
 ## Details
 

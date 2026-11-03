@@ -2,13 +2,13 @@
 
 Where ClassDash reads your schoolwork from. Like Home Assistant's integrations, each service has a card in Settings → **Services** and a page of its own here.
 
-| Service | What it reads | Browser class |
-|---|---|---|
-| [Google Classroom](services/google-classroom.md) | Assignments, instructions, announcements, grades | Background browser |
-| [Canvas](services/canvas.md) | Assignments, instructions, grades and their categories | Optional browser |
-| [Edpuzzle](services/edpuzzle.md) | Edpuzzle assignments | Visible browser |
-| [Aequitas Q](services/aequitas-q.md) | Your grades, from your school's grade system | Background browser |
-| [Calendar feed](services/calendar-feed.md) | Your school's calendar, from an ICS or webcal link | No browser |
+- [Google Classroom](services/google-classroom.md): assignments, instructions, announcements and grades
+- [Canvas](services/canvas.md): assignments, instructions and grades
+- [Edpuzzle](services/edpuzzle.md): assignments
+- [Aequitas Q](services/aequitas-q.md): grades
+- [Calendar feed](services/calendar-feed.md): your school's calendar
+
+How each one is read, and what that's good and bad at, is on its page.
 
 ## What the details on each page mean
 
@@ -65,20 +65,8 @@ What's known about reading each one is a starting point, not checked against the
 - **Practice sites**
   - **Khan Academy**, **IXL** and **Quizlet**: assignments teachers give there. None has an API for students, so they'd be read from their pages.
 
-## How the services compare
-
-Canvas appears twice because the two ways ask Canvas for the same information but sign in differently.
-
-| Service | Method | Official? | Pros | Cons |
-|---|---|---|---|---|
-| Google Classroom | Reads the Classroom pages in a browser signed in to your school Google account | No — Classroom has no API for students | Works whatever your school has locked down; sees exactly what you see, including what's turned in; nothing for your school to approve | Can break when Google changes the page; needs a browser and a sign-in (the session lasts weeks, then you sign in again); slower than an API because it reads every class page |
-| Canvas — Google sign-in | Canvas's API, asked from a page in that same signed-in browser, using your session | The API is official; using your session instead of a token isn't the documented way | Nothing to set up beyond the Canvas address; no token to expire; works when your school won't let students make tokens | Needs a browser and a school Google account; only for schools whose Canvas opens with "Sign in with Google"; Canvas's sign-in redirects sometimes need a retry |
-| Canvas — API (access token) | Canvas's API, asked directly with a token you create | Yes — the documented way | No browser and no sign-in, whatever your school's login is; fast and exact; lets ClassDash run without a browser at all | The token expires (Canvas says the longest is 90 days when you make one), then you make a new one; some schools don't let students create tokens; a token is like a password and is kept in `settings.json` on your computer |
-| Aequitas Q (grades) | Signs in to your school's Q StudentConnection portal in an invisible browser, reads your classes' grades and assignments, and signs out | No — Q has no API for students | Your real grades, from where your school keeps them; also reads Q's progress-report PDFs for every assignment of the term | Needs your Q password (kept in the Mac Keychain, or a file only you can read on Windows); every district has its own address; at most once an hour, and it stops trying after a wrong password so the account doesn't get locked; can break when Q changes its pages |
-| Edpuzzle | Edpuzzle's own site endpoints, asked from a real browser window | No — undocumented, found by watching the site's own traffic | The only way ClassDash has to see Edpuzzle | Refuses invisible browsers, so it needs a real window and only runs on full checks (twice a day, or Fresh check), not every 10 minutes; can break without notice |
-
 ## Why it reads pages instead of an API
 
-Canvas has an official API, but Google Classroom doesn't offer one to students, so that part reads the actual page and can break if Google changes it, Edpuzzle only has internal endpoints that aren't documented, and Aequitas Q has no API for students either, so grades are read from its student portal the way you'd see them. (Classroom assignments do technically also show up through the Google Calendar API — but that requires your school's Google Workspace admin to have that API turned on for student accounts, which most schools don't. Reading the page directly is the one approach that keeps working no matter what a given school has locked down.)
+Where a service has an official API that students can use, like Canvas, ClassDash uses it. Many school services don't offer one to students, so ClassDash reads their pages the way you'd see them, in a browser signed in as you. That keeps working whatever a school has locked down, but it can break when the service changes its pages, which is why those services' pages say so under Known limitations. (Classroom assignments do technically also show up through the Google Calendar API, but only if your school's Google Workspace admin turned that API on for students, which most schools don't.)
 
-Every request goes through your own logged-in browser session (or, for Canvas, your own access token) and returns exactly what your own account can already see.
+Every request goes through your own signed-in browser session (or your own access token) and sees exactly what your own account can already see.
