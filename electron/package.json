@@ -59,7 +59,15 @@
           "browser-icon.png",
           "browser-head-icon.png",
           "browser-question-icon.png",
-          "edit-icon.png"
+          "edit-icon.png",
+          "cloud-filled-icon.png",
+          "ai-icon.png",
+          "api-icon.png",
+          "classes-icon.png",
+          "fetching-icon.png",
+          "calendar-icon.png",
+          "schedule-icon.png",
+          "display-icon.png"
         ]
       },
       {

@@ -74,6 +74,23 @@ const ICON_BROWSER_B64 = readIcon('browser-icon.png');
 const ICON_BROWSER_HEAD_B64 = readIcon('browser-head-icon.png');
 const ICON_BROWSER_QUESTION_B64 = readIcon('browser-question-icon.png');
 const ICON_EDIT_B64 = readIcon('edit-icon.png');
+// The Settings menu's rows (the user's drawings): Services a filled cloud,
+// AI a little creature, Classes a classroom, Schedule a clock, Calendar a calendar
+// (redrawn one column wider and one row shorter so it's an even 28x30 and
+// sits exactly in the middle), Checking a magnifying glass, Display a
+// monitor, the Home API a computer on a network. Grades and System reuse the
+// Grades center's A+ and the gear. The creature was redrawn with 2-3px
+// blocks instead of 2px ones (30x22, was 24x16) so it isn't the smallest,
+// the monitor moved up a row to sit in the middle, and the classroom got a
+// room around it.
+const ICON_CLOUD_FILLED_B64 = readIcon('cloud-filled-icon.png');
+const ICON_AI_B64 = readIcon('ai-icon.png');
+const ICON_API_B64 = readIcon('api-icon.png');
+const ICON_CLASSES_B64 = readIcon('classes-icon.png');
+const ICON_FETCHING_B64 = readIcon('fetching-icon.png');
+const ICON_CALENDAR_B64 = readIcon('calendar-icon.png');
+const ICON_SCHEDULE_B64 = readIcon('schedule-icon.png');
+const ICON_DISPLAY_B64 = readIcon('display-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -1832,8 +1849,10 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
   const ORDER = ['services', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'api', 'advanced'];
   sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
+  const ROW_ICONS = { services: 'icon-cloud-filled', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', api: 'icon-api', advanced: 'icon-settings' };
   const menuRows = sections.filter(sec => !sec.parent).map(sec =>
     `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
+    `<span class="settings-row-icon${ROW_ICONS[sec.id] ? ' pixel-icon ' + ROW_ICONS[sec.id] : ''}" aria-hidden="true"></span>` +
     `<span class="settings-row-text"><span class="settings-row-name">${escapeHtml(sec.label)}</span>` +
     `<span class="settings-row-desc">${escapeHtml(sec.desc)}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>`).join('\n');
 
@@ -2930,6 +2949,14 @@ ${cardHtml[id]}
     --icon-browser-head: url("data:image/png;base64,${ICON_BROWSER_HEAD_B64}");
     --icon-browser-question: url("data:image/png;base64,${ICON_BROWSER_QUESTION_B64}");
     --icon-edit: url("data:image/png;base64,${ICON_EDIT_B64}");
+    --icon-cloud-filled: url("data:image/png;base64,${ICON_CLOUD_FILLED_B64}");
+    --icon-ai: url("data:image/png;base64,${ICON_AI_B64}");
+    --icon-api: url("data:image/png;base64,${ICON_API_B64}");
+    --icon-classes: url("data:image/png;base64,${ICON_CLASSES_B64}");
+    --icon-fetching: url("data:image/png;base64,${ICON_FETCHING_B64}");
+    --icon-calendar: url("data:image/png;base64,${ICON_CALENDAR_B64}");
+    --icon-schedule: url("data:image/png;base64,${ICON_SCHEDULE_B64}");
+    --icon-display: url("data:image/png;base64,${ICON_DISPLAY_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -3216,6 +3243,18 @@ ${cardHtml[id]}
   }
   .settings-row:first-of-type { border-top: none; }
   .settings-row:hover, .settings-row:focus-visible { background: var(--line); }
+  /* Drawn at 32 and shown at 32, so it stays crisp. A row with no icon
+     would keep the empty space, so every name lines up. */
+  .settings-row-icon { flex: 0 0 auto; width: 32px; height: 32px; color: var(--dim); }
+  .settings-row-icon.pixel-icon { -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .icon-cloud-filled { -webkit-mask-image: var(--icon-cloud-filled); mask-image: var(--icon-cloud-filled); }
+  .icon-ai { -webkit-mask-image: var(--icon-ai); mask-image: var(--icon-ai); }
+  .icon-api { -webkit-mask-image: var(--icon-api); mask-image: var(--icon-api); }
+  .icon-classes { -webkit-mask-image: var(--icon-classes); mask-image: var(--icon-classes); }
+  .icon-fetching { -webkit-mask-image: var(--icon-fetching); mask-image: var(--icon-fetching); }
+  .icon-calendar { -webkit-mask-image: var(--icon-calendar); mask-image: var(--icon-calendar); }
+  .icon-schedule { -webkit-mask-image: var(--icon-schedule); mask-image: var(--icon-schedule); }
+  .icon-display { -webkit-mask-image: var(--icon-display); mask-image: var(--icon-display); }
   .settings-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
   .settings-row-name { font-size: 15px; font-weight: 600; }
   .settings-row-desc { font-size: 13px; color: var(--dim); }
