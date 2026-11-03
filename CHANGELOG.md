@@ -4,16 +4,28 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+Nothing yet.
+
+## v2.8.0 (2026-11-03)
+
+### ClassDash now looks like Home Assistant
+
 - **A sidebar**, like Home Assistant's: **Dashboard**, **Workspace**, **Grades center** and **Settings**, with the page you're on lit. Workspace, the Grades center and Settings now open as pages of their own instead of panels over the dashboard, and Settings saves when you go to another page. **Refresh**, **Fresh check**, the status dots (now one cloud for every service: ✓ all worked, ! some failed, ✕ fewer than half worked, with how many failed beside it) and when the page was updated moved to the bottom of the sidebar, ClassDash's name to its top (the list of platforms under it is gone), and **☰** folds it down to its icons (remembered). In a narrow window the sidebar is a bar across the top.
 - **Settings is a menu**, like Home Assistant's: a row for each part with what's in it, each opening as its own page with a **←** back (Esc works too). Account is now **Services**, Advanced is **System**, and **Language** moved to Display. There's no **Done** button anymore: going to another page in the sidebar saves, as before.
 - **Icons in the Settings menu**, pixel art like the rest: a cloud for Services, a little creature for AI, a classroom for Classes, a clock for Schedule, a calendar for Calendar, the A+ for Grades, a magnifying glass for Checking, a monitor for Display, a computer on a network for the Home API and the gear for System.
 - **Settings → Services**, like Home Assistant's integrations: a card for each service that's on (Google Classroom, Canvas, Edpuzzle, Aequitas Q, and the calendar feed), with how its last check went and badges for how ClassDash reaches it and whether that takes a browser. Each opens a page of its own with its settings and **Turn off**, and **+ Add service** turns one on. Aequitas Q's sign-in moved there from Settings → Grades.
 - **An editable dashboard**, like Home Assistant's: **Edit** in the bottom right corner, then **Hide** on a card hides it (the filters, Reminders, Grades, Calendar, Announcements and Edpuzzle transcripts) greyed out in place while you're editing, and **Show** brings it back. **Done** finishes, and the dashboard stays the way you left it.
+- **New arrows** in the workspace: the buttons that move a pane (← → ↑ ↓) use the same pixel arrow as Settings' back button.
+
+### Docs
+
 - **A docs page for each service**, like Home Assistant's integration pages: [Services](docs/services.md) lists them, and Google Classroom, Canvas, Edpuzzle, Aequitas Q and the calendar feed each have their own page with what it reads, how it's read, setting it up, its options, how often it checks, known limitations, troubleshooting and turning it off, ending with a Details table (categories, the version it came in, its communication class, code owners and its browser class). The Sources page is now Services, and its comparison table moved onto each service's page. A **Not supported yet** list names services anyone could add.
 - **A docs page for each AI** too: [AI](docs/ai.md) lists them with where each one runs and what it costs (a local AI is free but needs a powerful computer, and the page says what that means), and each AI's page covers setting it up, what it can do, privacy, known limitations and troubleshooting, ending with a Details table. A **Not supported yet** list names AIs anyone could add, starting with OpenRouter and OpenCode.
+
+### Also
+
 - **Claude's Ultra plan** is named in Settings → AI's note for Claude through Claude Code, beside Pro and Max (Ultra replaced Max 20x), and its age note now gives the right reason: your own Claude account's terms are 18+ (the rule about safeguards for apps that under-18s use is the API's).
 - **ClassDash is now under the AGPL-3.0** (the GNU Affero General Public License) instead of the GPL-3.0. For using ClassDash nothing changes. The difference is for anyone who changes ClassDash and runs it as a service other people use over the internet: they have to share their code too, so no one can sell a closed-source copy that handles students' school logins however it wants. Versions up to v2.7.0 stay under the GPL-3.0.
-- **New arrows** in the workspace: the buttons that move a pane (← → ↑ ↓) use the same pixel arrow as Settings' back button.
 
 ## v2.7.0 (2026-11-01)
 
