@@ -118,36 +118,18 @@ const DEFAULTS = {
   // at every sign-in is something to choose, not to find.
   openAtLogin: false,
 
-  // Off by default — this is the actual opt-in for 17-api.js. Even
-  // read-only, it's real personal data (school, teachers, assignment
-  // text) reachable over the network, so it shouldn't start just because
-  // the project is installed. Toggling this on/off from the settings
-  // panel starts or stops the server itself — see startApiServer()/
-  // stopApiServer() in 21-notifier-actions.js — not just whether it
-  // WOULD run if launched by hand.
-  apiEnabled: false,
-
-  // TRUE by default — unlike apiEnabled itself, which stays off until
-  // someone deliberately turns the whole API on. This is the actual
-  // --network flag, deciding whether 17-api.js binds 127.0.0.1 (this
-  // computer only) or 0.0.0.0 (reachable from anything on the LAN — a
-  // phone, a Home Assistant box on a different device). Localhost-only
-  // as the default here would make apiEnabled mostly pointless for its
-  // main real use case: something like Home Assistant runs on a
-  // DIFFERENT device almost by definition, and a 127.0.0.1-bound server
-  // refuses every connection that doesn't originate on the same
-  // machine, no matter what address the client tries. The actual
-  // security boundary here is TLS + the bearer token (see
-  // 23-api-security.js), not which interface the socket happens to be
-  // bound to — so defaulting this closed wouldn't really be protecting
-  // anything, just making the one thing people turn this on FOR not
-  // work out of the box. Previously there was no toggle for this at
-  // all: the settings-panel apiEnabled switch never passed --network no
-  // matter what, and reaching it from another device required running
-  // `node 17-api.js --network` by hand, outside the app entirely.
-  // Confirmed live: a Home Assistant integration pointed at this
-  // computer's LAN address got nothing back until this was set.
-  apiNetwork: true,
+  // Whether the API server (17-api.js) also answers the home network, not
+  // just this computer. The server itself always runs: the app's own window
+  // is one of its clients (and so is a browser on this computer), and it
+  // only ever listens on 127.0.0.1 unless this is on. Off by default: on,
+  // homework, announcements and grades are reachable from every device on
+  // the network (encrypted and behind the key, but reachable), and a laptop
+  // goes to school and public Wi-Fi too, so it's a deliberate choice.
+  //
+  // It replaced apiEnabled (the server on at all) and apiNetwork (on the
+  // LAN, when on) in v3: a settings.json from before then that had both on
+  // reads as on, so Home Assistant keeps reaching it (see read()).
+  apiLan: false,
 
   // Path to the browser executable — override only. Empty (default) —
   // uses this project's own Brave from .browser/ if it's installed
@@ -373,7 +355,7 @@ const TYPES = {
   account: 'number', classTimeoutMs: 'number', emptyTimeoutMs: 'number',
   treatUndatedAsUrgent: 'boolean', skipStaleClasses: 'boolean',
   showEmptyClasses: 'boolean', hideInactiveClasses: 'boolean',
-  apiEnabled: 'boolean', apiNetwork: 'boolean',
+  apiLan: 'boolean',
   staleMonths: 'staleMonths',
   announcementPhotos: 'announcementPhotos',
   passLimitMs: 'number', apiPort: 'number',
@@ -398,6 +380,8 @@ function read() {
     for (const key of Object.keys(DEFAULTS)) {
       if (own[key] !== undefined && own[key] !== null) result[key] = own[key];
     }
+    // From before v3: the Home API on and on the network is LAN access on.
+    if (own.apiLan === undefined && own.apiEnabled === true && own.apiNetwork !== false) result.apiLan = true;
   } catch (e) {
     // A broken file shouldn't stop the collection run: say so and carry
     // on with defaults. Staying silent here isn't an option — the person

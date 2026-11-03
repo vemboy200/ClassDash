@@ -7,7 +7,7 @@ const fs = require('fs'), path = require('path'), vm = require('vm'), cp = requi
 const ok = (n, c, x = '') => { console.log(c ? 'PASS' : 'FAIL', n, c ? '' : x); if (!c) process.exitCode = 1; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const proj = T.makeProject({ 'settings.json': { language: 'en', email: 'a@b', canvas: '', apiEnabled: true, apiPort: 18997, apiNetwork: false } });
+const proj = T.makeProject({ 'settings.json': { language: 'en', email: 'a@b', canvas: '', apiPort: 18997 } });
 process.chdir(proj);
 const security = require(path.join(proj, '23-api-security.js'));
 const pidFile = security.PID_FILE;
@@ -32,12 +32,12 @@ const stranger = cp.spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'
   const actions = require(path.join(proj, '21-notifier-actions.js'));
   fs.writeFileSync(pidFile, JSON.stringify({ pid: stranger.pid, boot: Math.round(lastBoot - 864e5) }));
   const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
-  actions.main('config', b64({ apiEnabled: false }));
+  actions.main('config', b64({ apiLan: true }));
   await sleep(300);   // a signalled child shows up here once it's been reaped
-  ok('turning the API off doesn\'t stop a program that got the server\'s old pid', stranger.exitCode === null && stranger.signalCode === null);
+  ok('turning LAN access on (a restart of the server) doesn\'t stop a program that got the server\'s old pid', stranger.exitCode === null && stranger.signalCode === null);
 
   // ── ensureApi, which the app runs when it opens ──
-  actions.main('config', b64({ apiEnabled: true }));
+  actions.main('config', b64({ apiLan: false }));
   // The save itself starts the server; stop it, and leave a pid file from before a "restart".
   const started = security.readPid();
   if (started) { try { process.kill(started, 'SIGKILL'); } catch {} }

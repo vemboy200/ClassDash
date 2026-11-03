@@ -183,20 +183,17 @@ function signIn() {
 }
 
 /** Starts 17-api.js as a detached background process, if it isn't
- *  already running — called when the settings-panel toggle turns
- *  apiEnabled on. Generates the cert/token FIRST, synchronously, in
+ *  already running. Generates the cert/token FIRST, synchronously, in
  *  THIS process, rather than leaving it to the spawned server's own
  *  startup — see 23-api-security.js's own comment on why that avoids a
  *  real race against the redraw that follows right after, which reads
  *  those same files to show the token in the settings panel.
  *
  *  `network` passes --network through to 17-api.js, binding 0.0.0.0
- *  instead of 127.0.0.1 — see apiNetwork's own comment in 19-settings.js
- *  for why that's the default. Which interface it bound to is decided
- *  once, at process startup; changing it later means actually restarting
- *  the process, not just flipping a setting — see the 'config' case
- *  below, which stops it first whenever apiNetwork changes too, not
- *  only when apiEnabled itself does. */
+ *  instead of 127.0.0.1 — see apiLan in 19-settings.js. Which interface
+ *  it bound to is decided once, at process startup; changing it later
+ *  means actually restarting the process, not just flipping a setting —
+ *  see the 'config' case below. */
 function startApiServer(network) {
   const security = require('./23-api-security.js');
   if (security.isServerRunning()) return;
@@ -216,14 +213,15 @@ function startApiServer(network) {
   child.unref();
 }
 
-/** Starts the home API server again if it's switched on but not running —
- *  it stopped for some reason nothing caught. Called on every check, so it's
- *  back within one check interval instead of down until someone notices. */
+/** Starts the API server if it isn't running: when the app opens (a
+ *  restart of the computer ends it), and on every check, in case it stopped
+ *  for some reason nothing caught. It always runs, since the page and its
+ *  other clients go through it; apiLan only decides whether the home
+ *  network can reach it too. */
 function ensureApiServer() {
-  const { apiEnabled, apiNetwork } = require('./19-settings.js').read();
-  if (!apiEnabled || require('./23-api-security.js').isServerRunning()) return false;
-  startApiServer(apiNetwork);
-  logAction('  home API server was switched on but not running — started it again (see api-log.txt)');
+  if (require('./23-api-security.js').isServerRunning()) return false;
+  startApiServer(require('./19-settings.js').read().apiLan);
+  logAction('  API server was not running — started it (see api-log.txt)');
   return true;
 }
 
@@ -235,7 +233,7 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** Stops it — apiEnabled turned off. SIGTERM, not SIGKILL: 17-api.js
+/** Stops it, to start it again listening somewhere else. SIGTERM, not SIGKILL: 17-api.js
  *  has its own handler (see its start()) that clears the pid file
  *  before exiting, and skipping straight to SIGKILL would leave that
  *  file behind lying about whether the server's still up.
@@ -358,28 +356,16 @@ function main(action, arg) {
       // collection — that button, a manual check, or an automatic one —
       // picks them up, since it reads settings.json when it starts.
 
-      // apiEnabled/apiNetwork start, stop, or rebind a whole separate
-      // background process — orthogonal to needsFetch above (neither
-      // touches Classroom/Canvas at all), so it's handled alongside
-      // that check, not instead of it.
-      //
-      // BOTH keys trigger this, not just apiEnabled: which interface
-      // 17-api.js binds to is decided once, at its own startup, so
-      // apiNetwork changing while the server's already running does
-      // nothing on its own unless the process actually restarts. Always
-      // stopping first (harmless no-op if nothing's running — see
-      // stopApiServer()) then starting fresh handles every case the
-      // same way: freshly enabled, freshly disabled, or just switching
-      // between localhost-only and LAN-visible while already on.
-      if (result.changed.includes('apiEnabled') || result.changed.includes('apiNetwork')) {
-        const { apiEnabled, apiNetwork } = require('./19-settings.js').read();
+      // apiLan changes where a whole separate background process listens,
+      // which 17-api.js decides once, at its own startup — orthogonal to
+      // needsFetch above (it doesn't touch Classroom/Canvas at all), so
+      // it's handled alongside that check, not instead of it. Stopping
+      // first, then starting fresh, rebinds it.
+      if (result.changed.includes('apiLan')) {
+        const { apiLan } = require('./19-settings.js').read();
         stopApiServer();
-        if (apiEnabled) {
-          startApiServer(apiNetwork);
-          logAction(`  home API server started (${apiNetwork ? 'network' : 'localhost-only'})`);
-        } else {
-          logAction('  home API server stopped');
-        }
+        startApiServer(apiLan);
+        logAction(`  API server restarted (${apiLan ? 'home network too' : 'this computer only'})`);
       }
 
       // AI just turned on: the announcements already here are the backlog,
@@ -695,19 +681,16 @@ function main(action, arg) {
       return { ok: true, action, changed };
     }
     // After the app refreshed this project's scripts (30-template-sync.js): a
-    // home API server that was already running is still the OLD code, held in
-    // memory, and would go on serving it until something restarted it. Only
-    // restarts one that is running — a refresh must never switch the API on
-    // for someone who has it off.
+    // server that was already running is still the OLD code, held in
+    // memory, and would go on serving it until something restarted it.
     case 'restartApi': {
       const security = require('./23-api-security.js');
-      if (!security.isServerRunning()) return { ok: true, action, restarted: false };
-      const { apiEnabled, apiNetwork } = require('./19-settings.js').read();
+      const wasRunning = security.isServerRunning();
+      const { apiLan } = require('./19-settings.js').read();
       stopApiServer();
-      if (apiEnabled) startApiServer(apiNetwork);
-      logAction(apiEnabled ? '  home API server restarted (scripts were refreshed)'
-                           : '  home API server stopped (scripts were refreshed, and it is switched off)');
-      return { ok: true, action, restarted: !!apiEnabled };
+      startApiServer(apiLan);
+      logAction(wasRunning ? '  API server restarted (scripts were refreshed)' : '  API server started (scripts were refreshed)');
+      return { ok: true, action, restarted: wasRunning };
     }
     // The page reporting that it hid its own progress bar while it believed
     // a collection was still going. Nothing to do here: main() already

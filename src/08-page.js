@@ -1777,22 +1777,16 @@ ${classLinksField(s.classLinks)}
     { id: 'grades', label: t('settingsSectionGrades'), desc: t('settingsDescGrades'), body: gradesSettings(s) },
     { id: 'ai', label: t('settingsSectionAi'), desc: t('settingsDescAi'), body: aiSettings(s, field) },
     { id: 'api', label: t('settingsSectionApi'), desc: t('settingsDescApi'), body: `
+      <p class="hint">${escapeHtml(t('settingsApiIntro'))}
+        ${isServerRunning()
+          ? `<span class="api-status api-status-on">${escapeHtml(t('settingsApiRunning'))}</span>`
+          : `<span class="api-status">${escapeHtml(t('settingsApiNotRunning'))}</span>`}</p>
       <label class="setting-row">
-        <span class="field-name">${escapeHtml(t('settingsApiEnabled'))}</span>
-        <input type="checkbox" class="toggle" data-bool-key="apiEnabled"${s.apiEnabled ? ' checked' : ''}
-               onchange="toggleApiKeySection(this)">
-        <span class="field-hint">${escapeHtml(t('settingsApiEnabledHint'))}
-          ${isServerRunning()
-            ? `<span class="api-status api-status-on">${escapeHtml(t('settingsApiRunning'))}</span>`
-            : `<span class="api-status">${escapeHtml(t('settingsApiNotRunning'))}</span>`}
-        </span>
+        <span class="field-name">${escapeHtml(t('settingsApiLan'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="apiLan"${s.apiLan ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsApiLanHint'))}</span>
       </label>
-      <div class="api-key-row"${s.apiEnabled ? '' : ' hidden'}>
-        <label class="setting-row">
-          <span class="field-name">${escapeHtml(t('settingsApiNetwork'))}</span>
-          <input type="checkbox" class="toggle" data-bool-key="apiNetwork"${s.apiNetwork ? ' checked' : ''}>
-          <span class="field-hint">${escapeHtml(t('settingsApiNetworkHint'))}</span>
-        </label>
+      <div class="api-key-row">
         <label class="setting-row">
           <span class="field-name">${escapeHtml(t('settingsApiToken'))}</span>
           <span class="field-with-value">
@@ -6439,18 +6433,6 @@ function setupSignIn(button) {
   };
   if (settingsDirty()) saveSettings(go);
   else go();
-}
-
-// Shows/hides the token+fingerprint block the instant the "enable home
-// API" checkbox is clicked — same "don't make the person wait for a
-// save round-trip just to see the UI react" idea as the filter panel's
-// own instant checkboxes. The actual server only starts or stops once
-// the settings panel is closed and the setting really changed; this is
-// purely about not showing a key section for an API that (as far as the
-// page can tell right now) isn't turned on.
-function toggleApiKeySection(checkbox) {
-  var row = document.querySelector('.api-key-row');
-  if (row) row.hidden = !checkbox.checked;
 }
 
 // Copies a readonly field's value — the token or the certificate

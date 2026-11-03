@@ -5,6 +5,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 ## Unreleased
 
 - **ClassDash in a browser.** The Home API now serves the ClassDash page too, so you can open it in a browser on the same computer or another device on your network: paste the access key once and the browser remembers it. Its buttons work the same as in the app, apart from the few things that need the app itself. See [Home API](docs/home-api.md#classdash-in-a-browser).
+- **The Home API always runs now, for this computer only**, and Settings → Home API has one switch, **Allow LAN access**, off by default, for reaching it from other devices like Home Assistant. If you had the Home API on and on the network, LAN access is already on, so Home Assistant keeps working.
 
 ## v2.8.0 (2026-11-03)
 

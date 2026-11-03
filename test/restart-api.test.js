@@ -12,16 +12,20 @@ const alive = pid => { try { process.kill(pid, 0); return true; } catch { return
 const cleanup = () => { try { const p = readPidFile(); if (p) process.kill(p, 'SIGKILL'); } catch {} for (const f of ['api-server.pid', 'settings.json']) try { fs.unlinkSync(f); } catch {} };
 cleanup();
 (async () => {
-  // 1. nothing running -> nothing started (a refresh must not switch the API on)
-  fs.writeFileSync('settings.json', JSON.stringify({ apiEnabled: true, apiPort: 18999, apiNetwork: false }));
+  // 1. nothing running -> started (the server always runs since v3)
+  fs.writeFileSync('settings.json', JSON.stringify({ apiPort: 18999 }));
   let r = action();
-  ok(r.ok && r.restarted === false && !fs.existsSync(PID), '1 nothing running: nothing is started, even with the API enabled: ' + JSON.stringify(r));
+  let first = 0;
+  for (let i = 0; i < 40 && !first; i++) { await sleep(150); try { first = readPidFile(); } catch {} }
+  ok(r.ok && r.restarted === false && first && alive(first), '1 nothing running: started, and says it wasn\'t a restart: ' + JSON.stringify(r));
+  cleanup();
+  fs.writeFileSync('settings.json', JSON.stringify({ apiPort: 18999 }));
 
   // 2. running + enabled -> replaced by a fresh server
   const old = cp.spawn('sleep', ['60'], { stdio: 'ignore', detached: true }); old.unref();
   fs.writeFileSync(PID, String(old.pid));
   r = action();
-  ok(r.ok && r.restarted === true, '2 running and enabled: restarted: ' + JSON.stringify(r));
+  ok(r.ok && r.restarted === true, '2 running: restarted: ' + JSON.stringify(r));
   await sleep(300);
   ok(!alive(old.pid), '2 the old process is gone');
   let fresh = 0;
@@ -29,13 +33,5 @@ cleanup();
   ok(fresh && fresh !== old.pid && alive(fresh), '2 a NEW server is running (pid ' + fresh + ', not ' + old.pid + ')');
   cleanup();
 
-  // 3. running but switched off -> stopped, not restarted
-  fs.writeFileSync('settings.json', JSON.stringify({ apiEnabled: false, apiPort: 18999 }));
-  const old2 = cp.spawn('sleep', ['60'], { stdio: 'ignore', detached: true }); old2.unref();
-  fs.writeFileSync(PID, String(old2.pid));
-  r = action();
-  await sleep(300);
-  ok(r.ok && r.restarted === false && !alive(old2.pid) && !fs.existsSync(PID), '3 running but switched off: stopped and left off: ' + JSON.stringify(r));
-  cleanup();
   console.log(`restart-api: ${pass} pass, ${fail} fail`); process.exit(fail ? 1 : 0);
 })();

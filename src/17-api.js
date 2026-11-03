@@ -93,7 +93,7 @@ const {
 // on the page itself — hiding an assignment from here and hiding it from
 // the actual window run through identical code, not two implementations
 // that could drift. See the WRITE_HANDLERS comment below for the one
-// case (apiEnabled/apiNetwork) that's deliberately NOT reachable this way.
+// case (apiLan) that's deliberately NOT reachable this way.
 const notifierActions = require('./21-notifier-actions.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
@@ -616,8 +616,8 @@ const WRITE_HANDLERS = {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return { status: 400, body: { error: 'expected a JSON object of settings' } };
     }
-    // NOT reachable through here, on purpose. Changing apiEnabled or
-    // apiNetwork stops and restarts THIS SAME PROCESS — safe from the
+    // NOT reachable through here, on purpose. Changing apiLan stops and
+    // restarts THIS SAME PROCESS — safe from the
     // settings panel, where a separate, short-lived CLI process does
     // the stopping while the long-running app just redraws once it's
     // back. Unsafe from inside this server's own request handler: it
@@ -628,10 +628,10 @@ const WRITE_HANDLERS = {
     // synchronously running this very request, so it can never observe
     // itself as gone. It stalls out the full 2-second deadline and then
     // SIGKILLs itself, before this response could ever go out.
-    if ('apiEnabled' in body || 'apiNetwork' in body) {
+    if ('apiLan' in body) {
       return {
         status: 400,
-        body: { error: 'apiEnabled and apiNetwork can\'t be changed through the API — use the settings panel in the app' },
+        body: { error: 'apiLan can\'t be changed through the API — use the settings panel in the app' },
       };
     }
     // Ticking an AI provider's box says the person read that company's age
@@ -1077,16 +1077,15 @@ function handleLogin(req, res) {
 //
 // Not every action, though. These stay with the app:
 //   - ensureApi and restartApi start and stop THIS process, and a settings
-//     save that switches the Home API on or off or onto the network does
-//     too (see '/api/settings' above for why that can't run from in here).
+//     save that turns LAN access on or off does too (see '/api/settings' above for why that can't run from in here).
 //   - rollApiToken would sign out the very page that asked, mid-request.
 //   - importCalendarPdf and workspaceImport take a path to a file on this
 //     computer, which the app's own file picker chose. From a browser they'd
 //     read whatever path they were given.
 const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'rollApiToken', 'importCalendarPdf', 'workspaceImport']);
 
-/** Whether a settings save (the page's base64url-JSON chunk) would switch
- *  the Home API on or off or change where it listens. */
+/** Whether a settings save (the page's base64url-JSON chunk) would change
+ *  where the server listens. */
 function changesApi(chunk) {
   let given;
   try {
@@ -1096,7 +1095,7 @@ function changesApi(chunk) {
   }
   if (!given || typeof given !== 'object') return false;
   const now = require('./19-settings.js').read();
-  return ['apiEnabled', 'apiNetwork'].some(k => k in given && given[k] !== now[k]);
+  return 'apiLan' in given && given.apiLan !== now.apiLan;
 }
 
 function handleAction(req, respond) {

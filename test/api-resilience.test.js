@@ -23,18 +23,15 @@ const get = (p) => new Promise((resolve) => {
 const kill = () => { const p = pid(); if (p) try { process.kill(p, 'SIGKILL'); } catch {} try { fs.unlinkSync(PID); } catch {} };
 
 (async () => {
-  fs.writeFileSync('settings.json', JSON.stringify({ apiEnabled: false, apiPort: PORT, apiNetwork: false }));
-  ok('switched off: a check starts nothing', ensure() === false && !pid());
-
-  fs.writeFileSync('settings.json', JSON.stringify({ apiEnabled: true, apiPort: PORT, apiNetwork: false }));
-  ok('switched on but not running: a check starts it', ensure() === true);
+  fs.writeFileSync('settings.json', JSON.stringify({ apiPort: PORT }));
+  ok('not running: a check starts it (it always runs)', ensure() === true);
   ok('...and it comes up', await waitFor(() => pid() && alive(pid())));
   ok('...and answers', await waitFor(() => false, 300) || await get('/api/status') === 200);
   ok('a running server is left alone', ensure() === false);
   const log = fs.readFileSync(LOG, 'utf8');
   ok('its output goes to api-log.txt, with timestamps', /^\d{4}-\d\d-\d\dT[^ ]+ Home API listening/m.test(log), log.slice(0, 300));
   ok('...but never the access key', !log.includes(fs.readFileSync('api-token.txt', 'utf8').trim()) && /in api-token\.txt/.test(log));
-  ok('the check that restarted it says so in notifier-log.txt', /started it again/.test(fs.readFileSync('notifier-log.txt', 'utf8')));
+  ok('the check that restarted it says so in notifier-log.txt', /was not running — started it/.test(fs.readFileSync('notifier-log.txt', 'utf8')));
 
   // stopped by something nothing caught: the next check brings it back
   const before = pid();

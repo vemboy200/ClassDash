@@ -2,7 +2,7 @@
 // its own files, and page actions over /api/action, against a real server.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs'), https = require('https'), cp = require('child_process');
-const proj = T.makeProject({ 'settings.json': { language: 'en', apiEnabled: true } }); process.chdir(proj);
+const proj = T.makeProject({ 'settings.json': { language: 'en' } }); process.chdir(proj);
 const ok = (n, c, x = '') => { console.log(c ? 'PASS' : 'FAIL', n, c ? '' : x); if (!c) process.exitCode = 1; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -89,9 +89,18 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   }
   ok('...so the token is unchanged', fs.readFileSync('api-token.txt', 'utf8').trim() === token);
   const chunk = s => Buffer.from(JSON.stringify(s)).toString('base64url');
-  const apiOff = await act('config', chunk({ apiEnabled: false }));
-  ok('a settings save that would switch the Home API off: app-only', apiOff.status === 403, apiOff.body);
-  const sameApi = await act('config', chunk({ apiEnabled: true, showEmptyClasses: true }));
+  const lanOn = await act('config', chunk({ apiLan: true }));
+  ok('a settings save that would turn LAN access on: app-only', lanOn.status === 403, lanOn.body);
+  // ---- settings from before v3 ----
+  const settings = require(path.join(proj, '19-settings.js'));
+  const asOld = o => { fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ language: 'en', ...o })); return settings.read().apiLan; };
+  ok('old settings, Home API on and on the network: LAN access on', asOld({ apiEnabled: true, apiNetwork: true }) === true);
+  ok('...on with the network left at its old default: on', asOld({ apiEnabled: true }) === true);
+  ok('...on, this computer only: off', asOld({ apiEnabled: true, apiNetwork: false }) === false);
+  ok('...off: off', asOld({ apiEnabled: false, apiNetwork: true }) === false);
+  ok('...and apiLan, once saved, wins', asOld({ apiEnabled: true, apiNetwork: true, apiLan: false }) === false);
+  fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ language: 'en' }));
+  const sameApi = await act('config', chunk({ apiLan: false, showEmptyClasses: true }));
   ok('a settings save that leaves the Home API alone: runs', sameApi.status === 200 && JSON.parse(sameApi.body).ok === true, sameApi.body);
 
   cleanup();

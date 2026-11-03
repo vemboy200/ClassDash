@@ -52,7 +52,7 @@ const b64 = s => JSON.parse(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'),
   ok('closing after an edit sends exactly one config action', posted.length === 1 && posted[0].action === 'config', JSON.stringify(posted));
   const sent = b64(posted[0].arg);
   ok('payload carries the ticked class', sent.exclusions.length === 1 && sent.exclusions[0] === boxes[0].value, JSON.stringify(sent.exclusions));
-  ok('payload is the full snapshot (other keys present)', 'language' in sent && 'staleMonths' in sent && 'apiEnabled' in sent);
+  ok('payload is the full snapshot (other keys present)', 'language' in sent && 'staleMonths' in sent && 'apiLan' in sent);
   ok('panel stays closed while saving', panel.hidden === true);
   const gear = d.getElementById('settings-button'), status = d.getElementById('settings-status');
   ok('gear expands and says Saving…', gear.classList.contains('expanded') && status.textContent === 'Saving…', status.textContent);

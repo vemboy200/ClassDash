@@ -1,7 +1,7 @@
 // The check that's running, over the API: /api/collection, status.collecting, and the stream.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs'), https = require('https'), cp = require('child_process');
-const proj = T.makeProject({ 'settings.json': { language: 'en', apiEnabled: true } }); process.chdir(proj);
+const proj = T.makeProject({ 'settings.json': { language: 'en' } }); process.chdir(proj);
 const ok = (n, c, x='') => { console.log(c ? 'PASS' : 'FAIL', n, c ? '' : x); if (!c) process.exitCode = 1; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { readCollection, STALE_MS } = require(path.join(proj, '28-live-state.js'));

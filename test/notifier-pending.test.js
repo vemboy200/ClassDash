@@ -29,7 +29,10 @@ ok('reverting removes the banner', !page().includes('id="pending-banner"'));
 ok('still no collection', spawned.length === 0);
 
 r = A.main('reload', '');
-ok('the banner button\'s action (reload) starts a quick pass', spawned.length === 1 && r.ok, JSON.stringify(spawned));
+// reload also starts the API server when it isn't running (it always runs
+// since v3), so only the collector is counted here.
+const collectors = spawned.filter(args => !String(args[0]).endsWith('17-api.js'));
+ok('the banner button\'s action (reload) starts a quick pass', collectors.length === 1 && r.ok, JSON.stringify(spawned));
 
 // Russian
 A.main('config', enc({ exclusions: ['Math'], language: 'ru' }));
