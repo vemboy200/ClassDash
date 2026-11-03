@@ -75,7 +75,7 @@ const ICON_BROWSER_HEAD_B64 = readIcon('browser-head-icon.png');
 const ICON_BROWSER_QUESTION_B64 = readIcon('browser-question-icon.png');
 const ICON_EDIT_B64 = readIcon('edit-icon.png');
 // The Settings menu's rows (the user's drawings): Services a filled cloud,
-// AI Clawd, Claude's mascot,, Classes a classroom, Schedule a clock, Calendar a calendar
+// AI Clawd, Claude's mascot, Classes a classroom, Schedule a clock, Calendar a calendar
 // (redrawn one column wider and one row shorter so it's an even 28x30 and
 // sits exactly in the middle), Checking a magnifying glass, Display a
 // monitor, the Home API a computer on a network. Grades and System reuse the
