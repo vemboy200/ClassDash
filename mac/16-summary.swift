@@ -1925,131 +1925,47 @@ class Delegate:NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelega
 
     // MARK: - Automatic fresh checks
 
-    // NOTHING SCHEDULES A CHECK ON ITS OWN UNLESS SOMETHING TELLS IT TO.
+    // THE SERVER DECIDES WHEN A CHECK IS DUE, NOT THIS APP.
     //
-    // Fresh check (the "check" action above, same as this window's own
-    // button) opens a visible Edpuzzle browser window and takes about a
-    // minute — fine to trigger by hand, but running it on a timer
-    // without regard for whether anyone's actually sitting at the
-    // machine would mean it popping up mid-workflow. This is why there
-    // are two separate intervals in settings instead of one:
-    // freshCheckAwakeMinutes (display on, someone might be using this
-    // Mac right now) and freshCheckAsleepMinutes (display off, nobody's
-    // there to be interrupted — free to run more often). Either can be
-    // 0 to disable auto-fresh-checking in that state entirely.
+    // The automatic fresh checks (freshCheckAwakeMinutes,
+    // freshCheckAsleepMinutes, freshCheckOnlyWhenCharging, and the 10-minute
+    // minimum) run in the API server, 52-check-schedule.js, so a server with
+    // no app in front of it can check too. This app only tells it what only
+    // macOS knows, in host-state.json: whether the display is asleep (nobody
+    // there to be interrupted by Edpuzzle's visible browser window, so the
+    // asleep interval applies) and whether the Mac is on battery. Once a
+    // minute, and right away when the display sleeps or wakes. The server
+    // runs no automatic checks while no app has reported for a few minutes.
     //
-    // "Asleep" here means the DISPLAY, not the whole system. Full
-    // system sleep freezes this entire process, this timer included —
-    // there'd be nothing left running to notice or act on that state.
-    // Display sleep is the one a desktop Mac (no lid to close, often
-    // never fully sleeping at all) can actually sit in for hours while
-    // genuinely idle, which is exactly the case this exists for.
+    // "Asleep" here means the DISPLAY, not the whole system. Full system
+    // sleep freezes this process and the server alike. Display sleep is the
+    // one a desktop Mac can sit in for hours while genuinely idle.
     func setupAutoFreshCheck() {
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(self, selector: #selector(displayDidSleep),
                             name: NSWorkspace.screensDidSleepNotification, object: nil)
         center.addObserver(self, selector: #selector(displayDidWake),
                             name: NSWorkspace.screensDidWakeNotification, object: nil)
-
-        // A single repeating timer that just checks "is it time yet?"
-        // once a minute, rather than one whose own interval gets torn
-        // down and rebuilt every time the display sleeps/wakes or a
-        // setting changes. Settings and sleep state are both read fresh
-        // on every tick, so neither can go stale. It also means system
-        // sleep — which pauses this timer along with everything else —
-        // doesn't need special handling: the next tick after waking
-        // just sees a bigger elapsed-time number and reacts normally.
+        reportHostState()
         autoFreshCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.maybeRunAutoFreshCheck()
+            self?.reportHostState()
         }
     }
 
-    @objc private func displayDidSleep() { isDisplayAsleep = true }
-    @objc private func displayDidWake() { isDisplayAsleep = false }
+    @objc private func displayDidSleep() { isDisplayAsleep = true; reportHostState() }
+    @objc private func displayDidWake() { isDisplayAsleep = false; reportHostState() }
 
-    private func maybeRunAutoFreshCheck() {
-        let (awakeMinutes, asleepMinutes, onlyWhenCharging) = readFreshCheckSettings()
-        let intervalMinutes = isDisplayAsleep ? asleepMinutes : awakeMinutes
-        guard intervalMinutes > 0 else { return } // 0 — disabled for this state
-
-        // Checked AFTER the interval, not instead of it: a Mac that's
-        // unplugged right now with the toggle on just skips this run
-        // entirely and tries again next tick — the interval itself
-        // still governs cadence once it IS plugged back in, rather
-        // than this becoming its own separate schedule.
-        if onlyWhenCharging && !isOnACPower() {
-            logWindow("auto fresh check: skipped — on battery and freshCheckOnlyWhenCharging is on")
-            return
-        }
-
-        // last-collection.json's own mtime — the exact same signal
-        // /api/status calls collectedAt/minutesAgo. Using it instead of
-        // this timer's own memory of "when did I last fire" means a
-        // manual fresh check (the button, or another client hitting
-        // /api/check) also resets the clock, so this doesn't pile a
-        // redundant one on top of a check that just happened for some
-        // other reason. Missing entirely (nothing's ever been
-        // collected) counts as infinitely stale, so it fires as soon
-        // as an interval is configured rather than waiting a full
-        // interval past a launch with no data at all.
-        let elapsedMinutes = minutesSinceLastCollection() ?? .greatestFiniteMagnitude
-        guard elapsedMinutes >= Double(intervalMinutes) else { return }
-
-        logWindow("auto fresh check: \(Int(elapsedMinutes))m since last collection, " +
-                  "\(intervalMinutes)m interval (\(isDisplayAsleep ? "asleep" : "awake")) — running one")
-        runAction("check", "") { _ in }
-    }
-
-    // Reads settings.json directly rather than shelling out to node
-    // 19-settings.js for a few values — it's a plain file already
-    // sitting on disk, and this needs an answer every 60 seconds, not
-    // a whole node process spun up that often just to ask it. Missing
-    // keys or a missing file both mean 0/true (freshCheckOnlyWhenCharging
-    // defaults true in 19-settings.js too, see its own comment there for
-    // why) — NOT a full merge-with-defaults, since there's no equivalent
-    // happening on this side. A freshly-created settings.json from
-    // before this feature existed simply doesn't have these keys yet,
-    // and the safe reading of the two minute values specifically is
-    // "off", not "guess at what the default should have been".
-    // THIS IS THE ACTUAL RUNTIME ENFORCEMENT POINT, NOT 19-settings.js's
-    // OWN validate().
-    //
-    // This reads settings.json directly, off this project's normal
-    // read()/validate() path entirely — a value here didn't necessarily
-    // come through the settings panel or the API, which is exactly what
-    // makes clamping it here, not just at the save point, the fix that
-    // actually matters. Confirmed live: freshCheckAsleepMinutes sitting
-    // at 5 meant a full, real-browser Fresh check (Edpuzzle included,
-    // itself about a minute to run) launching roughly every 5-8 minutes
-    // around the clock — sustained memory pressure into swap and a pile
-    // of leftover Brave helper processes, bad enough to need force-
-    // quitting by hand. Any positive value under 10 is treated as
-    // disabled (0), not rounded up to 10 — a value that low reads as
-    // unsafe leftover state to fail safe away from, not a real request
-    // for "as close to 10 as possible" this should try to honor.
-    private func clampFreshCheckMinutes(_ n: Int) -> Int {
-        return (n > 0 && n < 10) ? 0 : n
-    }
-
-    private func readFreshCheckSettings() -> (awake: Int, asleep: Int, onlyWhenCharging: Bool) {
-        let path = projectDir + "/settings.json"
-        guard let data = FileManager.default.contents(atPath: path),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return (0, 0, true)
-        }
-        let awake = clampFreshCheckMinutes((obj["freshCheckAwakeMinutes"] as? Int) ?? 0)
-        let asleep = clampFreshCheckMinutes((obj["freshCheckAsleepMinutes"] as? Int) ?? 0)
-        let onlyWhenCharging = (obj["freshCheckOnlyWhenCharging"] as? Bool) ?? true
-        return (awake, asleep, onlyWhenCharging)
-    }
-
-    private func minutesSinceLastCollection() -> Double? {
-        let path = projectDir + "/last-collection.json"
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let modDate = attrs[.modificationDate] as? Date else {
-            return nil
-        }
-        return Date().timeIntervalSince(modDate) / 60
+    // Written directly rather than through node: it's a tiny file, written
+    // every minute, and an atomic write means the server never reads half
+    // of one.
+    private func reportHostState() {
+        let state: [String: Any] = [
+            "asleep": isDisplayAsleep,
+            "onBattery": !isOnACPower(),
+            "at": Int(Date().timeIntervalSince1970 * 1000),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: state) else { return }
+        try? data.write(to: URL(fileURLWithPath: projectDir + "/host-state.json"), options: .atomic)
     }
 
     // Whether AC power is what's actually supplying this Mac right now

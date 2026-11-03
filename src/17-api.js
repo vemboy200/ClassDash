@@ -28,6 +28,9 @@
  *   node 17-api.js               this computer only (127.0.0.1:8734)
  *   node 17-api.js --network     visible to the whole home network
  *   node 17-api.js --port 9000   a different port
+ *   node 17-api.js --headless    no app in front of it (a NAS): runs the
+ *                                automatic checks without the app's reports
+ *                                (see 52-check-schedule.js)
  *
  * First run generates api-cert.pem, api-key.pem and api-token.txt
  * next to this file (gitignored, unique to this install) and prints the
@@ -1137,6 +1140,7 @@ function start() {
   keepRunningThroughErrors();
   const args = process.argv;
   const onNetwork = args.includes('--network');
+  const headless = args.includes('--headless');
   const portIndex = args.indexOf('--port');
   const port = portIndex !== -1 && args[portIndex + 1]
     ? Number(args[portIndex + 1]) : DEFAULT_PORT;
@@ -1333,6 +1337,12 @@ function start() {
     // .unref() — this timer alone shouldn't be what keeps the process
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
+    // The automatic fresh checks: the server's job, not the app's.
+    require('./52-check-schedule.js').startSchedule({
+      headless,
+      start: () => notifierActions.main('check', ''),
+      log: line => console.log(line),
+    });
   });
 
   // The settings-panel toggle stops this process with SIGTERM (see

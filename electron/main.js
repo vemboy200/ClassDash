@@ -1403,57 +1403,35 @@ function attemptLogin() {
 
 // Menu-bar entry points — same underlying functions the wizard uses,
 // just reachable any time instead of gated behind isNewProjectSetup.
-// ── Auto fresh-check timer — port of setupAutoFreshCheck() /
-// maybeRunAutoFreshCheck() (16-summary.swift:747-865) ──
+// ── Automatic fresh checks — the server decides, this reports ──
 //
-// KNOWN GAP, DELIBERATELY NOT SOLVED HERE (see the plan this was built
-// from): Electron's powerMonitor has no macOS-style "the display slept
-// but the system didn't" event on Windows. Using lock-screen/unlock-screen
-// instead of suspend/resume specifically because suspend freezes this
-// whole process (same as real macOS system sleep pausing the Mac version's
-// timer too, which needs no special handling for exactly that reason) — a
-// locked-but-awake session is the closer analogue to "nobody's using this
-// right now" that still leaves the process running to actually notice.
-function readFreshCheckSettings() {
+// The automatic fresh checks run in the API server (52-check-schedule.js),
+// not here, so a server with no app in front of it can check too. This
+// only tells it what only Windows knows, in host-state.json: whether the
+// session is locked (asleep: nobody there to be interrupted by Edpuzzle's
+// visible browser window) and whether the computer is on battery. Once a
+// minute, and right away on lock and unlock. The server runs no automatic
+// checks while no app has reported for a few minutes.
+//
+// Lock-screen rather than display sleep: Electron's powerMonitor has no
+// macOS-style "the display slept but the system didn't" event on Windows,
+// and suspend freezes this process (and the server) anyway. A locked but
+// awake session is the closest thing to "nobody's using this right now".
+function reportHostState() {
+  const file = path.join(projectDir, 'host-state.json');
+  const state = { asleep: isLocked, onBattery: powerMonitor.isOnBatteryPower(), at: Date.now() };
   try {
-    const obj = JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8'));
-    const clamp = (n) => (n > 0 && n < 10 ? 0 : n);
-    return {
-      awake: clamp(obj.freshCheckAwakeMinutes || 0),
-      asleep: clamp(obj.freshCheckAsleepMinutes || 0),
-      onlyWhenCharging: obj.freshCheckOnlyWhenCharging !== false,
-    };
-  } catch {
-    return { awake: 0, asleep: 0, onlyWhenCharging: true };
-  }
-}
-
-function minutesSinceLastCollection() {
-  try {
-    const stat = fs.statSync(path.join(projectDir, 'last-collection.json'));
-    return (Date.now() - stat.mtimeMs) / 60000;
-  } catch {
-    return null;
-  }
-}
-
-function maybeRunAutoFreshCheck() {
-  const { awake, asleep, onlyWhenCharging } = readFreshCheckSettings();
-  const intervalMinutes = isLocked ? asleep : awake;
-  if (intervalMinutes <= 0) return;
-
-  if (onlyWhenCharging && powerMonitor.isOnBatteryPower()) return;
-
-  const elapsed = minutesSinceLastCollection() ?? Infinity;
-  if (elapsed < intervalMinutes) return;
-
-  runAction('check', '');
+    // Atomic: the server never reads half a file.
+    fs.writeFileSync(file + '.tmp', JSON.stringify(state));
+    fs.renameSync(file + '.tmp', file);
+  } catch { /* the next minute tries again */ }
 }
 
 function setupAutoFreshCheck() {
-  powerMonitor.on('lock-screen', () => { isLocked = true; });
-  powerMonitor.on('unlock-screen', () => { isLocked = false; });
-  freshCheckTimer = setInterval(maybeRunAutoFreshCheck, 60 * 1000);
+  powerMonitor.on('lock-screen', () => { isLocked = true; reportHostState(); });
+  powerMonitor.on('unlock-screen', () => { isLocked = false; reportHostState(); });
+  reportHostState();
+  freshCheckTimer = setInterval(reportHostState, 60 * 1000);
 }
 
 // ── Update check / install — Windows-shaped port of
