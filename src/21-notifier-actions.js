@@ -199,6 +199,7 @@ function startApiServer(network) {
   if (security.isServerRunning()) return;
   security.ensureCert();
   security.ensureToken();
+  security.ensureAppKey();
   const args = [path.join(__dirname, '17-api.js')];
   if (network) args.push('--network');
   // Its output goes to api-log.txt, so a server that stops has left a note

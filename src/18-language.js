@@ -774,6 +774,8 @@ const DICTIONARIES = {
     loginButton: 'Войти',
     loginWrong: 'Это не тот ключ. Скопируй его ещё раз из Настройки → API.',
     settingsSignOut: 'Выйти',
+    connLost: 'Нет связи с ClassDash — переподключаюсь…',
+    connBack: 'Снова на связи',
     settingsSignOutDesc: 'Выйти из ClassDash в этом браузере',
   },
 
@@ -1495,6 +1497,8 @@ const DICTIONARIES = {
     loginButton: 'Sign in',
     loginWrong: 'That\'s not the right key. Copy it again from Settings → API.',
     settingsSignOut: 'Sign out',
+    connLost: 'Can\'t reach ClassDash — reconnecting…',
+    connBack: 'Connected again',
     settingsSignOutDesc: 'Signs this browser out of ClassDash',
   },
 };

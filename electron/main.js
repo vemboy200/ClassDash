@@ -606,7 +606,77 @@ function openWorkspace() {
 
 // ── Window ──
 
+// ── The window is a client of ClassDash's own server ──
+//
+// The page is loaded from the server (17-api.js) at https://127.0.0.1:<port>/,
+// the same page a browser gets, instead of from summary.html on disk. The
+// app signs itself in with its own key (app-key.txt, see ensureAppKey in
+// 23-api-security.js), set as an HttpOnly cookie in this window's session, so
+// the page's scripts never see it. The server's certificate is trusted only
+// if it's the project's own (trustOwnCertificate). The bridge stays for what
+// only the app can do. Same as show() in 16-summary.swift.
+//
+// The server may still be starting (ensureApi runs as the app opens), so a
+// failed load is tried again for about five seconds; after that, or with no
+// key yet, the page comes from disk as it always used to.
+let servedAttempts = 0;
+
+function apiPort() {
+  try { return JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8')).apiPort || 8734; } catch { return 8734; }
+}
+
+function servedUrl() {
+  return `https://127.0.0.1:${apiPort()}/`;
+}
+
+function isServedUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname === '127.0.0.1' && Number(u.port) === apiPort();
+  } catch {
+    return false;
+  }
+}
+
+function readPrivate(name) {
+  try { return fs.readFileSync(path.join(projectDir, name), 'utf8').trim() || null; } catch { return null; }
+}
+
+// SHA-256 of a PEM certificate's DER bytes.
+function certHash(pem) {
+  const body = String(pem || '').split(/\r?\n/).filter(l => l && !l.startsWith('-----')).join('');
+  return body ? require('crypto').createHash('sha256').update(Buffer.from(body, 'base64')).digest('hex') : null;
+}
+
+// ONLY THE PROJECT'S OWN CERTIFICATE IS TRUSTED FOR THE SERVER: it's
+// self-signed (no certificate authority for 127.0.0.1), and accepting any
+// certificate would let something else on the port pass as ClassDash. Other
+// hosts get Chromium's normal checks.
+function trustOwnCertificate(session) {
+  session.setCertificateVerifyProc((request, callback) => {
+    if (request.hostname !== '127.0.0.1') return callback(-3);
+    const expected = certHash(readPrivate('api-cert.pem'));
+    callback(expected && certHash(request.certificate.data) === expected ? 0 : -2);
+  });
+}
+
 function loadSummary() {
+  const key = readPrivate('app-key.txt');
+  if (!key || !readPrivate('api-cert.pem')) { loadFromDisk(); return; }
+  servedAttempts = 0;
+  win.webContents.session.cookies.set({
+    url: servedUrl(), name: 'classdash_app', value: key, path: '/',
+    secure: true, httpOnly: true, sameSite: 'strict',
+    expirationDate: Math.floor(Date.now() / 1000) + 365 * 86400,
+  }).then(loadServed, loadFromDisk);
+}
+
+function loadServed() {
+  servedAttempts++;
+  win.loadURL(servedUrl()).catch(() => { /* did-fail-load handles it */ });
+}
+
+function loadFromDisk() {
   win.loadFile(path.join(projectDir, 'summary.html'));
 }
 
@@ -742,6 +812,20 @@ function createWindow() {
   });
 
   if (openedAtLogin) win.once('ready-to-show', () => { win.showInactive(); win.minimize(); });
+  trustOwnCertificate(win.webContents.session);
+  // The server didn't answer (still starting, or not running): tried again,
+  // asking for it to be started once along the way, then the page from disk.
+  win.webContents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
+    // -3 is a load cut short by another (the page reloading itself), not a failure.
+    if (!isMainFrame || code === -3 || !isServedUrl(url)) return;
+    if (servedAttempts === 3) runAction('ensureApi', '');
+    if (servedAttempts < 10) setTimeout(loadServed, 500);
+    else loadFromDisk();
+  });
+  // While the page loads, the taskbar button shows it's working (unless an
+  // update is downloading, which uses the same bar).
+  win.webContents.on('did-start-loading', () => { if (!(readUpdateStatusFile() || {}).downloading) win.setProgressBar(2); });
+  win.webContents.on('did-stop-loading', () => { if (!(readUpdateStatusFile() || {}).downloading) win.setProgressBar(-1); });
   loadSummary();
 
   win.webContents.on('did-finish-load', pushLiveState);

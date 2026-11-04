@@ -252,7 +252,7 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
   // ── the main page: the desk's boxes are in its frame; the app wants the window ──
   T.redraw(proj);
   const sent = [];
-  const main = new JSDOM(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8'), { url: 'https://app.test/summary.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
+  const main = new JSDOM(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8'), { url: 'file:///project/summary.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
     beforeParse(mw) { mw.Element.prototype.scrollIntoView = function () {}; mw.webkit = { messageHandlers: { classdash: { postMessage(b) { sent.push(b); } } } }; } });
   await sleep(200);
   const mw = main.window, md = mw.document;

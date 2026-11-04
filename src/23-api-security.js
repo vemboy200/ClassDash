@@ -35,6 +35,8 @@ const CERT_FILE = path.join(PROJECT_ROOT, 'api-cert.pem');
 const KEY_FILE = path.join(PROJECT_ROOT, 'api-key.pem');
 const TOKEN_FILE = path.join(PROJECT_ROOT, 'api-token.txt');
 const PID_FILE = path.join(PROJECT_ROOT, 'api-server.pid');
+// The app's own key (see ensureAppKey()).
+const APP_KEY_FILE = path.join(PROJECT_ROOT, 'app-key.txt');
 
 /** Generates the self-signed cert + key on first run only — never
  *  regenerated after, since a client pins the fingerprint of whatever
@@ -76,6 +78,8 @@ function certFingerprint() {
 /** Generates the bearer token on first run only. */
 function ensureToken() {
   if (!fs.existsSync(TOKEN_FILE)) rollToken();
+  // One made before key files were private (0644) is made private now.
+  else try { fs.chmodSync(TOKEN_FILE, 0o600); } catch { /* Windows, or a file system without modes */ }
 }
 
 /** The current token, or null if none has ever been generated. Read
@@ -94,8 +98,39 @@ function currentToken() {
  *  the old value, not just add a new one alongside it. */
 function rollToken() {
   const token = crypto.randomBytes(32).toString('hex');
-  fs.writeFileSync(TOKEN_FILE, token);
+  writePrivate(TOKEN_FILE, token);
   return token;
+}
+
+/** Writes a key file only this user account can read (0600). The mode on
+ *  writeFileSync only applies to a new file, so an existing one (made
+ *  before this, with the default 0644) is chmodded too. Windows ignores
+ *  the mode; a user's own folder there isn't readable by other accounts
+ *  anyway. */
+function writePrivate(file, text) {
+  fs.writeFileSync(file, text, { mode: 0o600 });
+  try { fs.chmodSync(file, 0o600); } catch { /* Windows, or a file system without modes */ }
+}
+
+// ── The app's own key ──
+//
+// A second key, next to the access key, that only the ClassDash app uses:
+// it sets it as a cookie in its own window (an HttpOnly one, so the page's
+// scripts can't read it) before loading the page from this server. A
+// request carrying it is the app on this computer; one carrying the
+// access key is anything else (a browser, Home Assistant). So the server
+// can tell the two apart, and rolling the access key signs browsers and
+// other devices out without signing out the app.
+//
+// It's never shown anywhere. Like the access key, anything running as this
+// user account could read the file: it keeps browsers and other devices
+// from passing as the app, not other programs on the same account.
+function ensureAppKey() {
+  if (!fs.existsSync(APP_KEY_FILE)) writePrivate(APP_KEY_FILE, crypto.randomBytes(32).toString('hex'));
+}
+
+function currentAppKey() {
+  return fs.existsSync(APP_KEY_FILE) ? fs.readFileSync(APP_KEY_FILE, 'utf8').trim() : null;
 }
 
 /** The cookie a browser showing the page sends instead of the header: a
@@ -104,6 +139,25 @@ function rollToken() {
  *  HttpOnly (the page's scripts can't read it), Secure, and SameSite=Strict
  *  (another website's page can't make the browser send it). */
 const COOKIE_NAME = 'classdash_token';
+// The app's own cookie, holding the app key (see ensureAppKey()).
+const APP_COOKIE_NAME = 'classdash_app';
+
+/** One cookie's value from a request, or ''. */
+function cookieValue(req, name) {
+  for (const part of (req.headers['cookie'] || '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq !== -1 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return '';
+}
+
+/** Timing-safe comparison of a given key with the expected one. */
+function sameKey(given, expected) {
+  if (!expected || !given) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 /** The token a request carries, from the Authorization header, or failing
  *  that the cookie. */
@@ -111,27 +165,28 @@ function givenToken(req) {
   const header = req.headers['authorization'] || '';
   const prefix = 'Bearer ';
   if (header.startsWith(prefix)) return header.slice(prefix.length);
-  for (const part of (req.headers['cookie'] || '').split(';')) {
-    const eq = part.indexOf('=');
-    if (eq !== -1 && part.slice(0, eq).trim() === COOKIE_NAME) return part.slice(eq + 1).trim();
-  }
-  return '';
+  return cookieValue(req, COOKIE_NAME);
 }
 
-/** Whether a token is this install's, timing-safe. */
+/** Whether a token is this install's access key, timing-safe. */
 function isToken(given) {
-  const token = currentToken();
-  if (!token || !given) return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(token);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  return sameKey(given, currentToken());
+}
+
+/** Who's asking: 'app' (the ClassDash app on this computer, by its app-key
+ *  cookie), 'key' (anything with the access key: a browser, Home
+ *  Assistant, a script), or null (not signed in). */
+function clientKind(req) {
+  if (sameKey(cookieValue(req, APP_COOKIE_NAME), currentAppKey())) return 'app';
+  if (isToken(givenToken(req))) return 'key';
+  return null;
 }
 
 /** Timing-safe, and tolerant of a missing/malformed header or cookie or a
- *  not-yet-generated token — those are just "not authorized", not a
+ *  not-yet-generated key — those are just "not authorized", not a
  *  crash. */
 function isAuthorized(req) {
-  return isToken(givenToken(req));
+  return clientKind(req) !== null;
 }
 
 /** When this computer last started, to the second or so: now minus how long
@@ -194,5 +249,6 @@ function clearPid() {
 module.exports = {
   CERT_FILE, KEY_FILE, TOKEN_FILE, PID_FILE,
   ensureCert, certFingerprint, ensureToken, currentToken, rollToken,
+  APP_KEY_FILE, ensureAppKey, currentAppKey, APP_COOKIE_NAME, clientKind,
   COOKIE_NAME, isToken, isAuthorized, isServerRunning, readPid, writePid, clearPid,
 };

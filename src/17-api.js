@@ -88,7 +88,7 @@ const { isClassStale } = require('./22-class-activity.js');
 // token) without requiring this whole file. See 23-api-security.js's own
 // comment for why generation specifically can't just happen lazily here.
 const {
-  ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized,
+  ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized, ensureAppKey,
   isToken, COOKIE_NAME,
   writePid, clearPid,
 } = require('./23-api-security.js');
@@ -941,6 +941,16 @@ function watchForChanges() {
 // the real update event already sends.
 const HEARTBEAT_INTERVAL_MS = 60000; // 1 minute
 
+// A tiny "still here" every 20 seconds, so a page watching the stream can
+// tell a server that's gone quiet (a weak connection that hangs instead of
+// dropping) from one that's fine, without waiting for the minute-long
+// heartbeat. No data worth computing; clients that don't know the event
+// (ha-classdash reads only update and heartbeat) skip it.
+const PING_INTERVAL_MS = 20000;
+function sendPing() {
+  for (const res of sseClients) res.write('event: ping\ndata: {}\n\n');
+}
+
 function sendHeartbeat() {
   if (!sseClients.length) return; // no one listening — nothing to compute
   let status;
@@ -976,14 +986,36 @@ const PAGE_FILES = [
   { pattern: /^\/announcement-photos\/[a-f0-9]+\.gif$/, type: 'image/gif' },
 ];
 
+// The workspace's files, under /ws/: the same ones, and only those, that the
+// app serves from its own classdash-ws:// address (WorkspaceSchemeHandler
+// in 16-summary.swift, the classdash-ws protocol in electron/main.js). A
+// page served from here is https://, and WebKit won't load a frame from the
+// app's own address inside it (insecure content), so the workspace comes
+// from here too. Every path in it is relative, so nothing in it changes.
+const PDFJS_DIR = path.join(PROJECT_ROOT, 'node_modules', 'pdfjs-dist', 'legacy', 'build');
+function workspaceFile(urlPath) {
+  const fixed = {
+    '/ws/workspace.html': [path.join(PROJECT_ROOT, 'workspace.html'), 'text/html; charset=utf-8'],
+    '/ws/workspace-pdf.html': [path.join(PROJECT_ROOT, 'workspace-pdf.html'), 'text/html; charset=utf-8'],
+    '/ws/pdf-lib.min.js': [path.join(__dirname, 'pdf-lib.min.js'), 'text/javascript; charset=utf-8'],
+    '/ws/pdfjs/pdf.min.mjs': [path.join(PDFJS_DIR, 'pdf.min.mjs'), 'text/javascript; charset=utf-8'],
+    '/ws/pdfjs/pdf.worker.min.mjs': [path.join(PDFJS_DIR, 'pdf.worker.min.mjs'), 'text/javascript; charset=utf-8'],
+  }[urlPath];
+  if (fixed) return { file: fixed[0], type: fixed[1] };
+  const m = /^\/ws\/doc\/([0-9a-f]{16})\/(source\.pdf|meta\.json|ink\.json)$/.exec(urlPath);
+  if (!m) return null;
+  return { file: path.join(PROJECT_ROOT, 'workspace', m[1], m[2]), type: m[2] === 'source.pdf' ? 'application/pdf' : 'application/json' };
+}
+
 /** Sends one of the page's files, or false when urlPath isn't one. A file
  *  that isn't there (yet) is a 404, which is how the page's live polling
  *  already reads a missing file. */
 function sendPageFile(urlPath, res) {
   const isPage = urlPath === '/';
-  const match = isPage ? { type: 'text/html; charset=utf-8' } : PAGE_FILES.find(f => f.pattern.test(urlPath));
+  const ws = workspaceFile(urlPath);
+  const match = isPage ? { type: 'text/html; charset=utf-8' } : ws || PAGE_FILES.find(f => f.pattern.test(urlPath));
   if (!match) return false;
-  const file = isPage ? PAGE_FILE : path.join(PROJECT_ROOT, urlPath);
+  const file = isPage ? PAGE_FILE : ws ? ws.file : path.join(PROJECT_ROOT, urlPath);
   fs.readFile(file, (err, data) => {
     // Never cached: the page and its live files change under the same
     // address after every check.
@@ -1209,6 +1241,7 @@ function start() {
   try {
     ensureCert();
     ensureToken();
+    ensureAppKey();
   } catch (e) {
     console.error('Could not generate a TLS certificate (is openssl on PATH?):', e.message);
     process.exit(1);
@@ -1400,6 +1433,7 @@ function start() {
     // .unref() — this timer alone shouldn't be what keeps the process
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
+    setInterval(sendPing, PING_INTERVAL_MS).unref();
     // The automatic fresh checks: the server's job, not the app's.
     require('./52-check-schedule.js').startSchedule({
       headless,

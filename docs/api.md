@@ -12,6 +12,10 @@ With **Allow LAN access** on, ClassDash also announces itself on your home netwo
 
 The API also serves the ClassDash page itself, so you can open it in a browser instead of the app: on the same computer at `https://127.0.0.1:8734`, or from another device on your network at `https://` your computer's address `:8734` with **Allow LAN access** on. The first time, the browser warns that the certificate isn't trusted, because it's ClassDash's own (check that the fingerprint matches the one in Settings → API). Then paste the access key once, and the browser remembers it. Rolling the key signs every browser out.
 
+The app's own window shows ClassDash from this same server: it signs itself in with a key of its own (not the access key, and never shown), so rolling the access key signs out browsers and other devices but not the app.
+
+If the page can't reach the server (it stopped, or the connection is weak), a bar across the top says so and it keeps trying; in the app, the server is started again by itself.
+
 Almost everything works the same as in the app. What needs the app itself stays there: the workspace, picking files (like a calendar PDF), signing in to a service's browser window, and turning LAN access on or off.
 
 There's a Home Assistant integration that reads it: [ha-classdash](https://github.com/vemboy200/ha-classdash).

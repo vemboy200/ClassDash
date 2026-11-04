@@ -9,6 +9,8 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 - **ClassDash stays in the menu bar (Mac) or the tray (Windows)** when you close its window, so its automatic checks, Home Assistant and a browser keep working. Its icon says whether the server is running, whether LAN access is on and when the last check was, with **Open ClassDash**, **Check Now** and **Quit ClassDash**. Quitting stops everything, the server included. On the Mac, the Dock icon goes away while the window is closed.
 - **Copy Access Key** in the menu bar and the tray, for signing in to ClassDash in a browser without opening Settings.
 - **Signing in to ClassDash in a browser** has its own page in ClassDash's style, and **Settings → Sign out** (only in a browser) signs that browser out again.
+- **The app's window now shows ClassDash from its own server**, the same page a browser gets, signed in with a key of its own that's never shown (so rolling the access key signs out browsers and other devices, not the app). It trusts only ClassDash's own certificate, and if the server isn't answering yet it shows the page from disk as before.
+- **ClassDash says when it can't reach its server**: a bar across the top ("Can't reach ClassDash — reconnecting…") until it's back, and in the app the server is started again by itself. An action that takes a moment to answer shows a thin bar sweeping across the top, and the window shows a loading bar while the page loads.
 - **The Home API is now just the API**, in Settings and the docs ([API](docs/api.md)), since it's what a browser and other apps use too, not only Home Assistant.
 
 ## v2.8.0 (2026-11-03)

@@ -91,9 +91,19 @@ const act = (action, arg = '') => JSON.parse(T.run(proj, '21-notifier-actions.js
   // ── the main page's panel ──
   T.redraw(proj);
   const mainHtml = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
-  for (const bridge of [false, true]) {
+  // A plain browser (the server's page, no bridge), the app showing the page
+  // from disk (the frame from the app's own address), and the app showing it
+  // from its server (the frame from the server's /ws/, same origin: WebKit
+  // won't load the app's own address inside an https:// page).
+  const modes = [
+    { bridge: false, url: 'https://127.0.0.1:8734/' },
+    { bridge: true, url: 'file:///project/summary.html', frame: 'classdash-ws://app/workspace.html', origin: 'classdash-ws://app', label: 'from disk' },
+    { bridge: true, url: 'https://127.0.0.1:8734/', frame: '/ws/workspace.html', origin: 'https://127.0.0.1:8734', label: 'from its server' },
+  ];
+  for (const mode of modes) {
+    const bridge = mode.bridge;
     const sent = [];
-    const main = new JSDOM(mainHtml, { url: 'https://app.test/summary.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
+    const main = new JSDOM(mainHtml, { url: mode.url, runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
       beforeParse(w) {
         w.Element.prototype.scrollIntoView = function () {};
         if (bridge) w.webkit = { messageHandlers: { classdash: { postMessage(b) { sent.push(b); } } } };
@@ -105,11 +115,11 @@ const act = (action, arg = '') => JSON.parse(T.run(proj, '21-notifier-actions.js
     else {
       button.click();
       const panel = md.getElementById('workspace-panel'), frame = md.getElementById('workspace-frame');
-      ok('in the app it shows, and opens the panel, writing the page first', button.style.display === '' && !panel.hidden && sent.map(b => b.action).join() === 'workspacePage', JSON.stringify(sent.map(b => b.action)));
+      ok(`in the app (${mode.label}) it shows, and opens the panel, writing the page first`, button.style.display === '' && !panel.hidden && sent.map(b => b.action).join() === 'workspacePage', JSON.stringify(sent.map(b => b.action)));
       mw.classdashBridgeResult(sent[0].id, { ok: true });
-      ok('...then loads the workspace from its own address', frame.getAttribute('src') === 'classdash-ws://app/workspace.html');
+      ok(`...then loads the workspace from ${mode.frame}`, frame.getAttribute('src') === mode.frame, frame.getAttribute('src'));
       // Messages as the frame would send them: only its, and only these actions.
-      const fake = (data, origin = 'classdash-ws://app', source = frame.contentWindow) => {
+      const fake = (data, origin = mode.origin, source = frame.contentWindow) => {
         const e = new mw.Event('message');
         Object.assign(e, { data: Object.assign({ cd: 'ws' }, data) });
         Object.defineProperty(e, 'origin', { value: origin });
@@ -119,7 +129,7 @@ const act = (action, arg = '') => JSON.parse(T.run(proj, '21-notifier-actions.js
       fake({ type: 'action', id: 'a1', action: 'wsSave', arg: '{"doc":"x"}' });
       fake({ type: 'action', id: 'a2', action: 'config', arg: '{}' });
       fake({ type: 'action', id: 'a3', action: 'wsSave', arg: '{}' }, 'https://elsewhere.test');
-      fake({ type: 'action', id: 'a4', action: 'wsSave', arg: '{}' }, 'classdash-ws://app', mw);
+      fake({ type: 'action', id: 'a4', action: 'wsSave', arg: '{}' }, mode.origin, mw);
       ok('the frame\'s workspace actions go on to the app, nothing else and from nowhere else', sent.slice(1).map(b => b.action).join() === 'wsSave' && sent[1].arg === '{"doc":"x"}', JSON.stringify(sent.slice(1)));
       fake({ type: 'doc', doc: '0123456789abcdef' });
       ok('it remembers the PDF that was open', mw.eval('workspaceDoc') === '0123456789abcdef');

@@ -91,6 +91,12 @@ const ICON_FETCHING_B64 = readIcon('fetching-icon.png');
 const ICON_CALENDAR_B64 = readIcon('calendar-icon.png');
 const ICON_SCHEDULE_B64 = readIcon('schedule-icon.png');
 const ICON_DISPLAY_B64 = readIcon('display-icon.png');
+// The connection bar (watchConnection): this computer's monitor, a line, and
+// the server, the line broken while it can't be reached (the user's own
+// drawings).
+const ICON_SERVER_B64 = readIcon('server-icon.png');
+const ICON_LINE_B64 = readIcon('line-icon.png');
+const ICON_LINE_BROKEN_B64 = readIcon('line-broken-icon.png');
 // Two 32x32 frames side by side (64x32): the app icon, then the same with its
 // speed-dashes swapped long-for-short. Flipped between while a check runs —
 // see .loading-icon. Full colour, so a background image, not a stencil.
@@ -2954,6 +2960,9 @@ ${cardHtml[id]}
     --icon-calendar: url("data:image/png;base64,${ICON_CALENDAR_B64}");
     --icon-schedule: url("data:image/png;base64,${ICON_SCHEDULE_B64}");
     --icon-display: url("data:image/png;base64,${ICON_DISPLAY_B64}");
+    --icon-server: url("data:image/png;base64,${ICON_SERVER_B64}");
+    --icon-line: url("data:image/png;base64,${ICON_LINE_B64}");
+    --icon-line-broken: url("data:image/png;base64,${ICON_LINE_BROKEN_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
   }
   @media (prefers-color-scheme: dark) {
@@ -3052,6 +3061,29 @@ ${cardHtml[id]}
     background: var(--warnbg); color: var(--warn); border-radius: 10px;
     padding: 12px 14px; margin-bottom: 20px; font-size: 14px;
   }
+  /* The connection to the server, for a page it served (watchConnection):
+     a bar across the top while it can't be reached, and briefly once it's
+     back. */
+  .connection-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000; text-align: center;
+    padding: 6px 12px; font-size: 14px; font-weight: 600;
+    background: var(--warnbg); color: var(--warn); border-bottom: 2px solid var(--ink);
+  }
+  .connection-bar { display: flex; align-items: center; justify-content: center; gap: 12px; }
+  .connection-bar.back { background: var(--tipbg); color: var(--tip); }
+  /* Monitor, line, server, drawn at 32 and shown at 32 so the line's break
+     stays crisp. Broken while it can't be reached, whole once it's back. */
+  .connection-picture { display: flex; align-items: center; }
+  .connection-picture .pixel-icon { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .icon-server { -webkit-mask-image: var(--icon-server); mask-image: var(--icon-server); }
+  .connection-line { -webkit-mask-image: var(--icon-line-broken); mask-image: var(--icon-line-broken); }
+  .connection-bar.back .connection-line { -webkit-mask-image: var(--icon-line); mask-image: var(--icon-line); }
+  .connection-bar[hidden] { display: none; }
+  /* An action sent to the server that hasn't answered yet (after a moment,
+     so a quick one doesn't flicker): a thin bar sweeping across the top. */
+  .acting-bar { position: fixed; top: 0; left: 0; height: 3px; width: 30%; z-index: 1001; background: var(--new); display: none; }
+  body.acting .acting-bar { display: block; animation: acting-sweep 1.1s steps(12) infinite; }
+  @keyframes acting-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
   .update-banner, .setup-banner, .sign-in-banner, .pending-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .update-banner a, .setup-banner a, .sign-in-banner a, .pending-banner a { color: inherit; text-decoration: underline; }
   /* A REAL, PRE-EXISTING BUG, CAUGHT DURING WINDOWS TESTING — every
@@ -3838,6 +3870,8 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
 </style>
 </head>
 <body${readSettings().navCollapsed ? ' class="nav-collapsed"' : ''}>
+<div class="connection-bar" id="connection-bar" role="status" aria-live="polite" hidden><span class="connection-picture" aria-hidden="true"><span class="pixel-icon icon-display"></span><span class="pixel-icon connection-line"></span><span class="pixel-icon icon-server"></span></span><span class="connection-text" id="connection-text"></span></div>
+<div class="acting-bar" id="acting-bar" aria-hidden="true"></div>
 <div id="photo-viewer" hidden onclick="if (event.target === this) closePhoto()">
   <img alt="">
   <div class="photo-bar"><a id="photo-viewer-link" href="#" target="_blank" rel="noopener">${escapeHtml(t('photoOpenInDrive'))}</a><button type="button" onclick="closePhoto()">${escapeHtml(t('photoClose'))}</button></div>
@@ -3932,6 +3966,8 @@ window.onerror = function (message, source, line, column) {
 // with a line break inside confirm(). JSON.stringify escapes everything
 // itself, so it's safe regardless of language.
 const WORDS = ${JSON.stringify({
+  connLost: t('connLost'),
+  connBack: t('connBack'),
   expand: t('expand'),
   photosOff: t('photosOff'),
   photosPerClass: t('photosPerClass', '{n}'),
@@ -4139,7 +4175,12 @@ window.classdashBridgeResult = function (id, result) {
 // WebPanes): the desk says where its boxes are, this page adds where the
 // frame is, and the app's news about each page comes back the same way
 // (classdashWebPane).
-var WORKSPACE_ORIGIN = 'classdash-ws://app';
+// Served by ClassDash's server (https://), the frame comes from that server's
+// /ws/ instead: WebKit won't load the app's own address inside an https://
+// page. Same files either way (see workspaceFile in 17-api.js).
+var WORKSPACE_SERVED = location.protocol === 'https:';
+var WORKSPACE_ORIGIN = WORKSPACE_SERVED ? location.origin : 'classdash-ws://app';
+var WORKSPACE_BASE = WORKSPACE_SERVED ? '/ws' : WORKSPACE_ORIGIN;
 var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave', 'wsExport', 'workspaceAsk', 'workspaceChat', 'workspaceChatClear', 'workspaceChatHints',
   'workspaceDesk', 'workspaceDeskSave', 'webCaps', 'webPane', 'aiChoices', 'aiPick', 'webCapture'];
 var workspaceDoc = '';
@@ -4156,7 +4197,7 @@ function openWorkspace() {
   syncPages();
   dispatchAction('workspacePage', '', function () {
     var frame = document.getElementById('workspace-frame');
-    frame.src = WORKSPACE_ORIGIN + '/workspace.html' + (workspaceDoc ? '?doc=' + workspaceDoc : '');
+    frame.src = WORKSPACE_BASE + '/workspace.html' + (workspaceDoc ? '?doc=' + workspaceDoc : '');
     frame.focus();
   });
 }
@@ -4259,6 +4300,7 @@ function dispatchAction(action, arg, onResult) {
     if (onResult) bridgeCallbacks[id] = onResult;
     window.webkit.messageHandlers.classdash.postMessage({ id: id, action: action, arg: arg || '' });
   } else if (location.protocol === 'https:') {
+    actingStart();
     fetch('/api/action', {
       method: 'POST',
       credentials: 'same-origin',
@@ -4268,13 +4310,32 @@ function dispatchAction(action, arg, onResult) {
       if (r.status === 401) { location.href = '/login'; return null; }
       return r.json();
     }).then(function (result) {
+      actingEnd();
       if (result && onResult) onResult(result);
     }).catch(function () {
+      actingEnd();
       if (onResult) onResult({ ok: false, action: action, why: 'unreachable' });
     });
   } else {
     location.href = 'napominalka://' + action + (arg ? '/' + arg : '');
   }
+}
+
+// Actions sent to the server that haven't answered yet. Past 400ms the
+// thin bar across the top shows, so on a slow connection a click visibly
+// did something; a quick answer never shows it at all.
+var actingCount = 0;
+var actingTimer = null;
+function actingStart() {
+  actingCount++;
+  if (actingTimer === null) actingTimer = setTimeout(function () { if (actingCount > 0) document.body.classList.add('acting'); }, 400);
+}
+function actingEnd() {
+  actingCount = Math.max(0, actingCount - 1);
+  if (actingCount > 0) return;
+  clearTimeout(actingTimer);
+  actingTimer = null;
+  document.body.classList.remove('acting');
 }
 
 // Reads the (action, arg) pair back out of a napominalka:// href that
@@ -7349,6 +7410,89 @@ document.addEventListener('visibilitychange', function () {
   if (!document.hidden && !livePushed) scheduleLivePoll(0);
 });
 scheduleLivePoll(0);
+
+// ── The connection to the server ──
+//
+// A page served by ClassDash's server (https://, in the app or a browser)
+// is a client of it, so it says when the server can't be reached instead of
+// looking frozen: it went down, or (with remote access, later) the
+// connection is weak. It holds the server's push stream open, which pings
+// every 20 seconds (see sendPing in 17-api.js): a dropped stream, or nothing
+// for 45 seconds, means it's unreachable. The bar stays until the stream is
+// back, then says so for a moment; the live polling above picks up anything
+// that changed meanwhile, the page included. In the app, the app is asked
+// to start its server again, so it fixes itself. Signed out (the access
+// key was rolled), a browser goes back to signing in.
+var CONNECTION_QUIET_MS = 45000;
+var connectionSeen = Date.now();
+var connectionDown = false;
+var connectionStream = null;
+var connectionRestartAsked = 0;
+
+function showConnection(down) {
+  var bar = document.getElementById('connection-bar');
+  if (down === connectionDown) return;
+  connectionDown = down;
+  var text = document.getElementById('connection-text');
+  if (down) {
+    text.textContent = WORDS.connLost;
+    bar.classList.remove('back');
+    bar.hidden = false;
+  } else {
+    text.textContent = WORDS.connBack;
+    bar.classList.add('back');
+    setTimeout(function () { if (!connectionDown) bar.hidden = true; }, 4000);
+  }
+}
+
+function connectionAlive() {
+  connectionSeen = Date.now();
+  showConnection(false);
+}
+
+function connectionLost() {
+  showConnection(true);
+  if (hasNativeBridge() && Date.now() - connectionRestartAsked > 30000) {
+    connectionRestartAsked = Date.now();
+    dispatchAction('ensureApi', '');
+  }
+}
+
+function openConnection() {
+  if (connectionStream) connectionStream.close();
+  var stream = new EventSource('/api/stream');
+  connectionStream = stream;
+  ['update', 'heartbeat', 'ping'].forEach(function (name) { stream.addEventListener(name, connectionAlive); });
+  stream.onopen = connectionAlive;
+  stream.onerror = function () {
+    if (stream !== connectionStream) return;
+    // The browser retries a dropped stream by itself; one it gave up on
+    // (an answer that wasn't the stream, like 401) needs a look first.
+    if (stream.readyState === EventSource.CLOSED) {
+      fetch('/api/status', { credentials: 'same-origin' }).then(function (r) {
+        if (r.status === 401 && !hasNativeBridge()) { location.href = '/login'; return; }
+        connectionLost();
+        setTimeout(openConnection, 3000);
+      }).catch(function () {
+        connectionLost();
+        setTimeout(openConnection, 3000);
+      });
+    } else {
+      connectionLost();
+    }
+  };
+}
+
+if (location.protocol === 'https:' && window.EventSource) {
+  openConnection();
+  setInterval(function () {
+    if (Date.now() - connectionSeen > CONNECTION_QUIET_MS) {
+      connectionLost();
+      openConnection();
+      connectionSeen = Date.now();
+    }
+  }, 5000);
+}
 
 // Filters are applied right away on load, not just counted: otherwise
 // removed items would show up until the first checkbox click.

@@ -328,7 +328,7 @@ const offered = { list: tools.toolsFor({}).map(t => ({ name: t.name, description
   // ── the main page passes the live answer on ──
   T.redraw(proj);
   const sent = [];
-  const main = new JSDOM(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8'), { url: 'https://app.test/summary.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
+  const main = new JSDOM(fs.readFileSync(path.join(proj, 'summary.html'), 'utf8'), { url: 'file:///project/summary.html', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
     beforeParse(mw) { mw.Element.prototype.scrollIntoView = function () {}; mw.webkit = { messageHandlers: { classdash: { postMessage(b) { sent.push(b); } } } }; } });
   await sleep(200);
   const mw = main.window, md = main.window.document;

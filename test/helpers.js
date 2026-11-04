@@ -32,7 +32,7 @@ const REPO = path.resolve(__dirname, '..');
 const ICONS = ['refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png',
                'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png', 'warning-icon.png', 'workspace-icon.png',
                'dashboard-icon.png', 'dashboard-outline-icon.png', 'grades-icon.png',
-               'cloud-ok-icon.png', 'cloud-attention-icon.png', 'cloud-bad-icon.png', 'cloud-icon.png', 'back-icon.png', 'arrow-icon.png', 'cloud-polling-icon.png', 'browser-icon.png', 'browser-head-icon.png', 'browser-question-icon.png', 'edit-icon.png', 'cloud-filled-icon.png', 'ai-icon.png', 'api-icon.png', 'classes-icon.png', 'fetching-icon.png', 'calendar-icon.png', 'schedule-icon.png', 'display-icon.png', 'app-icon.png'];
+               'cloud-ok-icon.png', 'cloud-attention-icon.png', 'cloud-bad-icon.png', 'cloud-icon.png', 'back-icon.png', 'arrow-icon.png', 'cloud-polling-icon.png', 'browser-icon.png', 'browser-head-icon.png', 'browser-question-icon.png', 'edit-icon.png', 'cloud-filled-icon.png', 'ai-icon.png', 'api-icon.png', 'classes-icon.png', 'fetching-icon.png', 'calendar-icon.png', 'schedule-icon.png', 'display-icon.png', 'app-icon.png', 'server-icon.png', 'line-icon.png', 'line-broken-icon.png'];
 const isProjectFile = name =>
   name.endsWith('.js') || name === 'package.json' || name === 'settings.example.json' || ICONS.includes(name);
 

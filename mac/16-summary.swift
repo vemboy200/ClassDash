@@ -26,6 +26,7 @@ import Cocoa
 import WebKit
 import UserNotifications
 import IOKit.ps
+import CryptoKit
 import ServiceManagement
 #if canImport(FoundationModels)
 import FoundationModels
@@ -1159,6 +1160,11 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // The menu bar item: the server's face (see setupMenuBar()).
     var menuBarItem: NSStatusItem?
     var menuBarStatusItems: [NSMenuItem] = []
+    // Loading the page from the server (see show()): how many tries so far,
+    // and the thin bar across the top while a page loads.
+    var servedAttempts = 0
+    var loadingBar: NSView?
+    var loadingObservation: NSKeyValueObservation?
     var updateCheckTimer: Timer?
     var installPromptTimer: Timer?
     // Which ready version this launch has already asked about and been
@@ -1401,6 +1407,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         }
 
         window.contentView!.addSubview(web)
+        setupLoadingBar()
 
         show()
 
@@ -1580,11 +1587,102 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         web.evaluateJavaScript("toggleSettingsPanel()", completionHandler: nil)
     }
 
+    // THE WINDOW IS A CLIENT OF CLASSDASH'S OWN SERVER.
+    //
+    // The page is loaded from the server (17-api.js) at
+    // https://127.0.0.1:<port>/, the same page a browser gets, instead of
+    // from summary.html on disk. The app signs itself in with its own key
+    // (app-key.txt, see ensureAppKey in 23-api-security.js), set as an
+    // HttpOnly cookie in this window's own cookie store, so the page's
+    // scripts never see it and nothing has to be typed. The server's
+    // certificate is trusted only if it's the project's own (see the
+    // challenge handler below). The bridge stays for what only the app can
+    // do: the workspace, file pickers, the browser window.
+    //
+    // The server may still be starting (ensureApi runs as the app opens), so
+    // a failed load is tried again for a few seconds; after that, or with no
+    // key yet, the page comes from disk as it always used to, so the window
+    // is never blank.
     func show() {
+        guard let key = appKey(), expectedCertHash() != nil else { showFile(); return }
+        servedAttempts = 0
+        var props: [HTTPCookiePropertyKey: Any] = [
+            .name: "classdash_app", .value: key, .domain: "127.0.0.1", .path: "/",
+            .secure: "TRUE", .expires: Date().addingTimeInterval(365 * 86400),
+            HTTPCookiePropertyKey("HttpOnly"): "TRUE",
+        ]
+        if #available(macOS 10.15, *) { props[.sameSitePolicy] = HTTPCookieStringPolicy.sameSiteStrict }
+        guard let cookie = HTTPCookie(properties: props) else { showFile(); return }
+        web.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { [weak self] in
+            self?.loadServed()
+        }
+    }
+
+    private func loadServed() {
+        servedAttempts += 1
+        web.load(URLRequest(url: servedURL()))
+    }
+
+    private func showFile() {
         let url = URL(fileURLWithPath: pagePath)
         // The second parameter is which folder is allowed to be read.
         // Without it WKWebView won't access the file at all.
         web.loadFileURL(url, allowingReadAccessTo: URL(fileURLWithPath: projectDir))
+    }
+
+    private func apiPort() -> Int {
+        let settings = FileManager.default.contents(atPath: projectDir + "/settings.json")
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return (settings?["apiPort"] as? Int) ?? 8734
+    }
+
+    func servedURL() -> URL {
+        return URL(string: "https://127.0.0.1:\(apiPort())/")!
+    }
+
+    private func isServedURL(_ url: URL?) -> Bool {
+        guard let url = url else { return false }
+        return url.scheme == "https" && url.host == "127.0.0.1" && url.port == apiPort()
+    }
+
+    private func appKey() -> String? {
+        guard let data = FileManager.default.contents(atPath: projectDir + "/app-key.txt"),
+              let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !key.isEmpty else { return nil }
+        return key
+    }
+
+    // SHA-256 of the project's own certificate (api-cert.pem, as DER): the
+    // only one this window trusts for the server, the same pinning
+    // ha-classdash does with the fingerprint.
+    private func expectedCertHash() -> Data? {
+        guard let pem = try? String(contentsOfFile: projectDir + "/api-cert.pem", encoding: .utf8) else { return nil }
+        let body = pem.components(separatedBy: "\n").filter { !$0.hasPrefix("-----") }.joined()
+        guard let der = Data(base64Encoded: body) else { return nil }
+        return Data(SHA256.hash(data: der))
+    }
+
+    // A thin bar across the top of the window while a page loads, which
+    // matters once loading isn't instant (the server starting, or later a
+    // server somewhere else on a slow connection). The app's own blue, cyan
+    // in dark mode, like the page's accent.
+    private func setupLoadingBar() {
+        let bar = NSView(frame: NSRect(x: 0, y: window.contentView!.bounds.height - 3, width: 0, height: 3))
+        bar.autoresizingMask = [.minYMargin]
+        bar.wantsLayer = true
+        bar.isHidden = true
+        window.contentView!.addSubview(bar, positioned: .above, relativeTo: web)
+        loadingBar = bar
+        loadingObservation = web.observe(\.estimatedProgress, options: [.new]) { [weak self] web, _ in
+            guard let self = self, let bar = self.loadingBar, let content = self.window.contentView else { return }
+            let dark = content.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            bar.layer?.backgroundColor = (dark ? NSColor(srgbRed: 0, green: 1, blue: 1, alpha: 1)
+                                               : NSColor(srgbRed: 0, green: 0.016, blue: 1, alpha: 1)).cgColor
+            let done = web.estimatedProgress >= 1 || !web.isLoading
+            bar.isHidden = done
+            bar.frame = NSRect(x: 0, y: content.bounds.height - 3,
+                               width: content.bounds.width * CGFloat(web.estimatedProgress), height: 3)
+        }
     }
 
     // The summary gets rewritten every ten minutes. Coming back to the
@@ -2006,6 +2104,53 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // over the page, and would stay on screen with no workspace under them.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if webView === web { _ = webPanes?.handle("{\"op\":\"closeAll\"}") }
+    }
+
+    // The server didn't answer (still starting, or not running): tried again
+    // for about five seconds, asking for it to be started once along the way,
+    // then the page comes from disk instead.
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        // A load cut short by another (the page reloading itself) isn't a failure.
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        guard webView === web, isServedURL(webView.url ?? (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL) else { return }
+        if servedAttempts == 3 { runAction("ensureApi", "") { _ in } }
+        if servedAttempts < 10 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.loadServed() }
+        } else {
+            logWindow("server page: no answer after \(servedAttempts) tries (\(error.localizedDescription)) — showing the page from disk")
+            showFile()
+        }
+    }
+
+    // ONLY THE PROJECT'S OWN CERTIFICATE IS TRUSTED FOR THE SERVER.
+    //
+    // It's self-signed (there's no certificate authority for 127.0.0.1), so
+    // the system would refuse it; and accepting any certificate would let
+    // something else listening on the port pass as ClassDash. So it's
+    // compared with the one in the project folder: the same, it's trusted;
+    // anything else, the connection is cancelled. Other hosts get the
+    // system's normal handling.
+    func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let space = challenge.protectionSpace
+        guard webView === web, space.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              space.host == "127.0.0.1", let trust = space.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        var leaf: SecCertificate?
+        if #available(macOS 12.0, *) {
+            leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
+        } else {
+            leaf = SecTrustGetCertificateAtIndex(trust, 0)
+        }
+        if let leaf = leaf, let expected = expectedCertHash(),
+           Data(SHA256.hash(data: SecCertificateCopyData(leaf) as Data)) == expected {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            logWindow("server page: certificate isn't this project's — refused")
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
     }
 
     // A page that has just finished loading missed everything pushed before it
@@ -3189,7 +3334,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         // The summary itself (file://) loads inside the window,
         // everything else goes out.
         if url.scheme == "napominalka" ||
-           (action.navigationType == .linkActivated && !url.isFileURL) {
+           (action.navigationType == .linkActivated && !url.isFileURL && !isServedURL(url)) {
             // Noted BEFORE opening: the app can lose and regain focus
             // before this line would otherwise finish, and
             // applicationDidBecomeActive reads this to tell "the user

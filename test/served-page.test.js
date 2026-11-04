@@ -103,6 +103,52 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   const sameApi = await act('config', chunk({ apiLan: false, showEmptyClasses: true }));
   ok('a settings save that leaves the Home API alone: runs', sameApi.status === 200 && JSON.parse(sameApi.body).ok === true, sameApi.body);
 
+  // ---- the app's own key ----
+  const appKey = fs.readFileSync('app-key.txt', 'utf8').trim();
+  ok('the server made an app key, different from the access key', /^[0-9a-f]{64}$/.test(appKey) && appKey !== token);
+  if (process.platform !== 'win32') {
+    ok('...readable by this user account only', (fs.statSync('app-key.txt').mode & 0o777) === 0o600);
+    ok('...and so is the access key', (fs.statSync('api-token.txt').mode & 0o777) === 0o600);
+  }
+  const security = require(path.join(proj, '23-api-security.js'));
+  const asReq = headers => ({ headers });
+  ok('the app cookie says "app"', security.clientKind(asReq({ cookie: 'classdash_app=' + appKey })) === 'app');
+  ok('the access key says "key"', security.clientKind(asReq({ authorization: 'Bearer ' + token })) === 'key' && security.clientKind(asReq({ cookie: 'classdash_token=' + token })) === 'key');
+  ok('the access key in the app\'s cookie isn\'t the app', security.clientKind(asReq({ cookie: 'classdash_app=' + token })) === null);
+  ok('nothing: not signed in', security.clientKind(asReq({})) === null);
+  const appCookie = { Cookie: 'classdash_app=' + appKey };
+  const appPage = await request('GET', '/', { headers: { ...browser, ...appCookie } });
+  ok('the app gets the page with its own cookie, no sign-in', appPage.status === 200 && /text\/html/.test(appPage.headers['content-type']) && /<html/i.test(appPage.body), JSON.stringify(appPage).slice(0, 200));
+
+  // ---- the workspace, from the server ----
+  fs.writeFileSync(path.join(proj, 'workspace.html'), '<!doctype html><title>made-up desk</title>');
+  fs.mkdirSync(path.join(proj, 'workspace', '0123456789abcdef'), { recursive: true });
+  fs.writeFileSync(path.join(proj, 'workspace', '0123456789abcdef', 'meta.json'), '{"name":"made-up.pdf"}');
+  const desk = await request('GET', '/ws/workspace.html', { headers: appCookie });
+  ok('the workspace\'s desk is served under /ws/', desk.status === 200 && desk.body.includes('made-up desk') && /text\/html/.test(desk.headers['content-type']));
+  const meta = await request('GET', '/ws/doc/0123456789abcdef/meta.json', { headers: appCookie });
+  ok('...and a document\'s files', meta.status === 200 && /application\/json/.test(meta.headers['content-type']) && meta.body.includes('made-up.pdf'));
+  const lib = await request('GET', '/ws/pdf-lib.min.js', { headers: appCookie });
+  ok('...and pdf-lib', lib.status === 200 && /javascript/.test(lib.headers['content-type']));
+  for (const p of ['/ws/doc/0123456789abcdef/../../settings.json', '/ws/doc/notanid/meta.json', '/ws/doc/0123456789abcdef/other.json', '/ws/settings.json', '/workspace.html']) {
+    const r = await request('GET', p, { headers: appCookie });
+    ok(`nothing else under it: ${p}`, r.status === 404, `${r.status}`);
+  }
+  const noCookieDesk = await request('GET', '/ws/workspace.html');
+  ok('...and it needs signing in', noCookieDesk.status === 401);
+
+  // ---- the stream pings ----
+  const pinged = await new Promise(resolve => {
+    const r = https.request({ host: '127.0.0.1', port, path: '/api/stream', method: 'GET', rejectUnauthorized: false, headers: appCookie }, res => {
+      let text = '';
+      const t = setTimeout(() => { r.destroy(); resolve(text); }, 21500);
+      res.on('data', c => { text += c; if (/event: ping/.test(text)) { clearTimeout(t); r.destroy(); resolve(text); } });
+    });
+    r.on('error', () => {});
+    r.end();
+  });
+  ok('the stream says "ping" within 20 seconds, so a page can tell it\'s still there', /event: ping\ndata: \{\}/.test(pinged), pinged.slice(0, 200));
+
   // ---- signing out ----
   const getLogout = await request('GET', '/logout', { headers: withCookie });
   ok('signing out is POST only (a link or a prefetch can\'t)', getLogout.status !== 303 && !getLogout.headers['set-cookie'], JSON.stringify(getLogout.headers));
