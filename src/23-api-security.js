@@ -173,12 +173,162 @@ function isToken(given) {
   return sameKey(given, currentToken());
 }
 
+// ── Device keys and pairing codes ──
+//
+// Each device that pairs gets a key of its own, next to the access key, so
+// one lost phone or old laptop can be cut off in Settings → API without
+// signing out everything else. A device gets its key by trading a pairing
+// code for it: a short code the app makes on request, which is good for
+// one trade only, for PAIR_MINUTES, and PAIR_TRIES wrong guesses. It can't
+// read anything itself; all it can do is become a key.
+//
+// Only a hash of each device key is kept (device-keys.json), so the file
+// alone can't sign anyone in. The code is kept the same way
+// (pairing-code.json). Both are files rather than this process's memory
+// because the code is made by 21-notifier-actions.js (the app's Settings)
+// and traded in 17-api.js, two different processes.
+//
+// The access key stays as it was, so Home Assistant and anything else set
+// up with it keeps working.
+const DEVICES_FILE = path.join(PROJECT_ROOT, 'device-keys.json');
+const PAIRING_FILE = path.join(PROJECT_ROOT, 'pairing-code.json');
+// No 0/O or 1/I, so a code read off a screen can't be typed wrong that way.
+const PAIR_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const PAIR_LENGTH = 6;
+const PAIR_MINUTES = 10;
+const PAIR_TRIES = 5;
+// How often a device's "last used" is written down, at most.
+const TOUCH_EVERY_MS = 10 * 60 * 1000;
+
+function hashKey(key) {
+  return crypto.createHash('sha256').update(String(key)).digest('hex');
+}
+
+function readJson(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
+}
+
+function readDevices() {
+  const list = readJson(DEVICES_FILE, []);
+  return Array.isArray(list) ? list.filter(d => d && typeof d.hash === 'string' && typeof d.id === 'string') : [];
+}
+
+function writeDevices(list) {
+  writePrivate(DEVICES_FILE, JSON.stringify(list, null, 2) + '\n');
+}
+
+/** The paired devices, without their key hashes: what Settings shows. */
+function listDevices() {
+  return readDevices().map(({ id, name, created, lastUsed }) => ({ id, name, created, lastUsed: lastUsed || null }));
+}
+
+/** Upper case, and only the code's own letters: "abc-d2f" and "ABC D2F" are
+ *  the same code. */
+function normalizeCode(given) {
+  return String(given || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/** Whether something typed is shaped like a pairing code (rather than an
+ *  access key), so the sign-in page knows which it was given. */
+function looksLikePairingCode(given) {
+  const code = normalizeCode(given);
+  return code.length === PAIR_LENGTH && [...code].every(c => PAIR_ALPHABET.includes(c));
+}
+
+/** A new pairing code, replacing any earlier one that's still waiting. The
+ *  code itself is only in what this returns; the file keeps its hash. */
+function makePairingCode() {
+  let code = '';
+  for (let i = 0; i < PAIR_LENGTH; i++) code += PAIR_ALPHABET[crypto.randomInt(PAIR_ALPHABET.length)];
+  const expires = Date.now() + PAIR_MINUTES * 60 * 1000;
+  writePrivate(PAIRING_FILE, JSON.stringify({ hash: hashKey(code), expires, tries: 0 }) + '\n');
+  return { code: code.slice(0, 3) + '-' + code.slice(3), expires };
+}
+
+function cancelPairingCode() {
+  try { fs.unlinkSync(PAIRING_FILE); } catch { /* none waiting */ }
+}
+
+/** Whether a code is waiting to be used, and until when. */
+function pairingStatus() {
+  const pending = readJson(PAIRING_FILE, null);
+  if (!pending || !(pending.expires > Date.now())) return { waiting: false };
+  return { waiting: true, expires: pending.expires };
+}
+
+/** A device name from what it says it is, cleaned up: no control
+ *  characters, at most 60 characters. */
+function cleanName(name) {
+  const clean = String(name || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  return clean || 'Device';
+}
+
+/** Trades a pairing code for a new device key. Returns {key, id, name}
+ *  once, or {error: 'none' | 'expired' | 'wrong'}. A wrong guess uses up
+ *  one of the code's tries, and the last one ends the code. */
+function redeemPairingCode(given, name) {
+  const pending = readJson(PAIRING_FILE, null);
+  if (!pending || typeof pending.hash !== 'string') return { error: 'none' };
+  if (!(pending.expires > Date.now())) { cancelPairingCode(); return { error: 'expired' }; }
+  if (!sameKey(hashKey(normalizeCode(given)), pending.hash)) {
+    const tries = (Number(pending.tries) || 0) + 1;
+    if (tries >= PAIR_TRIES) cancelPairingCode();
+    else writePrivate(PAIRING_FILE, JSON.stringify({ ...pending, tries }) + '\n');
+    return { error: 'wrong' };
+  }
+  cancelPairingCode();
+  const key = crypto.randomBytes(32).toString('hex');
+  const device = {
+    id: crypto.randomBytes(6).toString('hex'),
+    name: cleanName(name),
+    hash: hashKey(key),
+    created: Date.now(),
+    lastUsed: Date.now(),
+  };
+  writeDevices([...readDevices(), device]);
+  return { key, id: device.id, name: device.name };
+}
+
+/** Removes a device's key; it's signed out on its next request. */
+function revokeDevice(id) {
+  const list = readDevices();
+  const kept = list.filter(d => d.id !== id);
+  if (kept.length === list.length) return false;
+  writeDevices(kept);
+  return true;
+}
+
+/** The paired device a key belongs to, or null. */
+function deviceFor(given) {
+  if (!given) return null;
+  const hash = hashKey(given);
+  return readDevices().find(d => sameKey(hash, d.hash)) || null;
+}
+
+const lastTouched = new Map();
+/** Notes that a device was just used, at most every TOUCH_EVERY_MS so a
+ *  busy page doesn't rewrite the file on every request. */
+function touchDevice(device) {
+  const now = Date.now();
+  if (now - (lastTouched.get(device.id) || device.lastUsed || 0) < TOUCH_EVERY_MS) return;
+  lastTouched.set(device.id, now);
+  try {
+    const list = readDevices();
+    const found = list.find(d => d.id === device.id);
+    if (found) { found.lastUsed = now; writeDevices(list); }
+  } catch { /* only the "last used" date is lost */ }
+}
+
 /** Who's asking: 'app' (the ClassDash app on this computer, by its app-key
  *  cookie), 'key' (anything with the access key: a browser, Home
- *  Assistant, a script), or null (not signed in). */
+ *  Assistant, a script), 'device' (a paired device, by its own key), or
+ *  null (not signed in). */
 function clientKind(req) {
   if (sameKey(cookieValue(req, APP_COOKIE_NAME), currentAppKey())) return 'app';
-  if (isToken(givenToken(req))) return 'key';
+  const given = givenToken(req);
+  if (isToken(given)) return 'key';
+  const device = deviceFor(given);
+  if (device) { touchDevice(device); return 'device'; }
   return null;
 }
 
@@ -250,5 +400,7 @@ module.exports = {
   CERT_FILE, KEY_FILE, TOKEN_FILE, PID_FILE,
   ensureCert, certFingerprint, ensureToken, currentToken, rollToken,
   APP_KEY_FILE, ensureAppKey, currentAppKey, APP_COOKIE_NAME, clientKind,
-  COOKIE_NAME, isToken, isAuthorized, isServerRunning, readPid, writePid, clearPid,
+  COOKIE_NAME, isToken, isAuthorized, isServerRunning, readPid, writePid, clearPid, givenToken,
+  DEVICES_FILE, PAIRING_FILE, PAIR_MINUTES, PAIR_TRIES, listDevices, makePairingCode, cancelPairingCode,
+  pairingStatus, redeemPairingCode, revokeDevice, deviceFor, looksLikePairingCode, cleanName,
 };

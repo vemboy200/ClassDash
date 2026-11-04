@@ -26,6 +26,8 @@ api-cert.pem
 api-key.pem
 api-token.txt
 app-key.txt
+device-keys.json
+pairing-code.json
 api-server.pid
 api-log.txt
 api-log.old.txt

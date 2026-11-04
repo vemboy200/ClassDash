@@ -54,7 +54,7 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
 
   const formHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
   const wrong = await request('POST', '/login', { headers: formHeaders, body: 'token=nope' });
-  ok('a wrong token: 401, the form again with the error, no cookie', wrong.status === 401 && /not the right key/.test(wrong.body) && !wrong.headers['set-cookie'], JSON.stringify(wrong.headers));
+  ok('a wrong token: 401, the form again with the error, no cookie', wrong.status === 401 && /didn't work/.test(wrong.body) && !wrong.headers['set-cookie'], JSON.stringify(wrong.headers));
   const right = await request('POST', '/login', { headers: formHeaders, body: 'token=' + encodeURIComponent(token) });
   const cookie = (right.headers['set-cookie'] || [''])[0];
   ok('the right token: back to the page with a cookie', right.status === 303 && right.headers.location === '/' && cookie.startsWith('classdash_token='), JSON.stringify(right.headers));

@@ -89,7 +89,8 @@ const { isClassStale } = require('./22-class-activity.js');
 // comment for why generation specifically can't just happen lazily here.
 const {
   ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized, ensureAppKey,
-  isToken, COOKIE_NAME,
+  isToken, COOKIE_NAME, clientKind, givenToken, deviceFor, revokeDevice,
+  looksLikePairingCode, redeemPairingCode,
   writePid, clearPid,
 } = require('./23-api-security.js');
 // The exact same dispatcher 16-summary.swift's bridge calls for a click
@@ -1010,7 +1011,7 @@ function workspaceFile(urlPath) {
 /** Sends one of the page's files, or false when urlPath isn't one. A file
  *  that isn't there (yet) is a 404, which is how the page's live polling
  *  already reads a missing file. */
-function sendPageFile(urlPath, res) {
+function sendPageFile(urlPath, res, kind) {
   const isPage = urlPath === '/';
   const ws = workspaceFile(urlPath);
   const match = isPage ? { type: 'text/html; charset=utf-8' } : ws || PAGE_FILES.find(f => f.pattern.test(urlPath));
@@ -1025,9 +1026,22 @@ function sendPageFile(urlPath, res) {
       return res.writeHead(404).end('not found');
     }
     res.setHeader('Content-Type', match.type);
+    // A paired device doesn't get the access key: the page has it in
+    // Settings → API, and a device that could copy it would keep access
+    // after being removed. It's taken out here, as the page is sent, and
+    // the page is told why its key field is empty.
+    if (isPage && kind === 'device') data = pageForDevice(data);
     res.writeHead(200).end(data);
   });
   return true;
+}
+
+/** The page with the access key taken out, for a paired device. */
+function pageForDevice(data) {
+  let html = data.toString('utf8');
+  const key = currentToken();
+  if (key) html = html.split(key).join('');
+  return Buffer.from(html.replace('</head>', '<script>window.classdashPairedDevice = true;</script>\n</head>'), 'utf8');
 }
 
 /** Whether a request is a browser asking for a page, as opposed to a
@@ -1122,6 +1136,43 @@ ${icon ? `<link rel="icon" type="image/png" href="${icon}">` : ''}
 </html>`;
 }
 
+/** "Safari on iPhone", "Chrome on Windows": a name for a browser that
+ *  signs in with a pairing code, from its User-Agent. Edge and Opera say
+ *  Chrome and Safari too, and Chrome says Safari, so the order matters. */
+function deviceNameFromAgent(agent) {
+  const ua = String(agent || '');
+  const browser = /Edg\//.test(ua) ? 'Edge'
+    : /OPR\//.test(ua) ? 'Opera'
+    : /Firefox\/|FxiOS/.test(ua) ? 'Firefox'
+    : /Chrome\/|CriOS/.test(ua) ? 'Chrome'
+    : /Safari\//.test(ua) ? 'Safari'
+    : 'A browser';
+  const system = /iPhone/.test(ua) ? 'iPhone'
+    : /iPad/.test(ua) ? 'iPad'
+    : /Android/.test(ua) ? 'Android'
+    : /CrOS/.test(ua) ? 'Chromebook'
+    : /Windows/.test(ua) ? 'Windows'
+    : /Macintosh|Mac OS X/.test(ua) ? 'Mac'
+    : /Linux/.test(ua) ? 'Linux'
+    : '';
+  return system ? `${browser} on ${system}` : browser;
+}
+
+/** POST /api/pair {code, name}: how a program (another ClassDash, Home
+ *  Assistant, a script) trades a pairing code for a key of its own. The
+ *  one route that needs no key, since getting one is what it's for. The
+ *  answer carries the certificate's fingerprint, so the client can check
+ *  it against the certificate it was just shown and pin it. */
+function handlePair(req, respond) {
+  readJsonBody(req)
+    .then((body) => {
+      const paired = redeemPairingCode(typeof body.code === 'string' ? body.code : '', typeof body.name === 'string' ? body.name : '');
+      if (!paired.key) return respond(paired.error === 'wrong' ? 401 : 410, { error: paired.error === 'wrong' ? 'wrong pairing code' : 'no pairing code is waiting, or it expired — make a new one in Settings → API' });
+      respond(200, { key: paired.key, id: paired.id, name: paired.name, fingerprint: certFingerprint() });
+    })
+    .catch((e) => respond(400, { error: e.message }));
+}
+
 /** Reads a sign-in form (application/x-www-form-urlencoded, or JSON) and
  *  answers the token in it. */
 function readLoginToken(req) {
@@ -1148,7 +1199,13 @@ function readLoginToken(req) {
 function handleLogin(req, res) {
   readLoginToken(req).then((token) => {
     token = token.trim();
-    if (!isToken(token)) {
+    // A pairing code instead of the key: this browser becomes a paired
+    // device with a key of its own, named after what it says it is.
+    if (!isToken(token) && looksLikePairingCode(token)) {
+      const paired = redeemPairingCode(token, deviceNameFromAgent(req.headers['user-agent']));
+      if (paired.key) token = paired.key;
+    }
+    if (!isToken(token) && !deviceFor(token)) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.writeHead(401).end(loginPage(true));
     }
@@ -1169,10 +1226,13 @@ function handleLogin(req, res) {
 //   - ensureApi, restartApi and stopApi start and stop THIS process, and a settings
 //     save that turns LAN access on or off does too (see '/api/settings' above for why that can't run from in here).
 //   - rollApiToken would sign out the very page that asked, mid-request.
+//   - pairCode, pairCancel and revokeDevice give out and take away access:
+//     a browser or device with a key could otherwise make itself a key
+//     that outlives its own, or cut off the others.
 //   - importCalendarPdf and workspaceImport take a path to a file on this
 //     computer, which the app's own file picker chose. From a browser they'd
 //     read whatever path they were given.
-const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'importCalendarPdf', 'workspaceImport']);
+const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'pairCode', 'pairCancel', 'revokeDevice', 'importCalendarPdf', 'workspaceImport']);
 
 /** Whether a settings save (the page's base64url-JSON chunk) would change
  *  where the server listens. */
@@ -1294,7 +1354,12 @@ function start() {
     // Signing out (Settings → Sign out, in a browser): the cookie is cleared
     // and the browser goes back to signing in. POST only, so a link or a
     // prefetch can't do it.
+    if (urlPath === '/api/pair' && req.method === 'POST') return handlePair(req, respond);
     if (urlPath === '/logout' && req.method === 'POST') {
+      // A paired browser signing out is done with its key, so the key goes
+      // too, rather than staying in Settings → API with nothing using it.
+      const device = deviceFor(givenToken(req));
+      if (device) revokeDevice(device.id);
       res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`);
       res.setHeader('Location', '/login');
       return res.writeHead(303).end();
@@ -1346,7 +1411,7 @@ function start() {
     }
 
     if (urlPath === '/api' || (urlPath === '/' && !wantsHtml(req))) return respond(200, index());
-    if (sendPageFile(urlPath, res)) return;
+    if (sendPageFile(urlPath, res, clientKind(req))) return;
 
     if (urlPath === '/api/stream') {
       res.writeHead(200, {

@@ -721,6 +721,29 @@ function main(action, arg) {
     // it decided and why. See reportLiveDecision in 08-page.js.
     case 'liveDebug':
       return { ok: true, action };
+    // Pairing a device (Settings → API → Devices): a short code another
+    // device trades for a key of its own, at /login or /api/pair (see
+    // 23-api-security.js). Making a code and removing a device are
+    // app-only, like rolling the key: either could otherwise be used by
+    // something holding a key to keep or take away access.
+    case 'pairCode': {
+      const { code, expires } = require('./23-api-security.js').makePairingCode();
+      logAction('  pairing code made');
+      return { ok: true, action, code, expires };
+    }
+    case 'pairCancel':
+      require('./23-api-security.js').cancelPairingCode();
+      return { ok: true, action };
+    // Read-only: the paired devices, and whether a code is still waiting.
+    case 'devices': {
+      const security = require('./23-api-security.js');
+      return { ok: true, action, devices: security.listDevices(), pairing: security.pairingStatus() };
+    }
+    case 'revokeDevice': {
+      const removed = require('./23-api-security.js').revokeDevice(String(arg || ''));
+      if (removed) logAction('  device removed');
+      return { ok: removed, action };
+    }
     case 'rollApiToken':
       // No restart needed: 17-api.js's isAuthorized() reads the token
       // file fresh on every single request rather than caching it at

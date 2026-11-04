@@ -1823,7 +1823,21 @@ ${classLinksField(s.classLinks)}
           </span>
           <span class="field-hint">${escapeHtml(t('settingsApiFingerprintHint'))}</span>
         </label>
-      </div>` },
+      </div>
+      <p class="hint" id="api-paired-here" hidden>${escapeHtml(t('settingsApiPairedHere'))}</p>
+      <div class="setting-row api-devices">
+        <span class="field-name">${escapeHtml(t('settingsApiDevices'))}</span>
+        <span class="field-with-value">
+          <button type="button" class="mini-btn" id="api-pair-button" data-app-only onclick="pairDevice()">${escapeHtml(t('settingsApiPair'))}</button>
+        </span>
+        <span class="field-hint">${escapeHtml(t('settingsApiDevicesHint'))}</span>
+      </div>
+      <div class="api-pair-code" id="api-pair-code" hidden>
+        <span class="api-pair-value" id="api-pair-value"></span>
+        <span class="hint" id="api-pair-note"></span>
+        <button type="button" class="mini-btn" id="api-pair-cancel" onclick="cancelPairing()">${escapeHtml(t('settingsApiPairCancel'))}</button>
+      </div>
+      <ul class="api-device-list" id="api-device-list"></ul>` },
     { id: 'fetching', label: t('settingsSectionFetching'), desc: t('settingsDescFetching'), body: `
       <label class="setting-row" data-native-only>
         <span class="field-name">${escapeHtml(t('settingsOpenAtLogin'))}</span>
@@ -3573,6 +3587,13 @@ ${cardHtml[id]}
   }
   .mini-btn:hover { color: var(--text); border-color: var(--dim); }
   .api-status { margin-left: 6px; }
+  .api-pair-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 10px; }
+  .api-pair-value { font-size: 28px; letter-spacing: 4px; color: var(--accent, var(--text)); font-variant-numeric: tabular-nums; }
+  .api-device-list { list-style: none; margin: 0 0 8px; padding: 0; }
+  .api-device-list li { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-top: 1px solid var(--border, rgba(127,127,127,.25)); }
+  .api-device-list .api-device-text { flex: 1 1 auto; min-width: 0; }
+  .api-device-list .api-device-when { display: block; color: var(--dim); font-size: 12px; }
+  .api-device-list .api-device-none { color: var(--dim); }
   .api-status-on { color: var(--new); }
   .settings-actions {
     display: flex; gap: 10px; align-items: center; margin-top: 12px;
@@ -4140,6 +4161,14 @@ window.onerror = function (message, source, line, column) {
 // with a line break inside confirm(). JSON.stringify escapes everything
 // itself, so it's safe regardless of language.
 const WORDS = ${JSON.stringify({
+  apiNoDevices: t('settingsApiNoDevices'),
+  apiDevicePaired: t('settingsApiDevicePaired', '{when}'),
+  apiDeviceUsed: t('settingsApiDeviceUsed', '{when}'),
+  apiDeviceRemove: t('settingsApiDeviceRemove'),
+  apiConfirmRemove: t('settingsApiConfirmRemove', '{name}'),
+  apiPairNote: t('settingsApiPairNote', '{minutes}'),
+  apiPairDone: t('settingsApiPairDone', '{name}'),
+  apiPairExpired: t('settingsApiPairExpired'),
   connLost: t('connLost'),
   connBack: t('connBack'),
   connOffline: t('connOffline'),
@@ -5380,6 +5409,120 @@ function showSettingsSection(name) {
   document.getElementById('settings-menu').hidden = true;
   window.scrollTo(0, 0);
   if (name === 'ai') refreshAiStates();
+  if (name === 'api') loadDevices();
+}
+
+// ── Paired devices (Settings → API) ──
+//
+// Asked for when the section opens, not baked into the page: a device can
+// pair at any moment, from another device, without anything redrawing the
+// page. See 23-api-security.js for how pairing works.
+var pairWatch = null;
+var pairDeviceCount = 0;
+
+function deviceWhen(ms) {
+  return ms ? new Date(ms).toLocaleDateString(WORDS.calendarLocale, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+}
+
+function renderDevices(devices) {
+  var list = document.getElementById('api-device-list');
+  if (!list) return;
+  list.textContent = '';
+  if (!devices.length) {
+    var none = document.createElement('li');
+    none.className = 'api-device-none';
+    none.textContent = WORDS.apiNoDevices;
+    list.appendChild(none);
+    return;
+  }
+  devices.forEach(function (d) {
+    var item = document.createElement('li');
+    var text = document.createElement('span');
+    text.className = 'api-device-text';
+    text.textContent = d.name;
+    var when = document.createElement('span');
+    when.className = 'api-device-when';
+    when.textContent = WORDS.apiDevicePaired.replace('{when}', deviceWhen(d.created)) +
+      (d.lastUsed ? ' · ' + WORDS.apiDeviceUsed.replace('{when}', deviceWhen(d.lastUsed)) : '');
+    text.appendChild(when);
+    var remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'mini-btn';
+    remove.setAttribute('data-app-only', '');
+    remove.textContent = WORDS.apiDeviceRemove;
+    remove.disabled = !hasNativeBridge();
+    remove.onclick = function () { removeDevice(d); };
+    item.appendChild(text);
+    item.appendChild(remove);
+    list.appendChild(item);
+  });
+}
+
+function loadDevices(then) {
+  if (!canAct()) return;
+  dispatchAction('devices', '', function (res) {
+    if (!res || !res.ok) return;
+    renderDevices(res.devices || []);
+    if (then) then(res);
+  });
+}
+
+function showPairState(code, note) {
+  var box = document.getElementById('api-pair-code');
+  document.getElementById('api-pair-value').textContent = code || '';
+  document.getElementById('api-pair-note').textContent = note;
+  document.getElementById('api-pair-cancel').hidden = !code;
+  box.hidden = false;
+}
+
+function stopPairWatch() {
+  if (pairWatch) clearInterval(pairWatch);
+  pairWatch = null;
+}
+
+// Makes a code, shows it, and watches for it being used (or running out),
+// then shows which device it became.
+function pairDevice() {
+  stopPairWatch();
+  dispatchAction('pairCode', '', function (res) {
+    if (!res || !res.ok || !res.code) return;
+    var minutes = Math.round((res.expires - Date.now()) / 60000);
+    showPairState(res.code, WORDS.apiPairNote.replace('{minutes}', minutes));
+    loadDevices(function (first) {
+      pairDeviceCount = (first.devices || []).length;
+      pairWatch = setInterval(function () {
+        loadDevices(function (now) {
+          if (now.pairing && now.pairing.waiting) return;
+          stopPairWatch();
+          var devices = now.devices || [];
+          if (devices.length > pairDeviceCount) showPairState('', WORDS.apiPairDone.replace('{name}', devices[devices.length - 1].name));
+          else showPairState('', WORDS.apiPairExpired);
+        });
+      }, 2000);
+    });
+  });
+}
+
+function cancelPairing() {
+  stopPairWatch();
+  dispatchAction('pairCancel', '', function () {
+    document.getElementById('api-pair-code').hidden = true;
+  });
+}
+
+function removeDevice(d) {
+  if (!confirm(WORDS.apiConfirmRemove.replace('{name}', d.name))) return;
+  dispatchAction('revokeDevice', d.id, function () { loadDevices(); });
+}
+
+// Shown to a paired device: the server took the access key out of this
+// page (see pageForDevice in 17-api.js), so its field says why instead.
+if (window.classdashPairedDevice) {
+  var pairedTokenField = document.getElementById('api-token-field');
+  var pairedTokenRow = pairedTokenField && pairedTokenField.closest('.setting-row');
+  if (pairedTokenRow) pairedTokenRow.hidden = true;
+  var pairedHere = document.getElementById('api-paired-here');
+  if (pairedHere) pairedHere.hidden = false;
 }
 // The back arrow (and Esc): from a section back to the menu, with the row
 // it came from focused so the keyboard picks up where it was.
