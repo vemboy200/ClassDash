@@ -68,6 +68,24 @@ cleanup();
     '5 stopCheck ends both the collector and its leftover browser: ' + JSON.stringify(r));
   cleanup();
 
+  // 5b. The run is marked over by stopCheck itself, keeping how far it
+  //     got: on Windows the collector is killed outright and never writes
+  //     that, so the page kept showing a running check for 30 seconds.
+  const collector3 = spawnDecoy([]);
+  fs.mkdirSync(path.join(PROJ, 'live'), { recursive: true });
+  fs.writeFileSync(path.join(PROJ, 'live', 'check-run.json'), JSON.stringify({ running: true, done: 3, total: 8, at: Date.now() - 1000 }));
+  fs.writeFileSync(LOCK, String(collector3.pid));
+  const before = Date.now();
+  r = action();
+  const runAfter = JSON.parse(fs.readFileSync(path.join(PROJ, 'live', 'check-run.json'), 'utf8'));
+  ok(r.stopped === true && runAfter.running === false && runAfter.done === 3 && runAfter.total === 8 && runAfter.at >= before,
+    '5b the run is marked over straight away: ' + JSON.stringify(runAfter));
+  ok(/classdashCheckRun = \{"running":false/.test(fs.readFileSync(path.join(PROJ, 'live', 'check-run.js'), 'utf8')),
+    '5b ...in the polled script too');
+  await sleep(300);
+  try { process.kill(collector3.pid, 'SIGKILL'); } catch {}
+  cleanup();
+
   // 6. The response line stays PLAIN JSON, no matter which case ran above —
   //    05-playwright-draft.js patches console.log/warn/error the moment it's
   //    required at all (for its own runs.log timestamps), and stopCheck()

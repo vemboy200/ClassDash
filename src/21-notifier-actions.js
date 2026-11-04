@@ -106,21 +106,16 @@ function fullCheck() {
  * SIGTERM, not SIGKILL: on macOS and Linux this reaches the collector's
  * own handler, which cleans up the lock and the live/ run state properly
  * (same code path as Ctrl+C) before exiting — a well-behaved stop, not a
- * yank. On WINDOWS, Node emulates SIGTERM sent to another process by
- * forcibly terminating it; the collector's own handler never gets to
- * run there, so its cleanup is skipped. That's not silently broken,
- * though: the lock is pid-checked and self-clears the moment something
- * next tries to collect (see acquireLock()'s own comment), and a run
- * whose heartbeat stops reads as over everywhere that checks it (the
- * page, /api/collection) within its own 30-second staleness window —
- * both already exist for "a run that died", which is exactly what this
- * looks like from outside on Windows. What Windows genuinely loses here
- * is prompt browser cleanup — see killLeftoverBrowser()'s own comment.
+ * yank. WINDOWS has no SIGTERM to catch, so there it's taskkill /T,
+ * which ends the collector and the browser it started together, and the
+ * lock is removed here since the collector's own cleanup never runs.
  *
- * killLeftoverBrowser() runs unconditionally, not only as a fallback: on
- * Windows it's the only cleanup this gets at all, and running it after an
- * already-clean Mac/Linux exit costs nothing (there's nothing left for it
- * to find).
+ * Either way the run is then marked over right here (markRunStopped in
+ * 28-live-state.js), so an open page goes back to idle straight away
+ * instead of waiting 30 seconds for the heartbeat to go stale.
+ *
+ * killLeftoverBrowser() runs on macOS and Linux unconditionally, not only
+ * as a fallback: running it after an already-clean exit costs nothing.
  */
 function stopCheck() {
   // 05-playwright-draft.js patches console.log/warn/error the moment it's
@@ -145,8 +140,18 @@ function stopCheck() {
   try { process.kill(pid, 0); alive = true; } catch { /* no such process — already over */ }
   if (!alive) return { stopped: false };
 
-  try { process.kill(pid, 'SIGTERM'); } catch { /* gone between the check above and here — fine */ }
-  killLeftoverBrowser();
+  if (process.platform === 'win32') {
+    // Windows has no SIGTERM to catch and no pkill, so the collector's
+    // own cleanup never ran and its browser was left open (a visible
+    // Edpuzzle window included), holding the profile for the next check.
+    // taskkill /T ends the collector AND the browser it started.
+    try { execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch { /* already gone */ }
+    try { fs.unlinkSync(LOCK_FILE); } catch { /* already gone */ }
+  } else {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* gone between the check above and here — fine */ }
+    killLeftoverBrowser();
+  }
+  require('./28-live-state.js').markRunStopped(PROJECT_ROOT);
   return { stopped: true };
 }
 

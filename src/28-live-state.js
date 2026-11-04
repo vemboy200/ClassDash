@@ -165,4 +165,20 @@ function readCollection(baseDir, now = Date.now()) {
   };
 }
 
-module.exports = { publishPageVersion, startRun, setProgress, endRun, readCollection, HEARTBEAT_MS, STALE_MS };
+/** A Stop from OUTSIDE the collection (21-notifier-actions.js's stopCheck):
+ *  marks the run over on its behalf, keeping how far it got. On Windows
+ *  the collector is killed outright and its own endRun never runs, so
+ *  without this the page kept showing the check as running, Stop greyed
+ *  out, until the heartbeat went stale 30 seconds later. Harmless on
+ *  macOS and Linux, where the collector's own exit writes the same. */
+function markRunStopped(baseDir) {
+  let last = {};
+  try { last = JSON.parse(fs.readFileSync(path.join(liveDir(baseDir), 'check-run.json'), 'utf8')) || {}; } catch { /* none yet */ }
+  try {
+    const state = JSON.stringify({ running: false, done: last.done || 0, total: last.total || 0, at: Date.now() });
+    writeAtomic(baseDir, 'check-run.json', state + '\n');
+    writeAtomic(baseDir, 'check-run.js', 'window.classdashCheckRun = ' + state + ';\n');
+  } catch { /* the page falls back to the heartbeat going stale */ }
+}
+
+module.exports = { publishPageVersion, startRun, setProgress, endRun, markRunStopped, readCollection, HEARTBEAT_MS, STALE_MS };
