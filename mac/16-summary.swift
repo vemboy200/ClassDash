@@ -2852,6 +2852,30 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
                 }
                 return
             }
+            // GitHub's limit for unauthenticated requests: 60 an hour per
+            // network address, shared by every device on the home network
+            // (Home Assistant's own update checks, HACS...). Said in words,
+            // with when it resets, rather than GitHub's own message. (The
+            // shared URLSession already sends the last answer's ETag back
+            // once GitHub's 60-second cache time is up, and a 304 doesn't
+            // count against the limit.)
+            if let http = response as? HTTPURLResponse, http.statusCode == 403 || http.statusCode == 429 {
+                let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                if http.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0" ||
+                    text.range(of: "rate limit", options: .caseInsensitive) != nil {
+                    let reset = Double(http.value(forHTTPHeaderField: "x-ratelimit-reset") ?? "") ?? 0
+                    let retry = reset > 0 ? Date(timeIntervalSince1970: reset) : Date().addingTimeInterval(3600)
+                    logWindow("update check: GitHub rate limit, resets \(retry)")
+                    self.recordRateLimited(retry)
+                    if manual {
+                        let time = DateFormatter.localizedString(from: retry, dateStyle: .none, timeStyle: .short)
+                        DispatchQueue.main.async {
+                            self.showUpdateCheckFailedAlert("GitHub is limiting update checks from your network for now (60 an hour, shared by every device on it). ClassDash will check again later; a check after \(time) should work.")
+                        }
+                    }
+                    return
+                }
+            }
             guard let data = data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tagName = obj["tag_name"] as? String else {
@@ -3022,6 +3046,16 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // is failing at all, automatic ones especially (a manual failure at
     // least shows an alert). A plain merge, not a full rewrite: nothing
     // else on file needs to change just because this one check failed.
+    private func recordRateLimited(_ retry: Date) {
+        let path = projectDir + "/update-status.json"
+        var status = readUpdateStatusFile() ?? [:]
+        status["error"] = "rateLimited"
+        status["retryAt"] = ISO8601DateFormatter().string(from: retry)
+        status["checkedAt"] = ISO8601DateFormatter().string(from: Date())
+        guard let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
+    }
+
     private func recordCheckError(_ reason: String) {
         let path = projectDir + "/update-status.json"
         var status = readUpdateStatusFile() ?? [:]

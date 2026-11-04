@@ -1969,15 +1969,48 @@ function writeUpdateStatusFull(fields) {
   }
 }
 
+// GitHub allows 60 unauthenticated API requests an hour per network
+// address, SHARED by every device on the same home network (Home
+// Assistant's own update checks, HACS, a phone...). So:
+//   - the last answer's ETag is sent back; GitHub answers 304 when nothing
+//     changed, and a 304 doesn't count against the limit;
+//   - hitting the limit is recorded as 'rateLimited' with when it resets,
+//     which the page explains in words, rather than GitHub's own message
+//     ("check out the documentation") that pointed nowhere useful.
+function rateLimitedUntil(res, body) {
+  if (res.statusCode !== 403 && res.statusCode !== 429) return null;
+  if (res.headers['x-ratelimit-remaining'] !== '0' && !/rate limit/i.test(body)) return null;
+  const reset = Number(res.headers['x-ratelimit-reset']);
+  return reset > 0 ? new Date(reset * 1000).toISOString() : new Date(Date.now() + 60 * 60 * 1000).toISOString();
+}
+
+function rateLimitedText(retryAt) {
+  const time = new Date(retryAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return "GitHub is limiting update checks from your network for now (60 an hour, shared by every device on it). " +
+    `ClassDash will check again later; a check after ${time} should work.`;
+}
+
 function checkForUpdates(manual) {
   const currentVersion = app.getVersion();
-  const req = https.get(UPDATE_API_URL, {
-    headers: { 'User-Agent': `ClassDash/${currentVersion}` },
-    timeout: 15000,
-  }, (res) => {
+  const existing = readUpdateStatusFile() || {};
+  const headers = { 'User-Agent': `ClassDash/${currentVersion}` };
+  if (existing.etag && existing.latestVersion) headers['If-None-Match'] = existing.etag;
+  const req = https.get(UPDATE_API_URL, { headers, timeout: 15000 }, (res) => {
     let body = '';
     res.on('data', (chunk) => { body += chunk; });
     res.on('end', () => {
+      if (res.statusCode === 304) {
+        applyRelease(manual, currentVersion, {
+          latestVersion: existing.latestVersion, releaseURL: existing.url, downloadURL: existing.downloadURL, etag: existing.etag,
+        });
+        return;
+      }
+      const retryAt = rateLimitedUntil(res, body);
+      if (retryAt) {
+        writeUpdateStatusFields({ error: 'rateLimited', retryAt, checkedAt: new Date().toISOString() });
+        if (manual) dialog.showErrorBox("Couldn't check for updates", rateLimitedText(retryAt));
+        return;
+      }
       let obj;
       try {
         obj = JSON.parse(body);
@@ -1991,45 +2024,14 @@ function checkForUpdates(manual) {
         if (manual) dialog.showErrorBox("Couldn't check for updates", obj.message || 'unexpected response from GitHub');
         return;
       }
-      const latestVersion = obj.tag_name.replace(/^v/, '');
-      const releaseURL = obj.html_url || 'https://github.com/vemboy200/ClassDash/releases/latest';
-      const updateAvailable = isNewer(latestVersion, currentVersion);
-      const assets = obj.assets || [];
       // .exe, not .dmg — the one difference from Swift's own asset match.
-      const asset = assets.find((a) => (a.name || '').endsWith('.exe'));
-      const downloadURL = asset ? asset.browser_download_url : undefined;
-
-      const existing = readUpdateStatusFile() || {};
-      const fields = {
-        currentVersion, latestVersion, url: releaseURL,
-        checkedAt: new Date().toISOString(), updateAvailable, downloading: false,
-        readyToInstall: false, error: null,
-      };
-      if (downloadURL) fields.downloadURL = downloadURL;
-      if (existing.dismissedVersion) fields.dismissedVersion = existing.dismissedVersion;
-      // Carry a still-matching in-progress/ready download forward — same
-      // "only for the version it was recorded against" rule
-      // writeUpdateStatus() follows on the Mac side.
-      if (existing.readyVersion === latestVersion) {
-        fields.readyToInstall = !!existing.readyToInstall;
-        fields.readyVersion = existing.readyVersion;
-        if (existing.downloadedPath) fields.downloadedPath = existing.downloadedPath;
-      }
-      writeUpdateStatusFull(fields);
-
-      if (manual) {
-        if (updateAvailable) {
-          win.show();
-          win.focus();
-          win.webContents.reload();
-          offerToDownload(latestVersion);
-        } else {
-          dialog.showMessageBox(win, {
-            message: "You're up to date",
-            detail: `ClassDash ${currentVersion} is the latest version.`,
-          });
-        }
-      }
+      const asset = (obj.assets || []).find((a) => (a.name || '').endsWith('.exe'));
+      applyRelease(manual, currentVersion, {
+        latestVersion: obj.tag_name.replace(/^v/, ''),
+        releaseURL: obj.html_url || 'https://github.com/vemboy200/ClassDash/releases/latest',
+        downloadURL: asset ? asset.browser_download_url : undefined,
+        etag: res.headers.etag,
+      });
     });
   });
   req.on('error', (err) => {
@@ -2037,6 +2039,44 @@ function checkForUpdates(manual) {
     if (manual) dialog.showErrorBox("Couldn't check for updates", err.message);
   });
   req.on('timeout', () => req.destroy(new Error('timed out')));
+}
+
+// What a check found (fresh, or unchanged since last time: a 304), written
+// down and, for a manual check, said.
+function applyRelease(manual, currentVersion, { latestVersion, releaseURL, downloadURL, etag }) {
+  const updateAvailable = isNewer(latestVersion, currentVersion);
+  const existing = readUpdateStatusFile() || {};
+  const fields = {
+    currentVersion, latestVersion, url: releaseURL,
+    checkedAt: new Date().toISOString(), updateAvailable, downloading: false,
+    readyToInstall: false, error: null,
+  };
+  if (downloadURL) fields.downloadURL = downloadURL;
+  if (etag) fields.etag = etag;
+  if (existing.dismissedVersion) fields.dismissedVersion = existing.dismissedVersion;
+  // Carry a still-matching in-progress/ready download forward — same
+  // "only for the version it was recorded against" rule
+  // writeUpdateStatus() follows on the Mac side.
+  if (existing.readyVersion === latestVersion) {
+    fields.readyToInstall = !!existing.readyToInstall;
+    fields.readyVersion = existing.readyVersion;
+    if (existing.downloadedPath) fields.downloadedPath = existing.downloadedPath;
+  }
+  writeUpdateStatusFull(fields);
+
+  if (manual) {
+    if (updateAvailable) {
+      win.show();
+      win.focus();
+      win.webContents.reload();
+      offerToDownload(latestVersion);
+    } else {
+      dialog.showMessageBox(win, {
+        message: "You're up to date",
+        detail: `ClassDash ${currentVersion} is the latest version.`,
+      });
+    }
+  }
 }
 
 function offerToDownload(latestVersion) {

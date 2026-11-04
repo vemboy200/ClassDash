@@ -1122,8 +1122,15 @@ function versionRow() {
   // in 26-update-check.js both now actually record why, so this is the
   // one place a person looking at Settings (not just an API client
   // watching `status`) finds out too.
+  // 'rateLimited' is GitHub's hourly limit, recorded by the apps with when
+  // it resets: said in words, since GitHub's own message only says to
+  // "check out the documentation".
+  const retryTime = status && status.retryAt && !isNaN(new Date(status.retryAt))
+    ? new Date(status.retryAt).toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' }) : '';
   const errorNote = status && status.error
-    ? ` <span class="update-error-note">— ${escapeHtml(t('updateCheckFailed'))}: ${escapeHtml(status.error)}</span>`
+    ? ` <span class="update-error-note">— ${status.error === 'rateLimited'
+      ? escapeHtml(t('updateRateLimited', retryTime))
+      : `${escapeHtml(t('updateCheckFailed'))}: ${escapeHtml(status.error)}`}</span>`
     : '';
   // Empty middle span deliberately kept — .setting-row is a fixed
   // 3-column grid (name / value / hint), and every other row has
