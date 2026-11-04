@@ -10,7 +10,7 @@ The feed's link, starting with `https://` or `webcal://`. Schools usually show i
 
 1. Settings → **Calendar** (or Settings → **Services** → **+ Add service** → **Calendar feed (ICS)**, which opens the same place).
 2. Paste the link and click **Save link**.
-3. Under **What the feed's events mean**, pick what each kind of event means: **No school**, **Minimum day**, **Event**, or **Hide**. ClassDash guesses from each event's name first ("Winter break" is No school, "Early release" a Minimum day) and keeps what you pick.
+3. Under **What the feed's events mean**, pick what each kind of event means: **No school**, **Minimum day**, **Flipped day**, **Event**, or **Hide**. ClassDash guesses from each event's name first ("Winter break" is No school, "Early release" a Minimum day, "Flipped Day" a Flipped day) and keeps what you pick. A flipped day swaps the day in your class schedule (Settings → Schedule), the same as one you add there by hand.
 
 Once there's a feed, it gets a card in Settings → Services too, which opens Settings → Calendar.
 

@@ -4223,7 +4223,7 @@ const WORDS = ${JSON.stringify({
   calendarIcsMeanings: t('calendarIcsMeanings'),
   calendarPageLabel: t('calendarPageLabel'),
   calendarNoLegend: t('calendarNoLegend'),
-  calendarKinds: { noSchool: t('calendarNoSchool'), minimumDay: t('calendarMinimumDay'), ignore: t('calendarIgnore'), event: t('calendarEvent'), hide: t('calendarHide') },
+  calendarKinds: { noSchool: t('calendarNoSchool'), minimumDay: t('calendarMinimumDay'), flip: t('calendarFlip'), ignore: t('calendarIgnore'), event: t('calendarEvent'), hide: t('calendarHide') },
   calendarSaveFailed: t('calendarSaveFailed'),
   calendarWarnings: t('calendarWarnings'),
   calendarChanged: t('calendarChanged'),
@@ -6365,7 +6365,7 @@ function renderCalendarFeedSetup(setup, ics) {
     row.appendChild(calendarElement('span', 'count', String(counts[group])));
     var select = calendarElement('select');
     select.setAttribute('data-group', group);
-    ['noSchool', 'minimumDay', 'event', 'hide'].forEach(function (kind) {
+    ['noSchool', 'minimumDay', 'flip', 'event', 'hide'].forEach(function (kind) {
       var option = calendarElement('option', '', WORDS.calendarKinds[kind]);
       option.value = kind;
       if ((ics.meanings || {})[group] === kind) option.selected = true;
@@ -6398,7 +6398,7 @@ function renderCalendarSetup(setup, read) {
     row.appendChild(calendarElement('span', 'count', String(counts[mark] || 0)));
     var select = calendarElement('select');
     select.setAttribute('data-mark', mark);
-    ['noSchool', 'minimumDay', 'ignore'].forEach(function (kind) {
+    ['noSchool', 'minimumDay', 'flip', 'ignore'].forEach(function (kind) {
       var option = calendarElement('option', '', WORDS.calendarKinds[kind]);
       option.value = kind;
       if (read.meanings[mark] === kind) option.selected = true;

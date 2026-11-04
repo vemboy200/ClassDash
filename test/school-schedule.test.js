@@ -44,6 +44,22 @@ ok('...and gets its heads-up, one that also says it repeats the day before', hea
 const ab = mode => ({ type: 'ab', ab: { anchor: '2026-10-05', anchorDay: 'A', flipMode: mode }, flips: [], classes: [] });
 ok('A/B alternates by school day, skipping weekends and days off', types(ab('day'), '2026-10-05', '2026-10-14') === '10-05A 10-06B 10-07A 10-08B 10-09A 10-13B 10-14A', types(ab('day'), '2026-10-05', '2026-10-14'));
 ok('...and backwards from the day it was set', types(ab('day'), '2026-09-30', '2026-10-02') === '09-30B 10-01A 10-02B', types(ab('day'), '2026-09-30', '2026-10-02'));
+
+// ── flipped days marked on the school calendar ──
+{
+  const C = require(path.join(proj, '33-school-calendar.js'));
+  ok('a legend saying "flipped day" is guessed as one', C.guessMeanings([{ mark: 'triangle', text: 'Flipped Day' }, { mark: 'X', text: 'No School' }]).triangle === 'flip');
+  ok('...and so is a feed event called that', C.guessIcsMeaning('Flip Day - B Schedule', 1) === 'flip' && C.guessIcsMeaning('Flipped Day', 1) === 'flip');
+  ok('...but not a pancake flip at the fair', C.guessIcsMeaning('Pancake Breakfast', 1) === 'event');
+  const marked = { overrides: { '2026-10-12': 'noSchool' },
+    pdf: { marks: { '2026-10-07': ['triangle'] }, meanings: { triangle: 'flip' }, legend: [] },
+    ics: { events: [{ start: '2026-10-14', end: '2026-10-14', summary: 'Flipped Day', group: 'flipped day' }], meanings: { 'flipped day': 'flip' } } };
+  ok('the calendar\'s flipped days, PDF and feed', JSON.stringify([...C.flipDays(marked)].sort()) === '["2026-10-07","2026-10-14"]');
+  const info = C.dayInfo('2026-10-14', marked);
+  ok('a flipped day is still a normal school day, not an event', info.flipped === true && info.kind === null && info.events.length === 0 && C.isSchoolDay('2026-10-14', marked), JSON.stringify(info));
+  const viaCal = (() => { const all = schedule.dayTypes('2026-10-05', '2026-10-14', ab('day'), marked); return Object.keys(all).sort().map(k => k.slice(5) + all[k].day + (all[k].flipped ? '*' : '')).join(' '); })();
+  ok('the schedule swaps them with nothing typed in Settings', viaCal === '10-05A 10-06B 10-07B* 10-08B 10-09A 10-13B 10-14B*', viaCal);
+}
 ok('a flip that swaps only its day', types({ ...ab('day'), flips: ['2026-10-07'] }, '2026-10-06', '2026-10-09') === '10-06B 10-07B* 10-08B 10-09A');
 ok('a flip that restarts the order from it', types({ ...ab('shift'), flips: ['2026-10-07'] }, '2026-10-06', '2026-10-13') === '10-06B 10-07B* 10-08A 10-09B 10-13A',
   types({ ...ab('shift'), flips: ['2026-10-07'] }, '2026-10-06', '2026-10-13'));

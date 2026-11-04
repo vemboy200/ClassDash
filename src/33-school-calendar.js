@@ -30,8 +30,13 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 const FILE = path.join(PROJECT_ROOT, 'school-calendar.json');
 
 const KINDS = ['noSchool', 'minimumDay'];
-const MEANINGS = [...KINDS, 'ignore'];
-const ICS_MEANINGS = [...KINDS, 'event', 'hide'];
+// 'flip': a flipped day (35-school-schedule.js), the school swapping which
+// day of an A/B or odd/even schedule it is. Not a KIND: a flipped day is
+// still a normal school day, so it changes the class schedule, not what
+// kind of day it is.
+const MEANINGS = [...KINDS, 'flip', 'ignore'];
+const ICS_MEANINGS = [...KINDS, 'flip', 'event', 'hide'];
+const FLIP_WORDS = /\bflip(ped)?\b|\bswitch(ed)? day\b|\bday swap\b/;
 const MARKS = ['circle', 'slash', 'triangle', 'X', '*'];
 
 const pad = n => String(n).padStart(2, '0');
@@ -71,7 +76,8 @@ function guessMeanings(legend = []) {
   const out = {};
   for (const { mark, text } of legend) {
     const t = String(text || '').toLowerCase();
-    if (/minimum|early (dismissal|release)|half day|short(ened)? day/.test(t)) out[mark] = 'minimumDay';
+    if (FLIP_WORDS.test(t)) out[mark] = 'flip';
+    else if (/minimum|early (dismissal|release)|half day|short(ened)? day/.test(t)) out[mark] = 'minimumDay';
     else if (/holiday|no school|not in attendance|break|recess|vacation|closed/.test(t)) out[mark] = 'noSchool';
     else out[mark] = 'ignore';
   }
@@ -174,6 +180,7 @@ function icsGroup(summary) {
  */
 function guessIcsMeaning(summary, days) {
   const t = String(summary || '').toLowerCase();
+  if (FLIP_WORDS.test(t)) return 'flip';
   if (/minimum day|early (dismissal|release)|half day/.test(t)) return 'minimumDay';
   if (/no school|no classes|school closed|recess|vacation|\bbreak\b|non[- ]student|staff (development|dev)|teacher (work|prep)|in-service|furlough/.test(t)) return 'noSchool';
   if (/holiday/.test(t) && !/concert|party|program|show|sale|drive|celebration|festival|fair/.test(t)) return 'noSchool';
@@ -250,13 +257,36 @@ function icsOn(key, cal) {
   return index[key] || [];
 }
 
+/**
+ * Every day the calendar marks as a flipped day, PDF and feed alike, as
+ * YYYY-MM-DD keys. The class schedule counts these along with the ones
+ * typed in Settings → Schedule.
+ */
+function flipDays(cal = readCalendar()) {
+  const out = new Set();
+  const pdf = cal.pdf;
+  if (pdf && pdf.marks) {
+    for (const [key, marks] of Object.entries(pdf.marks)) {
+      if (marks.some(m => (pdf.meanings || {})[m] === 'flip')) out.add(key);
+    }
+  }
+  if (cal.ics && cal.ics.events) {
+    for (const e of cal.ics.events) {
+      if ((cal.ics.meanings || {})[e.group] !== 'flip') continue;
+      for (let d = fromKey(e.start), n = 0; dayKey(d) <= e.end && n < 400; d = addDays(d, 1), n++) out.add(dayKey(d));
+    }
+  }
+  return out;
+}
+
 function legendLabel(pdf, mark) {
   const entry = (pdf.legend || []).find(l => l.mark === mark);
   return entry && entry.text ? entry.text : '';
 }
 
 /**
- * One day: { date, kind: 'noSchool' | 'minimumDay' | null, label, events }.
+ * One day: { date, kind: 'noSchool' | 'minimumDay' | null, label, events,
+ *   flipped (the calendar marks it a flipped day) }.
  * No school beats a minimum day, from the PDF or the feed alike; events are
  * the titles of the feed's events that are just events.
  */
@@ -265,13 +295,18 @@ function dayInfo(date, cal = readCalendar()) {
   let kind = null, label = '';
   const pdf = cal.pdf;
   const found = [];
+  let flipped = false;
   if (pdf && pdf.marks && pdf.marks[key]) {
-    for (const m of pdf.marks[key]) found.push({ kind: (pdf.meanings || {})[m], label: legendLabel(pdf, m) });
+    for (const m of pdf.marks[key]) {
+      if ((pdf.meanings || {})[m] === 'flip') flipped = true;
+      else found.push({ kind: (pdf.meanings || {})[m], label: legendLabel(pdf, m) });
+    }
   }
   const events = [];
   for (const e of icsOn(key, cal)) {
     const meaning = (cal.ics.meanings || {})[e.group];
     if (meaning === 'event') events.push(e.summary);
+    else if (meaning === 'flip') flipped = true;
     else found.push({ kind: meaning, label: e.summary });
   }
   for (const want of KINDS) {
@@ -280,7 +315,7 @@ function dayInfo(date, cal = readCalendar()) {
   }
   const override = (cal.overrides || {})[key];
   if (override) { kind = override === 'normal' ? null : override; label = ''; }
-  return { date: key, kind, label, events };
+  return { date: key, kind, label, events, flipped };
 }
 
 function hasCalendar(cal = readCalendar()) {
@@ -357,5 +392,5 @@ module.exports = {
   FILE, KINDS, MEANINGS, ICS_MEANINGS, MARKS,
   readCalendar, guessMeanings, importRead, saveChoices, clearCalendar,
   icsGroup, guessIcsMeaning, saveIcs, saveIcsError, refreshFeed, clearIcs, icsStale,
-  dayInfo, hasCalendar, isSchoolDay, nextSchoolDay, placeholderDue, upcoming, upcomingEvents, dayKey,
+  dayInfo, flipDays, hasCalendar, isSchoolDay, nextSchoolDay, placeholderDue, upcoming, upcomingEvents, dayKey,
 };

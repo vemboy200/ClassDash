@@ -17,7 +17,8 @@
 // Odd/even uses the same A/B inside: A is odd, B is even.
 //
 // A FLIPPED DAY is one the school swaps (a B day on what would be an A
-// day). With odd/even, only that date swaps: the next date decides itself.
+// day). Typed in by hand, or marked on the school calendar (PDF or feed,
+// see flipDays in 33-school-calendar.js). With odd/even, only that date swaps: the next date decides itself.
 // With A/B it depends on the school, so it's a setting: 'day' swaps only
 // that day, 'shift' restarts the alternation from it, so every later day
 // swaps too.
@@ -134,7 +135,9 @@ function dayTypes(from, to, sched = readSchedule(), cal = calendar.readCalendar(
   const out = {};
   const start = asDate(from), end = asDate(to);
   if (start > end || !['ab', 'oddEven'].includes(sched.type)) return out;
-  const flips = new Set(sched.flips || []);
+  // Typed in Settings → Schedule, plus any the school calendar marks
+  // (a PDF legend mark or a feed event given the meaning "Flipped day").
+  const flips = new Set([...(sched.flips || []), ...calendar.flipDays(cal)]);
 
   if (sched.type === 'oddEven') {
     for (let d = start; d <= end; d = addDays(d, 1)) {

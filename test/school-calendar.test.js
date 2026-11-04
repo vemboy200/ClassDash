@@ -155,7 +155,7 @@ fs.writeFileSync(path.join(proj, 'not-a.pdf'), 'hello');
   ok('saveCalendar saves a change on the saved calendar', saved.ok && cal.readCalendar().pdf.meanings.slash === 'noSchool', JSON.stringify(saved));
   const c = cal.readCalendar();
   ok('...and keeps only well-formed day changes', JSON.stringify(c.overrides) === '{"2026-10-07":"normal","2026-10-16":"minimumDay"}');
-  ok('a marked day is what its mark means, with the legend as label', JSON.stringify(cal.dayInfo('2026-09-07', c)) === '{"date":"2026-09-07","kind":"noSchool","label":"State Holiday","events":[]}');
+  ok('a marked day is what its mark means, with the legend as label', JSON.stringify(cal.dayInfo('2026-09-07', c)) === '{"date":"2026-09-07","kind":"noSchool","label":"State Holiday","events":[],"flipped":false}');
   ok('a day changed by hand wins over its mark', cal.dayInfo('2026-10-07', c).kind === null && cal.dayInfo('2026-10-16', c).kind === 'minimumDay');
   ok('X is a minimum day, which is still a school day', cal.dayInfo('2026-10-20', c).kind === 'minimumDay' && cal.isSchoolDay('2026-10-20', c));
   ok('weekends and no-school days aren\'t school days', !cal.isSchoolDay('2026-09-06', c) && !cal.isSchoolDay('2026-09-07', c) && cal.isSchoolDay('2026-09-08', c));
