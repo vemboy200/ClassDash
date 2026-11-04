@@ -16,8 +16,16 @@ const key = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())
 const ics = key => key.replace(/-/g, '');
 const today = new Date();
 const inDays = n => new Date(today.getFullYear(), today.getMonth(), today.getDate() + n);
-// A weekday a few days out, so it's in the next two weeks whatever today is.
-let soon = 2; while ([0, 6].includes(inDays(soon).getDay())) soon++;
+// A weekday a few days out, so it's in the next two weeks whatever today is,
+// and with nothing else from the feed below on it or a week later. Without
+// that second part this failed whenever "soon" landed on a fixed date: on
+// 2026-11-04 (already the 4th in UTC, where CI runs) it was 2026-11-06,
+// Grade Reports Q1's day, and that day listed two events instead of one.
+const FIXED_DAYS = [['2026-10-05', '2026-11-03'], ['2026-10-16'], ['2026-10-20'], ['2026-10-21'], ['2026-10-28'], ['2026-11-06'],
+  ['2026-12-10'], ['2026-12-21', '2027-01-01'], ['2027-01-29']];
+const taken = d => { const k = key(d); return FIXED_DAYS.some(([a, b = a]) => k >= a && k <= b); };
+let soon = 2;
+while ([0, 6].includes(inDays(soon).getDay()) || taken(inDays(soon)) || taken(inDays(soon + 7))) soon++;
 const SOON = key(inDays(soon)), SOON_NEXT = key(inDays(soon + 1));
 
 const allDay = (start, end, summary, extra = '') =>
@@ -73,7 +81,8 @@ const FEED = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\n' +
   ok('a minimum day from the feed', cal.dayInfo('2026-10-16').kind === 'minimumDay' && cal.dayInfo('2026-10-16').label === 'Minimum Day');
   ok('a break from the feed is no school', cal.dayInfo('2026-12-23').kind === 'noSchool' && !cal.isSchoolDay('2026-12-23'));
   ok('events are listed on their day, hidden ones aren\'t', JSON.stringify(cal.dayInfo(SOON).events) === '["Banking Day"]' &&
-    cal.dayInfo('2026-10-20').events.indexOf('Application Period') === -1 && cal.dayInfo('2026-10-20').kind === null);
+    cal.dayInfo('2026-10-20').events.indexOf('Application Period') === -1 && cal.dayInfo('2026-10-20').kind === null,
+    JSON.stringify({ SOON, soon: cal.dayInfo(SOON), oct20: cal.dayInfo('2026-10-20'), stored: (cal.readCalendar().ics.events || []).filter(e => /Banking|Application/.test(e.summary)).slice(0, 4) }));
   ok('upcoming events: the next two weeks', JSON.stringify(cal.upcomingEvents(today, 14).map(e => e.summary)).includes('Banking Day'));
 
   const kept = actions.main('saveCalendar', Buffer.from(JSON.stringify({ icsMeanings: { [cal.icsGroup('Banking Day')]: 'minimumDay' } })).toString('base64'));
