@@ -5,9 +5,11 @@
 // Stored in school-calendar.json:
 //   { pdf: { importedAt, file, pages: [{ page, name, months, marks, legend, warnings }],
 //            selected: [page, …], meanings: { mark: 'noSchool' | 'minimumDay' | 'ignore' },
+//            days: { mark: 'odd' | 'even' | 'A' | 'B' | 'flip' } (see SCHEDULE_DAYS),
 //            …and the selected pages combined: months, marks: { date: [mark, …] }, legend, warnings },
 //     ics: { url, fetchedAt, error, events: [{ start, end, summary, group }],
-//            groups: { group: name }, meanings: { group: 'noSchool' | 'minimumDay' | 'event' | 'hide' } },
+//            groups: { group: name }, meanings: { group: 'noSchool' | 'minimumDay' | 'event' | 'hide' },
+//            days: { group: 'odd' | 'even' | 'A' | 'B' | 'flip' } },
 //     overrides: { date: 'noSchool' | 'minimumDay' | 'normal' } }
 //
 // The PDF's marks are kept as they were read, page by page, with what each
@@ -30,13 +32,39 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 const FILE = path.join(PROJECT_ROOT, 'school-calendar.json');
 
 const KINDS = ['noSchool', 'minimumDay'];
-// 'flip': a flipped day (35-school-schedule.js), the school swapping which
-// day of an A/B or odd/even schedule it is. Not a KIND: a flipped day is
-// still a normal school day, so it changes the class schedule, not what
-// kind of day it is.
-const MEANINGS = [...KINDS, 'flip', 'ignore'];
-const ICS_MEANINGS = [...KINDS, 'flip', 'event', 'hide'];
+const MEANINGS = [...KINDS, 'ignore'];
+const ICS_MEANINGS = [...KINDS, 'event', 'hide'];
+// A SECOND, SEPARATE CHOICE per mark and per kind of event: which day of
+// the class schedule (35-school-schedule.js) the day is. Separate because
+// one event can be both ("Even Day. Also MINIMUM Day" is a minimum day AND
+// an even day). 'odd'/'even' and 'A'/'B' say what the day IS: on a day that
+// would be the other one, that's a flipped day, and on one that already is,
+// nothing changes. 'flip' is for calendars that just say "flipped".
+// Stored as pdf.days { mark: … } and ics.days { group: … }; none = no key.
+const SCHEDULE_DAYS = ['odd', 'even', 'A', 'B', 'flip'];
 const FLIP_WORDS = /\bflip(ped)?\b|\bswitch(ed)? day\b|\bday swap\b/;
+
+/** Which schedule day a legend line or event title names, or ''. */
+function guessScheduleDay(text) {
+  const t = String(text || '');
+  if (/\beven[- ]day\b/i.test(t)) return 'even';
+  if (/\bodd[- ]day\b/i.test(t)) return 'odd';
+  // Capital A or B only: "a day of service" isn't an A day.
+  const ab = t.match(/\b([AB])[- ]Day\b/);
+  if (ab) return ab[1];
+  if (FLIP_WORDS.test(t.toLowerCase())) return 'flip';
+  return '';
+}
+
+/** A day's schedule day from the calendar: 'A' (odd or A), 'B' (even or B),
+ *  'flip', or '' — with today's earlier 'flip' meaning (before the second
+ *  choice existed) still read as a flip. */
+function scheduleDayOf(meaning, day) {
+  if (meaning === 'flip' || day === 'flip') return 'flip';
+  if (day === 'odd' || day === 'A') return 'A';
+  if (day === 'even' || day === 'B') return 'B';
+  return '';
+}
 const MARKS = ['circle', 'slash', 'triangle', 'X', '*'];
 
 const pad = n => String(n).padStart(2, '0');
@@ -76,8 +104,7 @@ function guessMeanings(legend = []) {
   const out = {};
   for (const { mark, text } of legend) {
     const t = String(text || '').toLowerCase();
-    if (FLIP_WORDS.test(t)) out[mark] = 'flip';
-    else if (/minimum|early (dismissal|release)|half day|short(ened)? day/.test(t)) out[mark] = 'minimumDay';
+    if (/minimum|early (dismissal|release)|half day|short(ened)? day/.test(t)) out[mark] = 'minimumDay';
     else if (/holiday|no school|not in attendance|break|recess|vacation|closed/.test(t)) out[mark] = 'noSchool';
     else out[mark] = 'ignore';
   }
@@ -95,6 +122,11 @@ const { combinePages, defaultPages } = require('./32-calendar-pdf.js');
 function importRead(read, file) {
   const pages = read.pages || [];
   const meanings = guessMeanings(pages.flatMap(p => p.legend));
+  const days = {};
+  for (const { mark, text } of pages.flatMap(p => p.legend)) {
+    const day = guessScheduleDay(text);
+    if (day && !(mark in days)) days[mark] = day;
+  }
   for (const p of pages) {
     for (const days of Object.values(p.marks)) {
       for (const m of days) if (!(m in meanings)) meanings[m] = 'ignore';
@@ -108,6 +140,7 @@ function importRead(read, file) {
     pages,
     selected,
     meanings,
+    days,
     ...combinePages(pages, selected),
   };
   cal.overrides = {};
@@ -129,14 +162,24 @@ function saveChoices(choices = {}) {
     for (const [mark, kind] of Object.entries(choices.meanings || {})) {
       if (mark in meanings && MEANINGS.includes(kind)) meanings[mark] = kind;
     }
-    cal.pdf = { ...cal.pdf, meanings };
+    const days = { ...cal.pdf.days };
+    for (const [mark, day] of Object.entries(choices.days || {})) {
+      if (!(mark in meanings)) continue;
+      if (SCHEDULE_DAYS.includes(day)) days[mark] = day; else if (day === '') delete days[mark];
+    }
+    cal.pdf = { ...cal.pdf, meanings, days };
   }
-  if (cal.ics && choices.icsMeanings) {
+  if (cal.ics && (choices.icsMeanings || choices.icsDays)) {
     const meanings = { ...cal.ics.meanings };
-    for (const [group, kind] of Object.entries(choices.icsMeanings)) {
+    for (const [group, kind] of Object.entries(choices.icsMeanings || {})) {
       if (group in meanings && ICS_MEANINGS.includes(kind)) meanings[group] = kind;
     }
-    cal.ics = { ...cal.ics, meanings };
+    const days = { ...cal.ics.days };
+    for (const [group, day] of Object.entries(choices.icsDays || {})) {
+      if (!(group in meanings)) continue;
+      if (SCHEDULE_DAYS.includes(day)) days[group] = day; else if (day === '') delete days[group];
+    }
+    cal.ics = { ...cal.ics, meanings, days };
   }
   if (Array.isArray(choices.pages) && cal.pdf && cal.pdf.pages) {
     const known = cal.pdf.pages.map(p => p.page);
@@ -180,11 +223,13 @@ function icsGroup(summary) {
  */
 function guessIcsMeaning(summary, days) {
   const t = String(summary || '').toLowerCase();
-  if (FLIP_WORDS.test(t)) return 'flip';
   if (/minimum day|early (dismissal|release)|half day/.test(t)) return 'minimumDay';
   if (/no school|no classes|school closed|recess|vacation|\bbreak\b|non[- ]student|staff (development|dev)|teacher (work|prep)|in-service|furlough/.test(t)) return 'noSchool';
   if (/holiday/.test(t) && !/concert|party|program|show|sale|drive|celebration|festival|fair/.test(t)) return 'noSchool';
   if (days > 7) return 'hide';
+  // Just a schedule day ("Even Day", "B Day"): the schedule shows it, so
+  // it isn't listed as an event too.
+  if (guessScheduleDay(summary)) return 'hide';
   return 'event';
 }
 
@@ -199,12 +244,20 @@ function saveIcs(url, events, now = new Date()) {
   const from = dayKey(addDays(now, -366)), to = dayKey(addDays(now, 731));
   const kept = events.filter(e => e.end >= from && e.start <= to).map(e => ({ ...e, group: icsGroup(e.summary) }));
   const old = (cal.ics && cal.ics.meanings) || {};
-  const meanings = {}, groups = {};
+  const oldDays = (cal.ics && cal.ics.days) || {};
+  const meanings = {}, groups = {}, days = {};
   for (const e of kept) {
-    if (!(e.group in groups)) groups[e.group] = e.summary;
-    if (!(e.group in meanings)) meanings[e.group] = old[e.group] || guessIcsMeaning(e.summary, spanDays(e));
+    if (e.group in groups) continue;
+    groups[e.group] = e.summary;
+    // A kind already picked is kept. The schedule day is kept too once it
+    // exists; a kind of event saved before there was one gets it guessed,
+    // so an "Even Day" already in the feed picks it up on the next fetch.
+    const legacyFlip = old[e.group] === 'flip';
+    meanings[e.group] = (!legacyFlip && old[e.group]) || guessIcsMeaning(e.summary, spanDays(e));
+    const day = e.group in oldDays ? oldDays[e.group] : legacyFlip ? 'flip' : guessScheduleDay(e.summary);
+    if (day) days[e.group] = day;
   }
-  cal.ics = { url, fetchedAt: now.toISOString(), error: '', events: kept, groups, meanings };
+  cal.ics = { url, fetchedAt: now.toISOString(), error: '', events: kept, groups, meanings, days };
   writeCalendar(cal);
   return cal;
 }
@@ -258,25 +311,28 @@ function icsOn(key, cal) {
 }
 
 /**
- * Every day the calendar marks as a flipped day, PDF and feed alike, as
- * YYYY-MM-DD keys. The class schedule counts these along with the ones
- * typed in Settings → Schedule.
+ * The days the calendar ties to the class schedule, PDF and feed alike:
+ * { flips: Set of keys marked just "flipped", set: { key: 'A' | 'B' } for
+ * days marked odd/A or even/B }. The class schedule (dayTypes) works out
+ * which of the set days are flips.
  */
-function flipDays(cal = readCalendar()) {
-  const out = new Set();
+function markedDays(cal = readCalendar()) {
+  const flips = new Set(), set = {};
+  const note = (key, day) => { if (day === 'flip') flips.add(key); else if (day) set[key] = day; };
   const pdf = cal.pdf;
   if (pdf && pdf.marks) {
     for (const [key, marks] of Object.entries(pdf.marks)) {
-      if (marks.some(m => (pdf.meanings || {})[m] === 'flip')) out.add(key);
+      for (const m of marks) note(key, scheduleDayOf((pdf.meanings || {})[m], (pdf.days || {})[m]));
     }
   }
   if (cal.ics && cal.ics.events) {
     for (const e of cal.ics.events) {
-      if ((cal.ics.meanings || {})[e.group] !== 'flip') continue;
-      for (let d = fromKey(e.start), n = 0; dayKey(d) <= e.end && n < 400; d = addDays(d, 1), n++) out.add(dayKey(d));
+      const day = scheduleDayOf((cal.ics.meanings || {})[e.group], (cal.ics.days || {})[e.group]);
+      if (!day) continue;
+      for (let d = fromKey(e.start), n = 0; dayKey(d) <= e.end && n < 400; d = addDays(d, 1), n++) note(dayKey(d), day);
     }
   }
-  return out;
+  return { flips, set };
 }
 
 function legendLabel(pdf, mark) {
@@ -286,7 +342,7 @@ function legendLabel(pdf, mark) {
 
 /**
  * One day: { date, kind: 'noSchool' | 'minimumDay' | null, label, events,
- *   flipped (the calendar marks it a flipped day) }.
+ *   scheduleDay: 'A' (odd or A) | 'B' (even or B) | 'flip' | null }.
  * No school beats a minimum day, from the PDF or the feed alike; events are
  * the titles of the feed's events that are just events.
  */
@@ -295,18 +351,18 @@ function dayInfo(date, cal = readCalendar()) {
   let kind = null, label = '';
   const pdf = cal.pdf;
   const found = [];
-  let flipped = false;
+  let scheduleDay = '';
   if (pdf && pdf.marks && pdf.marks[key]) {
     for (const m of pdf.marks[key]) {
-      if ((pdf.meanings || {})[m] === 'flip') flipped = true;
-      else found.push({ kind: (pdf.meanings || {})[m], label: legendLabel(pdf, m) });
+      scheduleDay = scheduleDayOf((pdf.meanings || {})[m], (pdf.days || {})[m]) || scheduleDay;
+      found.push({ kind: (pdf.meanings || {})[m], label: legendLabel(pdf, m) });
     }
   }
   const events = [];
   for (const e of icsOn(key, cal)) {
     const meaning = (cal.ics.meanings || {})[e.group];
+    scheduleDay = scheduleDayOf(meaning, (cal.ics.days || {})[e.group]) || scheduleDay;
     if (meaning === 'event') events.push(e.summary);
-    else if (meaning === 'flip') flipped = true;
     else found.push({ kind: meaning, label: e.summary });
   }
   for (const want of KINDS) {
@@ -315,7 +371,7 @@ function dayInfo(date, cal = readCalendar()) {
   }
   const override = (cal.overrides || {})[key];
   if (override) { kind = override === 'normal' ? null : override; label = ''; }
-  return { date: key, kind, label, events, flipped };
+  return { date: key, kind, label, events, scheduleDay: scheduleDay || null };
 }
 
 function hasCalendar(cal = readCalendar()) {
@@ -392,5 +448,6 @@ module.exports = {
   FILE, KINDS, MEANINGS, ICS_MEANINGS, MARKS,
   readCalendar, guessMeanings, importRead, saveChoices, clearCalendar,
   icsGroup, guessIcsMeaning, saveIcs, saveIcsError, refreshFeed, clearIcs, icsStale,
-  dayInfo, flipDays, hasCalendar, isSchoolDay, nextSchoolDay, placeholderDue, upcoming, upcomingEvents, dayKey,
+  SCHEDULE_DAYS, guessScheduleDay, markedDays,
+  dayInfo, hasCalendar, isSchoolDay, nextSchoolDay, placeholderDue, upcoming, upcomingEvents, dayKey,
 };

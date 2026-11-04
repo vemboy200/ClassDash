@@ -156,6 +156,20 @@ const FEED = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\n' +
   const payload = save && JSON.parse(Buffer.from(save.arg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
   ok('changing a meaning saves at once and shows it', payload && payload.icsMeanings[cal.icsGroup('Application Period')] === 'event' &&
     /Application Period/.test(d.querySelector('.calendar-events').textContent));
+  {
+    const row = name => [...d.querySelectorAll('.calendar-feed-meaning')].find(r => r.textContent.includes(name));
+    const dayPick = row('Minimum Day').querySelector('select.calendar-schedule-day');
+    ok('each kind of event has a second choice, the schedule day, "—" unless guessed', dayPick && dayPick.value === '' &&
+      [...dayPick.options].map(o => o.value).join() === ',odd,even,A,B,flip');
+    dayPick.value = 'even'; dayPick.onchange();
+    const daysSave = sent.filter(m => m.action === 'saveCalendar').pop();
+    const daysPayload = JSON.parse(Buffer.from(daysSave.arg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
+    ok('...picking one saves it beside the kind (a minimum day AND an even day)', daysPayload.icsDays[cal.icsGroup('Minimum Day')] === 'even' &&
+      daysPayload.icsMeanings[cal.icsGroup('Minimum Day')] === 'minimumDay', JSON.stringify(daysPayload.icsDays));
+    ok('...and every row is sent, so one set back to "—" is cleared', Object.keys(daysPayload.icsDays).length === Object.keys(daysPayload.icsMeanings).length);
+    const saved = actions.main('saveCalendar', daysSave.arg);
+    ok('the server keeps it', saved.ok && cal.readCalendar().ics.days[cal.icsGroup('Minimum Day')] === 'even' && cal.dayInfo('2026-10-16').scheduleDay === 'B');
+  }
   d.getElementById('calendar-ics-url').value = '  webcal://example.com/new.ics ';
   w.saveCalendarIcs(d.querySelector('[onclick*="saveCalendarIcs"]'));
   const setMsg = sent.find(m => m.action === 'setCalendarIcs');

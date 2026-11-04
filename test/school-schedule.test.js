@@ -45,20 +45,36 @@ const ab = mode => ({ type: 'ab', ab: { anchor: '2026-10-05', anchorDay: 'A', fl
 ok('A/B alternates by school day, skipping weekends and days off', types(ab('day'), '2026-10-05', '2026-10-14') === '10-05A 10-06B 10-07A 10-08B 10-09A 10-13B 10-14A', types(ab('day'), '2026-10-05', '2026-10-14'));
 ok('...and backwards from the day it was set', types(ab('day'), '2026-09-30', '2026-10-02') === '09-30B 10-01A 10-02B', types(ab('day'), '2026-09-30', '2026-10-02'));
 
-// ── flipped days marked on the school calendar ──
+// ── schedule days marked on the school calendar ──
 {
   const C = require(path.join(proj, '33-school-calendar.js'));
-  ok('a legend saying "flipped day" is guessed as one', C.guessMeanings([{ mark: 'triangle', text: 'Flipped Day' }, { mark: 'X', text: 'No School' }]).triangle === 'flip');
-  ok('...and so is a feed event called that', C.guessIcsMeaning('Flip Day - B Schedule', 1) === 'flip' && C.guessIcsMeaning('Flipped Day', 1) === 'flip');
-  ok('...but not a pancake flip at the fair', C.guessIcsMeaning('Pancake Breakfast', 1) === 'event');
+  const g = C.guessScheduleDay;
+  ok('"Even Day. Also MINIMUM Day" is an even day…', g('Even Day. Also MINIMUM Day') === 'even');
+  ok('…and a minimum day: two things from one event', C.guessIcsMeaning('Even Day. Also MINIMUM Day', 1) === 'minimumDay');
+  ok('"Odd Day" alone is odd, and not listed as an event (the schedule shows it)', g('Odd Day') === 'odd' && C.guessIcsMeaning('Odd Day', 1) === 'hide');
+  ok('A and B days need the capital letter ("a day of service" isn\'t one)', g('B Day') === 'B' && g('A-Day') === 'A' && g('a day of service') === '');
+  ok('"Flipped Day" is a flip', g('Flipped Day') === 'flip' && g('Pancake Breakfast') === '');
+  // Odd/even, Oct 2026: 13 Tue odd, 14 Wed even, 15 Thu odd, 16 Fri even.
   const marked = { overrides: { '2026-10-12': 'noSchool' },
-    pdf: { marks: { '2026-10-07': ['triangle'] }, meanings: { triangle: 'flip' }, legend: [] },
-    ics: { events: [{ start: '2026-10-14', end: '2026-10-14', summary: 'Flipped Day', group: 'flipped day' }], meanings: { 'flipped day': 'flip' } } };
-  ok('the calendar\'s flipped days, PDF and feed', JSON.stringify([...C.flipDays(marked)].sort()) === '["2026-10-07","2026-10-14"]');
-  const info = C.dayInfo('2026-10-14', marked);
-  ok('a flipped day is still a normal school day, not an event', info.flipped === true && info.kind === null && info.events.length === 0 && C.isSchoolDay('2026-10-14', marked), JSON.stringify(info));
-  const viaCal = (() => { const all = schedule.dayTypes('2026-10-05', '2026-10-14', ab('day'), marked); return Object.keys(all).sort().map(k => k.slice(5) + all[k].day + (all[k].flipped ? '*' : '')).join(' '); })();
-  ok('the schedule swaps them with nothing typed in Settings', viaCal === '10-05A 10-06B 10-07B* 10-08B 10-09A 10-13B 10-14B*', viaCal);
+    pdf: { marks: { '2026-10-07': ['triangle'] }, meanings: { triangle: 'ignore' }, days: { triangle: 'flip' }, legend: [] },
+    ics: { events: [
+      { start: '2026-10-13', end: '2026-10-13', summary: 'Even Day. Also MINIMUM Day', group: 'even day. also minimum day' },
+      { start: '2026-10-14', end: '2026-10-14', summary: 'Even Day', group: 'even day' },
+      { start: '2026-10-15', end: '2026-10-15', summary: 'Odd Day', group: 'odd day' },
+    ], meanings: { 'even day. also minimum day': 'minimumDay', 'even day': 'hide', 'odd day': 'hide' },
+      days: { 'even day. also minimum day': 'even', 'even day': 'even', 'odd day': 'odd' } } };
+  const tue = C.dayInfo('2026-10-13', marked);
+  ok('the calendar day keeps both: a minimum day, and even', tue.kind === 'minimumDay' && tue.scheduleDay === 'B' && C.isSchoolDay('2026-10-13', marked), JSON.stringify(tue));
+  const oe = (() => { const all = schedule.dayTypes('2026-10-06', '2026-10-16', odd, marked); return Object.keys(all).sort().map(k => k.slice(5) + all[k].day + (all[k].flipped ? '*' : '')).join(' '); })();
+  ok('odd/even: "Even Day" on an odd date is a flip, on an even date nothing, and a PDF "flipped" swaps',
+    oe === '10-06B 10-07B* 10-08B 10-09A 10-13B* 10-14B 10-15A 10-16B', oe);
+  const abMarked = { overrides: marked.overrides, pdf: { marks: {}, meanings: {}, legend: [] },
+    ics: { events: [{ start: '2026-10-07', end: '2026-10-07', summary: 'B Day', group: 'b day' }, { start: '2026-10-09', end: '2026-10-09', summary: 'A Day', group: 'a day' }],
+      meanings: { 'b day': 'hide', 'a day': 'hide' }, days: { 'b day': 'B', 'a day': 'A' } } };
+  const abDay = (() => { const all = schedule.dayTypes('2026-10-05', '2026-10-13', ab('day'), abMarked); return Object.keys(all).sort().map(k => k.slice(5) + all[k].day + (all[k].flipped ? '*' : '')).join(' '); })();
+  ok('A/B, one day at a time: "B Day" where an A was is a flip; "A Day" where an A already was changes nothing', abDay === '10-05A 10-06B 10-07B* 10-08B 10-09A 10-13B', abDay);
+  const abShift = (() => { const all = schedule.dayTypes('2026-10-05', '2026-10-13', ab('shift'), abMarked); return Object.keys(all).sort().map(k => k.slice(5) + all[k].day + (all[k].flipped ? '*' : '')).join(' '); })();
+  ok('A/B, restarting from it: the order goes on from the B, and the later "A Day" (a B in that order) restarts it again', abShift === '10-05A 10-06B 10-07B* 10-08A 10-09A* 10-13B', abShift);
 }
 ok('a flip that swaps only its day', types({ ...ab('day'), flips: ['2026-10-07'] }, '2026-10-06', '2026-10-09') === '10-06B 10-07B* 10-08B 10-09A');
 ok('a flip that restarts the order from it', types({ ...ab('shift'), flips: ['2026-10-07'] }, '2026-10-06', '2026-10-13') === '10-06B 10-07B* 10-08A 10-09B 10-13A',

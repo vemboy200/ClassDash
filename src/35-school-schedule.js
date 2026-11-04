@@ -132,23 +132,49 @@ function previousSchoolDay(date, cal) {
  * one pass, not one per day.
  */
 function dayTypes(from, to, sched = readSchedule(), cal = calendar.readCalendar()) {
-  const out = {};
   const start = asDate(from), end = asDate(to);
-  if (start > end || !['ab', 'oddEven'].includes(sched.type)) return out;
-  // Typed in Settings → Schedule, plus any the school calendar marks
-  // (a PDF legend mark or a feed event given the meaning "Flipped day").
-  const flips = new Set([...(sched.flips || []), ...calendar.flipDays(cal)]);
+  if (start > end || !['ab', 'oddEven'].includes(sched.type)) return {};
+  // Typed in Settings → Schedule, plus the days the school calendar marks
+  // (markedDays in 33-school-calendar.js): ones it just calls flipped, and
+  // ones it says ARE odd/even (or A/B). Those last are a flip only where
+  // the day would otherwise be the other one: "Even Day" on an odd date.
+  const marked = calendar.markedDays(cal);
+  const flips = new Set([...(sched.flips || []), ...marked.flips]);
 
   if (sched.type === 'oddEven') {
+    const out = {};
     for (let d = start; d <= end; d = addDays(d, 1)) {
       if (!isSchoolDay(d, cal)) continue;
-      const key = dayKey(d), flipped = flips.has(key);
+      const key = dayKey(d);
       const base = d.getDate() % 2 === 1 ? 'A' : 'B';
-      out[key] = { day: flipped ? other(base) : base, flipped };
+      const day = marked.set[key] || (flips.has(key) ? other(base) : base);
+      out[key] = { day, flipped: day !== base };
     }
     return out;
   }
 
+  // A/B: a day the calendar says is A or B that comes out the other way is
+  // made a flip, nearest the anchor first, since with 'shift' each one moves
+  // the days after it. Whatever still disagrees after that (in 'shift' mode
+  // a restart before the anchor doesn't move its own day) is simply set.
+  const ab = sched.ab || {};
+  const anchorKey = validDate(ab.anchor) ? ab.anchor : null;
+  const wanted = Object.keys(marked.set).filter(k => isSchoolDay(fromKey(k), cal))
+    .sort((a, b) => Math.abs(fromKey(a) - fromKey(anchorKey || a)) - Math.abs(fromKey(b) - fromKey(anchorKey || b)));
+  for (const key of wanted) {
+    const now = rotateAB(fromKey(key), fromKey(key), sched, cal, flips)[key];
+    if (now && now.day !== marked.set[key]) { if (flips.has(key)) flips.delete(key); else flips.add(key); }
+  }
+  const out = rotateAB(start, end, sched, cal, flips);
+  for (const key of wanted) {
+    if (out[key] && out[key].day !== marked.set[key]) out[key] = { day: marked.set[key], flipped: true };
+  }
+  return out;
+}
+
+/** A/B days from `start` to `end` with these flips (see dayTypes). */
+function rotateAB(start, end, sched, cal, flips) {
+  const out = {};
   // A/B: counted in school days from the anchor, the day the user said
   // what today is. The anchor's own day is the real one, flip or not.
   const ab = sched.ab || {};

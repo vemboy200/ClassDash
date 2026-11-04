@@ -3694,12 +3694,18 @@ ${cardHtml[id]}
   .calendar-key-item { display: inline-flex; align-items: center; gap: 4px; }
   .calendar-swatch { width: 12px; height: 12px; border-radius: 3px; border: 2px solid var(--line); display: inline-block; box-sizing: border-box; }
   .calendar-marks { margin-top: 4px; }
-  .calendar-meaning { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; font-size: 13px; margin-bottom: 6px; }
+  .calendar-meaning { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; font-size: 13px; margin-bottom: 6px; }
   .calendar-symbol { font-size: 16px; text-align: center; font-weight: 700; }
   .calendar-legend { overflow-wrap: anywhere; }
   .calendar-legend.dim { color: var(--dim); font-style: italic; }
   .calendar-warnings { margin: 4px 0 0; }
-  .calendar-feed-meaning { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .calendar-feed-meaning { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+  /* Narrow: the two choices go under the name, side by side. */
+  @media (max-width: 560px) {
+    .calendar-meaning { grid-template-columns: 22px minmax(0, 1fr) auto; }
+    .calendar-feed-meaning { grid-template-columns: minmax(0, 1fr) auto; }
+    .calendar-meaning select { grid-column: span 1; }
+  }
   .calendar-feed-meanings { margin: 4px 0 12px; }
   #calendar-settings-view { margin-bottom: 12px; }
   .calendar-ics-url { flex: 1 1 220px; min-width: 0; }
@@ -4223,7 +4229,9 @@ const WORDS = ${JSON.stringify({
   calendarIcsMeanings: t('calendarIcsMeanings'),
   calendarPageLabel: t('calendarPageLabel'),
   calendarNoLegend: t('calendarNoLegend'),
-  calendarKinds: { noSchool: t('calendarNoSchool'), minimumDay: t('calendarMinimumDay'), flip: t('calendarFlip'), ignore: t('calendarIgnore'), event: t('calendarEvent'), hide: t('calendarHide') },
+  calendarScheduleDays: { none: t('calendarDayNone'), odd: t('calendarDayOdd'), even: t('calendarDayEven'), A: t('calendarDayA'), B: t('calendarDayB'), flip: t('calendarDayFlip') },
+  calendarScheduleDayHint: t('calendarScheduleDayHint'),
+  calendarKinds: { noSchool: t('calendarNoSchool'), minimumDay: t('calendarMinimumDay'), ignore: t('calendarIgnore'), event: t('calendarEvent'), hide: t('calendarHide') },
   calendarSaveFailed: t('calendarSaveFailed'),
   calendarWarnings: t('calendarWarnings'),
   calendarChanged: t('calendarChanged'),
@@ -6139,6 +6147,16 @@ function saveCalendarChoices() {
   if (calendarData.read) payload.meanings = calendarData.read.meanings;
   if (calendarData.read && calendarData.read.pages) payload.pages = calendarData.read.selected;
   if (calendarData.ics) payload.icsMeanings = calendarData.ics.meanings;
+  // The second choice per row, which schedule day it is. '' clears one, so
+  // every row is sent: one switched back to "—" has to say so.
+  if (calendarData.read && calendarData.read.meanings) {
+    payload.days = {};
+    Object.keys(calendarData.read.meanings).forEach(function (m) { payload.days[m] = (calendarData.read.days || {})[m] || ''; });
+  }
+  if (calendarData.ics && calendarData.ics.meanings) {
+    payload.icsDays = {};
+    Object.keys(calendarData.ics.meanings).forEach(function (g) { payload.icsDays[g] = (calendarData.ics.days || {})[g] || ''; });
+  }
   dispatchAction('saveCalendar', toBase64Url(JSON.stringify(payload)), function (res) {
     // School days changed, so A/B days may have: the answer carries them.
     if (res && res.schedule && scheduleData) { scheduleData.days = res.schedule.days; scheduleData.view = res.schedule.view; renderScheduleLine(); renderCalendar(); }
@@ -6216,6 +6234,26 @@ function calendarPageChooser(read) {
     box.appendChild(row);
   });
   return box;
+}
+
+// The second choice on a mark's or an event's row: which day of the class
+// schedule it is (odd, even, A, B or just "flipped"), separate from the
+// kind of day, since one event can be both ("Even Day. Also MINIMUM Day").
+// What a day becomes is worked out with the schedule (dayTypes in
+// 35-school-schedule.js): an even day on an odd date is a flipped day.
+// A meaning of 'flip' from before this choice existed shows as Flipped.
+function calendarScheduleDaySelect(current, legacyMeaning, onPick) {
+  var select = calendarElement('select', 'calendar-schedule-day');
+  select.title = WORDS.calendarScheduleDayHint;
+  if (!current && legacyMeaning === 'flip') current = 'flip';
+  ['', 'odd', 'even', 'A', 'B', 'flip'].forEach(function (day) {
+    var option = calendarElement('option', '', WORDS.calendarScheduleDays[day || 'none']);
+    option.value = day;
+    if ((current || '') === day) option.selected = true;
+    select.appendChild(option);
+  });
+  select.onchange = function () { onPick(select.value); };
+  return select;
 }
 
 function setCalendarMeaning(mark, kind) {
@@ -6365,7 +6403,7 @@ function renderCalendarFeedSetup(setup, ics) {
     row.appendChild(calendarElement('span', 'count', String(counts[group])));
     var select = calendarElement('select');
     select.setAttribute('data-group', group);
-    ['noSchool', 'minimumDay', 'flip', 'event', 'hide'].forEach(function (kind) {
+    ['noSchool', 'minimumDay', 'event', 'hide'].forEach(function (kind) {
       var option = calendarElement('option', '', WORDS.calendarKinds[kind]);
       option.value = kind;
       if ((ics.meanings || {})[group] === kind) option.selected = true;
@@ -6373,6 +6411,11 @@ function renderCalendarFeedSetup(setup, ics) {
     });
     select.onchange = function () { setCalendarIcsMeaning(group, select.value); };
     row.appendChild(select);
+    row.appendChild(calendarScheduleDaySelect((ics.days || {})[group], (ics.meanings || {})[group], function (day) {
+      calendarData.ics.days = calendarData.ics.days || {};
+      if (day) calendarData.ics.days[group] = day; else delete calendarData.ics.days[group];
+      saveCalendarChoices();
+    }));
     box.appendChild(row);
   });
   setup.appendChild(box);
@@ -6398,7 +6441,7 @@ function renderCalendarSetup(setup, read) {
     row.appendChild(calendarElement('span', 'count', String(counts[mark] || 0)));
     var select = calendarElement('select');
     select.setAttribute('data-mark', mark);
-    ['noSchool', 'minimumDay', 'flip', 'ignore'].forEach(function (kind) {
+    ['noSchool', 'minimumDay', 'ignore'].forEach(function (kind) {
       var option = calendarElement('option', '', WORDS.calendarKinds[kind]);
       option.value = kind;
       if (read.meanings[mark] === kind) option.selected = true;
@@ -6406,6 +6449,11 @@ function renderCalendarSetup(setup, read) {
     });
     select.onchange = function () { setCalendarMeaning(mark, select.value); };
     row.appendChild(select);
+    row.appendChild(calendarScheduleDaySelect((read.days || {})[mark], read.meanings[mark], function (day) {
+      calendarData.read.days = calendarData.read.days || {};
+      if (day) calendarData.read.days[mark] = day; else delete calendarData.read.days[mark];
+      saveCalendarChoices();
+    }));
     marks.appendChild(row);
   });
   if (read.warnings && read.warnings.length) {
