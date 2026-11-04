@@ -26,7 +26,7 @@ For now PDFs are added by hand; opening an assignment's attachment straight from
 
 ## Web pages
 
-A **Web** pane shows a site from your bookmarks (Mac app only for now): Google Docs, Slides and Sheets, Word, PowerPoint and Excel on the web, and Desmos to start.
+A **Web** pane shows a site from your bookmarks (in the Mac and Windows apps, not in a browser): Google Docs, Slides and Sheets, Word, PowerPoint and Excel on the web, and Desmos to start.
 
 - It isn't a whole second browser, so there's no address bar: ☆ **Bookmarks** shows them again, **Bookmark this page** keeps the one you're on, **New bookmark** adds a site by its address, and × on a bookmark removes it. Back, forward and reload work as usual.
 - You sign in to each site once, and that sign-in is the workspace's own: apart from Safari, and apart from the browser ClassDash checks your classes with.

@@ -906,8 +906,9 @@ function main(action, arg) {
       }
       return { ok: require('./50-desk.js').writeDesk(raw).ok, action };
     }
-    // Whether the app draws web panes itself. The Mac app answers this one
-    // before it gets here; anywhere it does get here, it doesn't.
+    // Whether the app draws web panes itself. The Mac and Windows apps
+    // answer this one before it gets here; anywhere it does get here (a
+    // page in a plain browser), nothing can.
     case 'webCaps':
       return { ok: true, web: false, action };
     default:

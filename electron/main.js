@@ -9,7 +9,7 @@
 // underlying logic those already-cross-platform files already own.
 'use strict';
 
-const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, powerMonitor, shell, protocol, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, powerMonitor, shell, protocol, clipboard, WebContentsView, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -390,6 +390,11 @@ ipcMain.on('classdash-action', async (_event, body) => {
   if (!body || typeof body !== 'object') return;
   const { id, action, arg } = body;
   if (!id || !action) return;
+  // The desk's web panes: sent on every move of a divider, and carrying
+  // the addresses of the pages, so never logged.
+  if (action === 'webCaps') { deliverResult(id, { ok: true, web: true }); return; }
+  if (action === 'webPane') { deliverResult(id, webPaneOp(String(arg || ''))); return; }
+  if (action === 'webCapture') { deliverResult(id, await captureWebPanes(String(arg || ''))); return; }
   if (WORKSPACE_NATIVE_ACTIONS.includes(action)) {
     deliverResult(id, await runWorkspaceAction(action, arg));
     return;
@@ -404,6 +409,239 @@ ipcMain.on('classdash-action', async (_event, body) => {
   if (action === 'config' && result && result.ok) applyOpenAtLogin();
   deliverResult(id, result);
 });
+
+// ── Web panes (50-desk.js) ──
+//
+// The Windows twin of WebPanes in 16-summary.swift; see that for the whole
+// story. A web page can't go in the desk's own page (Google, Microsoft and
+// most sites refuse to be framed), so each web pane is a real browser view
+// of its own, laid over the box the desk leaves for it. The desk says where
+// the boxes are (webPane layout, in the window's CSS pixels, through the
+// main page), and hears back where each page has got to
+// (window.classdashWebPane in 08-page.js).
+//
+// Its own sign-in: one partition for every web pane, apart from the main
+// page's and from the browser the checks use. It says it's plain Chrome:
+// Electron's own user agent names Electron and this app, and Google won't
+// let an app it recognises sign in.
+//
+// Closing the workspace closes the pages (closeAll): each one is a process
+// of its own, and nothing should keep running in the background.
+const WEB_PARTITION = 'persist:classdash-web-panes';
+const webPanes = new Map();
+let webDownloadsWatched = false;
+
+function isPaneId(id) {
+  return typeof id === 'string' && /^[a-z0-9]{1,12}$/.test(id);
+}
+
+function webUrl(s) {
+  try {
+    const u = new URL(String(s));
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+  } catch { return null; }
+}
+
+function chromeAgent() {
+  return app.userAgentFallback.replace(/ (?:Electron|classdash[\w-]*|ClassDash)\/\S+/g, '');
+}
+
+function webPaneOp(arg) {
+  let op;
+  try { op = JSON.parse(arg); } catch { return { ok: false, why: 'bad op' }; }
+  if (!op || typeof op.op !== 'string') return { ok: false, why: 'bad op' };
+  if (!win || win.isDestroyed()) return { ok: false, why: 'no window' };
+  if (op.op === 'layout') {
+    const keep = new Set();
+    for (const p of Array.isArray(op.panes) ? op.panes : []) {
+      if (!p || !isPaneId(p.id)) continue;
+      keep.add(p.id);
+      const show = p.show === true;
+      let view = webPanes.get(p.id);
+      const start = webUrl(p.start);
+      if (!view && show && start) {
+        view = makeWebPane(p.id);
+        view.webContents.loadURL(start).catch(() => {});
+      }
+      if (!view) continue;
+      placeWebPane(view, p);
+      view.setVisible(show);
+    }
+    for (const [id, view] of webPanes) if (!keep.has(id)) dropWebPane(id, view);
+  } else if (op.op === 'load') {
+    const url = webUrl(op.url);
+    if (!isPaneId(op.id) || !url) return { ok: false, why: 'bad load' };
+    const view = webPanes.get(op.id) || makeWebPane(op.id);
+    view.webContents.loadURL(url).catch(() => {});
+  } else if (op.op === 'nav') {
+    const view = webPanes.get(op.id);
+    if (!view) return { ok: false, why: 'no such pane' };
+    const history = view.webContents.navigationHistory;
+    if (op.cmd === 'back') history.goBack();
+    else if (op.cmd === 'forward') history.goForward();
+    else if (op.cmd === 'reload') view.webContents.reload();
+    else return { ok: false, why: 'bad nav' };
+  } else if (op.op === 'closeAll') {
+    closeWebPanes();
+  } else {
+    return { ok: false, why: 'bad op' };
+  }
+  return { ok: true };
+}
+
+function closeWebPanes() {
+  for (const [id, view] of webPanes) dropWebPane(id, view);
+}
+
+function makeWebPane(id) {
+  const view = new WebContentsView({
+    webPreferences: { partition: WEB_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  const wc = view.webContents;
+  wc.setUserAgent(chromeAgent());
+  view.setVisible(false);
+  win.contentView.addChildView(view);
+  webPanes.set(id, view);
+  watchWebDownloads();
+  const report = () => reportWebPane(id, wc);
+  for (const ev of ['did-navigate', 'did-navigate-in-page', 'page-title-updated', 'did-start-loading', 'did-stop-loading']) wc.on(ev, report);
+  // Only web addresses load in a pane; anything else (mailto:, zoommtg:...)
+  // goes to the app that opens it.
+  wc.on('will-navigate', (e, url) => {
+    if (/^(https?|about|blob|data):/i.test(url)) return;
+    e.preventDefault();
+    shell.openExternal(url).catch(() => {});
+  });
+  // A real pop-up (a sign-in window, sized by the page) gets a window of
+  // its own, with the pane's sign-in; a link that only wants a new tab
+  // opens in the same pane.
+  wc.setWindowOpenHandler(({ url, features }) => {
+    const sized = /(?:^|,)\s*(?:width|height)\s*=/i.test(features || '');
+    if (!sized) {
+      if (webUrl(url)) wc.loadURL(url).catch(() => {});
+      else shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    }
+    const size = (name, fallback) => Number((new RegExp(`${name}\\s*=\\s*(\\d+)`, 'i').exec(features) || [])[1]) || fallback;
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: size('width', 520), height: size('height', 680), parent: win, autoHideMenuBar: true,
+        webPreferences: { partition: WEB_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false },
+      },
+    };
+  });
+  wc.on('did-create-window', (child) => child.webContents.setUserAgent(chromeAgent()));
+  return view;
+}
+
+function dropWebPane(id, view) {
+  webPanes.delete(id);
+  try { win.contentView.removeChildView(view); } catch { /* window gone */ }
+  try { view.webContents.close(); } catch { /* already closed */ }
+}
+
+// The desk's box, in the main page's CSS pixels, to the window's own.
+function placeWebPane(view, p) {
+  const zoom = win.webContents.getZoomFactor() || 1;
+  const n = (v) => Number(v) || 0;
+  view.setBounds({
+    x: Math.round(n(p.x) * zoom), y: Math.round(n(p.y) * zoom),
+    width: Math.max(0, Math.round(n(p.w) * zoom)), height: Math.max(0, Math.round(n(p.h) * zoom)),
+  });
+}
+
+function reportWebPane(id, wc) {
+  if (wc.isDestroyed()) return;
+  const history = wc.navigationHistory;
+  sendWebPane({
+    id, url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(),
+    back: history.canGoBack(), forward: history.canGoForward(),
+  });
+}
+
+function sendWebPane(ev) {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.executeJavaScript(`window.classdashWebPane && window.classdashWebPane(${JSON.stringify(ev)});`).catch(() => {});
+}
+
+// Downloads (Docs' File → Download) go to Downloads under their own name,
+// a number added if it's taken, and the pane says so.
+function watchWebDownloads() {
+  if (webDownloadsWatched) return;
+  webDownloadsWatched = true;
+  session.fromPartition(WEB_PARTITION).on('will-download', (_e, item, wc) => {
+    const dir = app.getPath('downloads');
+    const name = path.basename(item.getFilename() || '') || 'download';
+    const ext = path.extname(name), base = name.slice(0, name.length - ext.length);
+    let target = path.join(dir, name);
+    for (let n = 2; fs.existsSync(target); n++) target = path.join(dir, `${base} ${n}${ext}`);
+    item.setSavePath(target);
+    item.once('done', (_ev, state) => {
+      if (state !== 'completed') return;
+      const id = [...webPanes].find(([, v]) => v.webContents === wc);
+      if (id) sendWebPane({ id: id[0], downloaded: path.basename(target) });
+    });
+  });
+}
+
+// ── What the AI may see (webCapture) ──
+//
+// The same as WebPanes.capture in 16-summary.swift: just before the AI pane
+// asks, the pages set to Text or Image are saved where the AI's
+// read_web_page tool reads them (workspace/web/<pane>.json, and <pane>.png
+// for Image), and the AI pane deletes them when the answer's in. The text
+// is read in a script world of ClassDash's own, so the page's scripts can't
+// see or change it. A Google Doc, Slides or Sheets draws its text itself,
+// so its own text export is asked for instead.
+const WEB_READ_SCRIPT = `(async () => {
+  const u = new URL(location.href);
+  const m = u.hostname === 'docs.google.com' && u.pathname.match(/^\\/(document|presentation|spreadsheets)(?:\\/u\\/\\d+)?\\/d\\/([A-Za-z0-9_-]+)/);
+  let text = '', how = 'page';
+  if (m) {
+    const gid = (u.hash.match(/gid=(\\d+)/) || [])[1];
+    const path = m[1] === 'document' ? '/document/d/' + m[2] + '/export?format=txt'
+      : m[1] === 'presentation' ? '/presentation/d/' + m[2] + '/export/txt'
+      : '/spreadsheets/d/' + m[2] + '/export?format=csv' + (gid ? '&gid=' + gid : '');
+    try { const r = await fetch(path, { credentials: 'include' }); if (r.ok) { text = await r.text(); how = 'export'; } } catch (e) {}
+  }
+  if (!text) text = document.body ? document.body.innerText : '';
+  return { title: document.title, url: location.href, text: String(text).slice(0, 60000), how };
+})()`;
+const WEB_READ_WORLD = 1307;
+
+async function captureWebPanes(arg) {
+  let op;
+  try { op = JSON.parse(arg); } catch { return { ok: false, why: 'bad capture' }; }
+  if (!op || !Array.isArray(op.panes)) return { ok: false, why: 'bad capture' };
+  const dir = path.join(projectDir, 'workspace', 'web');
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* not there */ }
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  let saved = 0;
+  await Promise.all(op.panes.map(async (p) => {
+    const view = p && isPaneId(p.id) && webPanes.get(p.id);
+    if (!view || !view.webContents.getURL()) return;
+    const wc = view.webContents;
+    try {
+      const page = await wc.executeJavaScriptInIsolatedWorld(WEB_READ_WORLD, [{ code: WEB_READ_SCRIPT }]);
+      if (page && typeof page === 'object') {
+        fs.writeFileSync(path.join(dir, p.id + '.json'), JSON.stringify(page), { mode: 0o600 });
+        saved++;
+      }
+    } catch { /* this page isn't saved */ }
+    if (p.image === true) {
+      try {
+        let image = await wc.capturePage();
+        // Wide enough to read, small enough to send: 1280 at most, one
+        // pixel per CSS pixel.
+        const width = Math.min(view.getBounds().width, 1280);
+        if (width > 0) image = image.resize({ width });
+        fs.writeFileSync(path.join(dir, p.id + '.png'), image.toPNG(), { mode: 0o600 });
+      } catch { /* no picture this time */ }
+    }
+  }));
+  return { ok: true, saved };
+}
 
 // Settings → Services → Setup, and Advanced's browser path picker. Each
 // answers the page with the same {ok, ...} shape as any bridge action.
@@ -885,6 +1123,11 @@ function createWindow() {
   loadSummary();
 
   win.webContents.on('did-finish-load', pushLiveState);
+  // The page that drew the desk is gone: so are its web panes (the desk
+  // opens them again where they were).
+  win.webContents.on('did-start-navigation', (details) => {
+    if (details && details.isMainFrame && !details.isSameDocument) closeWebPanes();
+  });
   // Closing with the workspace open: its last change goes out first
   // (classdashWorkspaceFlush in 08-page.js asks the panel to save now), with
   // a moment for the save to land. Then the window hides: ClassDash stays in

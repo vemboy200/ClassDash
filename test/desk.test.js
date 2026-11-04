@@ -39,7 +39,7 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
   ok('...sizes that add up, a focus that exists', saved.layout.sizes.join() === '0.75,0.25' && saved.focus === 'a');
   ok('...and bookmarks that are web addresses, named after their site if they had no name', saved.bookmarks.length === 1 && saved.bookmarks[0].title === 'example.test', JSON.stringify(saved.bookmarks));
   ok('nothing that isn\'t JSON gets saved', act('workspaceDeskSave', 'not json!!').ok === false && act('workspaceDesk').desk.focus === 'a');
-  ok('webCaps: only the Mac app draws web panes, and answers that itself', act('webCaps').web === false);
+  ok('webCaps: only the apps draw web panes, and answer that themselves', act('webCaps').web === false);
   fs.rmSync(path.join(proj, 'workspace', 'desk.json'));
 
   // ── the page ──
@@ -112,11 +112,11 @@ const panesOf = (n, out = []) => { if (n.pane) out.push(n); else n.kids.forEach(
     d.querySelector('.pane[data-id="p2"] .split-r').click();
     ok('five panes at most: then splitting is off', panes().length === 5 && d.querySelector('.pane[data-id="p1"] .split-r').disabled, panes().join());
     ok('...and a PDF pane next to all that was never reloaded', d.querySelector('.pane[data-id="p1"] iframe') === frame1);
-    // The kind menu: the AI is taken, web panes are the Mac app's.
+    // The kind menu: the AI is taken, web panes are the apps'.
     d.querySelector('.pane[data-id="p3"] .kind').click();
     const menu = d.querySelector('.menu');
     const items = menu ? [...menu.querySelectorAll('button')] : [];
-    ok('the pane menu: PDF, AI (taken), Web (not here)', items.map(b => b.textContent + (b.disabled ? '-' : '+')).join() === 'PDF+,AI-,Web-' && /Mac app/.test(menu.textContent), items.map(b => b.textContent + b.disabled).join());
+    ok('the pane menu: PDF, AI (taken), Web (not here)', items.map(b => b.textContent + (b.disabled ? '-' : '+')).join() === 'PDF+,AI-,Web-' && /ClassDash app/.test(menu.textContent), items.map(b => b.textContent + b.disabled).join());
     d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     ok('Escape shuts the menu first, not the workspace', !d.querySelector('.menu') && !posted.some(m => m.type === 'close'));
     d.querySelector('.pane[data-id="p4"] .shut').click();

@@ -35,8 +35,9 @@
  * over a web pane (a menu) would end up under the app's view, so a web pane
  * a menu covers is hidden while it's open.
  *
- * Only the Mac app draws web panes so far; elsewhere webCaps says so and
- * the Web choice explains.
+ * The Mac and Windows apps draw web panes (16-summary.swift's WebPanes,
+ * electron/main.js's web panes); in a plain browser webCaps says it can't
+ * and the Web choice explains.
  *
  * ── Before the AI ──
  *
