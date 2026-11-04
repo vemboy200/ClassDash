@@ -779,6 +779,7 @@ const DICTIONARIES = {
     connConnecting: 'Подключаюсь к ClassDash…',
     connOffline: 'Нет связи с ClassDash — показана последняя сохранённая копия',
     settingsSignOutDesc: 'Выйти из ClassDash в этом браузере',
+    settingsApiAppOnly: 'Доступ по сети и новый ключ меняются только в приложении ClassDash на компьютере, где работает сервер.',
   },
 
   en: {
@@ -1504,6 +1505,7 @@ const DICTIONARIES = {
     connConnecting: 'Connecting to ClassDash…',
     connOffline: 'Can\'t reach ClassDash — showing the last saved copy',
     settingsSignOutDesc: 'Signs this browser out of ClassDash',
+    settingsApiAppOnly: 'LAN access and rolling the key can only be changed in the ClassDash app on the computer running the server.',
   },
 };
 

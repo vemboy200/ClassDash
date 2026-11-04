@@ -32,6 +32,19 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   for (let i = 0; i < 80 && !up; i++) { up = !(await request('OPTIONS', '/')).error; if (!up) await sleep(100); }
   ok('server is listening', up);
 
+  // ---- http:// typed by mistake ----
+  const plain = await new Promise(resolve => {
+    const r = require('http').get({ host: '127.0.0.1', port, path: '/settings?x=1', headers: { Host: `127.0.0.1:${port}` } }, res => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location }); });
+    r.on('error', e => resolve({ error: e.message }));
+  });
+  ok('plain http on the same port is sent to https, path and all', plain.status === 301 && plain.location === `https://127.0.0.1:${port}/settings?x=1`, JSON.stringify(plain));
+  const odd = await new Promise(resolve => {
+    const r = require('http').get({ host: '127.0.0.1', port, path: '/', headers: { Host: 'a"b<c>.example:1' } }, res => { res.resume(); resolve(res.headers.location); });
+    r.on('error', e => resolve(e.message));
+  });
+  ok('...with the host kept to host-name characters', odd === `https://abc.example:${port}/`, odd);
+  ok('...and https still works beside it', (await request('GET', '/api/status')).status === 401);
+
   // ---- signing in ----
   const signedOut = await request('GET', '/', { headers: browser });
   ok('a browser with no cookie is sent to sign in', signedOut.status === 303 && signedOut.headers.location === '/login', JSON.stringify(signedOut));

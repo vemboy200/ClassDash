@@ -194,4 +194,17 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
   ok('hiding the window with Settings changed saves them', posted.some(m => m.action === 'config'), JSON.stringify(posted.map(m => m.action)));
   Object.defineProperty(d, 'hidden', { configurable: true, get: () => false });
 }
+
+// ── LAN access and rolling the key: app only ──
+{
+  const proj = T.makeProject({ 'settings.json': { language: 'en' } });
+  const lan = d => d.querySelector('[data-bool-key="apiLan"]');
+  const roll = d => d.querySelector('button[onclick="rollApiToken()"]');
+  const note = d => d.querySelector('[data-app-only-note]');
+  const browser = open(proj).document;
+  ok('in a browser the LAN switch and Roll are greyed out, not hidden', lan(browser).disabled && roll(browser).disabled && !!lan(browser).closest('label'));
+  ok('...with a line saying they\'re changed in the app', note(browser) && !note(browser).hidden && /only be changed in the ClassDash app/.test(note(browser).textContent));
+  const app = open(proj, []).document;
+  ok('in the app they work, and there\'s no such line', !lan(app).disabled && !roll(app).disabled && note(app).hidden);
+}
 process.exit(process.exitCode || 0);

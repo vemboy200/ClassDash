@@ -812,6 +812,8 @@ function trayMenu() {
     { type: 'separator' },
     { label: 'Open ClassDash', click: showWindow },
     { label: 'Check Now', click: () => runAction('check', '') },
+    // Stops the server and starts it again; an open window reconnects by itself.
+    { label: 'Restart Server', click: () => runAction('restartApi', '') },
     { label: 'Copy Access Key', click: copyAccessKey },
     { type: 'separator' },
     { label: 'Quit ClassDash', click: () => app.quit() },

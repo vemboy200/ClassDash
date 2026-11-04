@@ -10,7 +10,7 @@ With **Allow LAN access** on, ClassDash also announces itself on your home netwo
 
 ## ClassDash in a browser
 
-The API also serves the ClassDash page itself, so you can open it in a browser instead of the app: on the same computer at `https://127.0.0.1:8734`, or from another device on your network at `https://` your computer's address `:8734` with **Allow LAN access** on. The first time, the browser warns that the certificate isn't trusted, because it's ClassDash's own (check that the fingerprint matches the one in Settings → API). Then paste the access key once, and the browser remembers it. Rolling the key signs every browser out.
+The API also serves the ClassDash page itself, so you can open it in a browser instead of the app: on the same computer at `https://127.0.0.1:8734`, or from another device on your network at `https://` your computer's address `:8734` with **Allow LAN access** on (typing `http://` by mistake sends you to `https://`, and nothing is served over plain http). The first time, the browser warns that the certificate isn't trusted, because it's ClassDash's own (check that the fingerprint matches the one in Settings → API). Then paste the access key once, and the browser remembers it. Rolling the key signs every browser out.
 
 The app's own window shows ClassDash from this same server: it signs itself in with a key of its own (not the access key, and never shown), so rolling the access key signs out browsers and other devices but not the app.
 

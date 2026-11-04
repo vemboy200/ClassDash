@@ -1389,10 +1389,34 @@ function start() {
     }
   });
 
+  // ── http:// typed by mistake ──
+  //
+  // One port, both. Every https connection opens with a TLS handshake,
+  // whose first byte is 0x16; anything else is plain http, which gets a
+  // redirect to the same address over https instead of a browser error
+  // ("the connection was reset") that doesn't say what's wrong. Nothing is
+  // served over plain http, only the redirect, so the key never goes over
+  // the network unencrypted from here. The host is kept to the characters a
+  // host name or address can have.
+  const redirect = require('http').createServer((req, res) => {
+    const host = String(req.headers.host || '').split(':')[0].replace(/[^A-Za-z0-9.\-]/g, '') || '127.0.0.1';
+    res.writeHead(301, { Location: `https://${host}:${port}${req.url && req.url.startsWith('/') ? req.url : '/'}`, Connection: 'close' });
+    res.end();
+  });
+  const front = require('net').createServer(socket => {
+    socket.on('error', () => {});
+    socket.once('data', first => {
+      socket.pause();
+      socket.unshift(first);
+      (first[0] === 0x16 ? server : redirect).emit('connection', socket);
+      process.nextTick(() => socket.resume());
+    });
+  });
+
   // A port already in use is usually a forgotten previous run. Print one
   // clear line instead of a twenty-line stack: whoever sees it should
   // know exactly what to do.
-  server.on('error', (e) => {
+  front.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
       console.error(`Port ${port} is in use — probably already running.`);
       console.error(`See who: lsof -i :${port}`);
@@ -1403,7 +1427,7 @@ function start() {
     throw e;
   });
 
-  server.listen(port, host, () => {
+  front.listen(port, host, () => {
     // Written AFTER listen succeeds, not before — a pid file for a
     // process that then immediately died on EADDRINUSE (see the error
     // handler above) would tell 21-notifier-actions.js this server is

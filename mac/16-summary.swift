@@ -1779,6 +1779,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Open ClassDash", action: #selector(openFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Check Now", action: #selector(checkFromMenuBar), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Restart Server", action: #selector(restartServerFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Copy Access Key", action: #selector(copyAccessKeyFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit ClassDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -1831,6 +1832,13 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
 
     @objc func checkFromMenuBar() {
         runAction("check", "") { _ in }
+    }
+
+    // Stops the server and starts it again, picking up a changed 17-api.js or
+    // settings.json. An open window shows the connection bar for the moment
+    // it's down and reconnects by itself.
+    @objc func restartServerFromMenuBar() {
+        runAction("restartApi", "") { _ in }
     }
 
     // For signing in to ClassDash in a browser (or setting up another

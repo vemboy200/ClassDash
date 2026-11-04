@@ -1789,9 +1789,10 @@ ${classLinksField(s.classLinks)}
           : `<span class="api-status">${escapeHtml(t('settingsApiNotRunning'))}</span>`}</p>
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiLan'))}</span>
-        <input type="checkbox" class="toggle" data-bool-key="apiLan"${s.apiLan ? ' checked' : ''}>
+        <input type="checkbox" class="toggle" data-bool-key="apiLan" data-app-only${s.apiLan ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsApiLanHint'))}</span>
       </label>
+      <p class="hint" data-app-only-note hidden>${escapeHtml(t('settingsApiAppOnly'))}</p>
       <div class="api-key-row">
         <label class="setting-row">
           <span class="field-name">${escapeHtml(t('settingsApiToken'))}</span>
@@ -1803,7 +1804,7 @@ ${classLinksField(s.classLinks)}
                       title="${escapeHtml(t('settingsReveal'))}">👁</button>
             </span>
             <button type="button" class="mini-btn" onclick="copyFieldValue(this, 'api-token-field')">${escapeHtml(t('settingsCopy'))}</button>
-            <button type="button" class="mini-btn" onclick="rollApiToken()">${escapeHtml(t('settingsRoll'))}</button>
+            <button type="button" class="mini-btn" data-app-only onclick="rollApiToken()">${escapeHtml(t('settingsRoll'))}</button>
           </span>
           <span class="field-hint">${escapeHtml(t('settingsApiTokenHint'))}</span>
         </label>
@@ -3410,6 +3411,8 @@ ${cardHtml[id]}
   /* Sign out (a browser only): a form around its row, so the row is the
      first of its kind in there and needs its divider back. */
   .settings-signout[hidden] { display: none; }
+  /* App-only controls in a browser (see data-app-only): shown, but plainly not usable. */
+  [data-app-only]:disabled { opacity: .45; cursor: not-allowed; }
   .settings-signout .settings-row { border-top: 1px solid var(--line); }
   .settings-signout .settings-row-icon.icon-back { -webkit-mask-size: 32px 32px; mask-size: 32px 32px; -webkit-mask-image: var(--icon-back); mask-image: var(--icon-back); }
   .settings-row:hover, .settings-row:focus-visible { background: var(--line); }
@@ -4326,6 +4329,17 @@ if (hasNativeBridge()) document.getElementById('workspace-button').style.display
 // Signing out is for a browser signed in with the access key (see /login in
 // 17-api.js). The app never signs in that way, so it never shows there.
 if (!hasNativeBridge() && location.protocol === 'https:') document.getElementById('settings-signout').hidden = false;
+// LAN access and rolling the key change who can reach the server, so the
+// server only takes them from the app itself (APP_ONLY_ACTIONS in
+// 17-api.js), never over the API. In a browser they stay visible (whether
+// LAN access is on is worth seeing) but greyed out, with a line saying
+// where to change them, instead of looking like they work and then not.
+if (!hasNativeBridge()) {
+  var appOnly = document.querySelectorAll('[data-app-only]');
+  for (var ao = 0; ao < appOnly.length; ao++) appOnly[ao].disabled = true;
+  var appOnlyNotes = document.querySelectorAll('[data-app-only-note]');
+  for (var an = 0; an < appOnlyNotes.length; an++) appOnlyNotes[an].hidden = false;
+}
 
 function openWorkspace() {
   var panel = document.getElementById('workspace-panel');
