@@ -5409,7 +5409,7 @@ function showSettingsSection(name) {
   document.getElementById('settings-menu').hidden = true;
   window.scrollTo(0, 0);
   if (name === 'ai') refreshAiStates();
-  if (name === 'api') loadDevices();
+  if (name === 'api') watchDevices();
 }
 
 // ── Paired devices (Settings → API) ──
@@ -5465,6 +5465,26 @@ function loadDevices(then) {
     renderDevices(res.devices || []);
     if (then) then(res);
   });
+}
+
+// While Settings → API is open, the list is asked for again every few
+// seconds: a device can pair, sign out or be removed from somewhere else
+// (signing out on a paired browser removes its key), and nothing tells
+// this page. Stops by itself once the section is closed.
+var devicesWatch = null;
+function watchDevices() {
+  loadDevices();
+  if (devicesWatch) return;
+  devicesWatch = setInterval(function () {
+    var section = document.querySelector('.settings-section[data-section="api"]');
+    var panel = document.getElementById('settings-panel');
+    if (!section || section.hidden || (panel && panel.hidden)) {
+      clearInterval(devicesWatch);
+      devicesWatch = null;
+      return;
+    }
+    if (!pairWatch) loadDevices();
+  }, 5000);
 }
 
 function showPairState(code, note) {
