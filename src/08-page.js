@@ -1283,10 +1283,16 @@ function gradeHistoryChart(points, now = new Date()) {
   d += ` H${(W - PAD).toFixed(1)}`;
   // Square dots on whole pixels, drawn without smoothing, like the rest of
   // the page's pixel look.
-  const dots = pts.map(p => `<rect x="${Math.round(x(p.at)) - 2}" y="${Math.round(y(p.percent)) - 2}" width="5" height="5"><title>${escapeHtml(`${day(p.at)}: ${p.est ? '~' : ''}${num(p.percent)}%${p.grade ? ` (${p.grade})` : ''}`)}</title></rect>`).join('');
+  //
+  // Each dot carries its own words (data-tip) for the hover readout
+  // (showGradeTip): hovering ANYWHERE over the chart shows, at once, the
+  // grade in effect there, the last dot at or left of the pointer, since a
+  // grade holds until it changes. The browser's own <title> tooltip used to
+  // do this, and only right on a 5px dot, after its built-in delay.
+  const dots = pts.map(p => `<rect x="${Math.round(x(p.at)) - 2}" y="${Math.round(y(p.percent)) - 2}" width="5" height="5" data-tip="${escapeHtml(`${day(p.at)}: ${p.est ? '~' : ''}${num(p.percent)}%${p.grade ? ` (${p.grade})` : ''}`)}"></rect>`).join('');
   const first = pts[0], last = pts[pts.length - 1];
   return `          <div class="gc-history">
-            <span class="gc-history-frame"><svg class="gc-history-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(t('gcHistoryLabel'))}"><path d="${d}" /><g>${dots}</g></svg></span>
+            <span class="gc-history-frame"><span class="gc-tip" hidden></span><svg class="gc-history-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(t('gcHistoryLabel'))}"><path d="${d}" /><g>${dots}</g></svg></span>
             <span class="hint">${escapeHtml(t('gcHistory', day(first.at), num(first.percent), num(last.percent), pts.length - 1))}</span>
           </div>
 `;
@@ -3716,6 +3722,16 @@ ${cardHtml[id]}
   .gc-history-chart { max-width: 100%; height: auto; color: var(--text); }
   .gc-history-chart path { fill: none; stroke: currentColor; stroke-width: 1.5; }
   .gc-history-chart rect { fill: currentColor; shape-rendering: crispEdges; }
+  /* The hover readout (showGradeTip): instant, no browser tooltip delay. The
+     dot it's about is drawn in the theme blue. */
+  .gc-history-frame { position: relative; }
+  .gc-history-chart { cursor: crosshair; }
+  .gc-history-chart rect.gc-tip-on { fill: var(--new); }
+  .gc-tip {
+    position: absolute; transform: translate(-50%, calc(-100% - 10px)); z-index: 5; white-space: nowrap; pointer-events: none;
+    line-height: 1.3; font-size: 12px; font-weight: 600; padding: 3px 7px; background: var(--card); color: var(--text); border: 2px solid var(--new);
+  }
+  .gc-tip[hidden] { display: none; }
   .gc-history-note { margin: -2px 0 8px; }
   .grade-source { color: var(--dim); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
   .grades-problem { color: var(--hot); }
@@ -5259,6 +5275,46 @@ function stopFreshCheck() {
     if (res && res.ok && res.stopped === false) button.disabled = false; // nothing was running — try again is fine
   });
 }
+
+// The grade chart's hover readout (gradeHistoryChart): the dot at or left
+// of the pointer, lit, with its date and grade above the line where the
+// pointer is. One listener for
+// every chart on the page.
+function showGradeTip(e) {
+  var svg = e.target && e.target.closest ? e.target.closest('.gc-history-chart') : null;
+  var charts = document.querySelectorAll('.gc-history-chart');
+  for (var c = 0; c < charts.length; c++) {
+    if (charts[c] === svg) continue;
+    var lit = charts[c].querySelector('rect.gc-tip-on');
+    if (lit) lit.classList.remove('gc-tip-on');
+    var other = charts[c].parentNode.querySelector('.gc-tip');
+    if (other) other.hidden = true;
+  }
+  if (!svg) return;
+  var dots = svg.querySelectorAll('rect[data-tip]');
+  if (!dots.length) return;
+  var box = svg.getBoundingClientRect();
+  var scale = box.width ? svg.viewBox.baseVal.width / box.width : 1;
+  var at = (e.clientX - box.left) * scale;
+  var pick = dots[0];
+  for (var i = 0; i < dots.length; i++) {
+    if (Number(dots[i].getAttribute('x')) + 2 <= at) pick = dots[i];
+  }
+  for (var j = 0; j < dots.length; j++) dots[j].classList.toggle('gc-tip-on', dots[j] === pick);
+  var tip = svg.parentNode.querySelector('.gc-tip');
+  if (!tip) return;
+  tip.textContent = pick.getAttribute('data-tip');
+  tip.hidden = false;
+  // Across with the pointer, up and down with the line, like Home
+  // Assistant's history graphs: the line is flat at this grade until the
+  // next change, so its height here is the lit dot's.
+  var frame = svg.parentNode.getBoundingClientRect();
+  var lineY = (Number(pick.getAttribute('y')) + 2) / scale + box.top - frame.top;
+  tip.style.left = Math.round(e.clientX - frame.left) + 'px';
+  tip.style.top = Math.round(lineY) + 'px';
+}
+document.addEventListener('mousemove', showGradeTip);
+document.addEventListener('mouseleave', function () { showGradeTip({ target: null }); });
 
 function toggleCheckStatusDetail() {
   var panel = document.getElementById('check-status-panel');

@@ -74,6 +74,19 @@ fs.unlinkSync(H.FILE);
   ok('...inside the mark, so Hide masks it', trend('Made-up Math').parentElement.classList.contains('grade-mark'));
   const charts = d.querySelectorAll('#grades-center .gc-history-chart');
   ok('the Grades center draws each class\'s history', charts.length === 2 && charts[0].querySelectorAll('rect').length >= 2, String(charts.length));
+  {
+    const chart = charts[0], tip = chart.parentNode.querySelector('.gc-tip');
+    const dots = [...chart.querySelectorAll('rect[data-tip]')];
+    const hover = (el, x) => el.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: x }));
+    ok('no browser tooltips on the dots, which only showed right on a dot after a delay', !chart.querySelector('title') && dots.length >= 2);
+    hover(chart, 100000);
+    ok('hovering right of the last change shows the grade now, at once', !tip.hidden && tip.textContent === dots[dots.length - 1].getAttribute('data-tip') && /%/.test(tip.textContent));
+    ok('...and lights that dot', dots[dots.length - 1].classList.contains('gc-tip-on') && dots.filter(x => x.classList.contains('gc-tip-on')).length === 1);
+    hover(chart, 0);
+    ok('hovering at the start shows where it started', tip.textContent === dots[0].getAttribute('data-tip') && dots[0].classList.contains('gc-tip-on'));
+    hover(d.body, 0);
+    ok('moving off the chart hides it', tip.hidden && !chart.querySelector('rect.gc-tip-on'));
+  }
   ok('...with where it started and how often it changed', /Since .+: 84% → 85% \(2 changes\)/.test(d.querySelector('#grades-center').textContent.replace(/\s+/g, ' ')));
   const select = d.querySelector('select[data-key="gradeAlerts"]');
   ok('Settings → Grades has the alert choice, showing the saved one', select && select.value === 'drops' && select.options.length === 3);
