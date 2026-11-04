@@ -1657,6 +1657,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Open ClassDash", action: #selector(openFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Check Now", action: #selector(checkFromMenuBar), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Copy Access Key", action: #selector(copyAccessKeyFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit ClassDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         item.menu = menu
@@ -1708,6 +1709,17 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
 
     @objc func checkFromMenuBar() {
         runAction("check", "") { _ in }
+    }
+
+    // For signing in to ClassDash in a browser (or setting up another
+    // client) without opening Settings → API. The key is read from the file
+    // the server keeps it in, never shown.
+    @objc func copyAccessKeyFromMenuBar() {
+        guard let data = FileManager.default.contents(atPath: projectDir + "/api-token.txt"),
+              let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !key.isEmpty else { NSSound.beep(); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(key, forType: .string)
     }
 
     // Quitting quits the server too (see setupMenuBar()). Synchronous, so

@@ -18,7 +18,7 @@ Go to the [Releases page](https://github.com/vemboy200/ClassDash/releases) and g
 
 **Building either one yourself** is the other option, if you'd rather not run a downloaded binary or want to modify the code — see [CONTRIBUTING.md](../CONTRIBUTING.md#building-from-source).
 
-**On Linux**, or if you'd simply rather not install an app at all: the collector, the summary page, and the home API are plain Node and run fine without either native wrapper — open `summary.html` in any browser to view it. Be aware this is view-only, though: buttons like "hide" and saving settings from the page depend on a bridge only the real Mac or Windows app provides, so without one those clicks won't actually do anything. Setting up the project folder by hand this way still needs Terminal — see [Doing it by hand](#doing-it-by-hand) below.
+**On Linux**, or if you'd simply rather not install an app at all: the collector, the summary page, and the API are plain Node and run fine without either native wrapper — open `summary.html` in any browser to view it. Be aware this is view-only, though: buttons like "hide" and saving settings from the page depend on a bridge only the real Mac or Windows app provides, so without one those clicks won't actually do anything. Setting up the project folder by hand this way still needs Terminal — see [Doing it by hand](#doing-it-by-hand) below.
 
 ## 2. Launch it — first run sets everything up
 

@@ -9,7 +9,7 @@
 // underlying logic those already-cross-platform files already own.
 'use strict';
 
-const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, powerMonitor, shell, protocol } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, powerMonitor, shell, protocol, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -695,9 +695,20 @@ function trayMenu() {
     { type: 'separator' },
     { label: 'Open ClassDash', click: showWindow },
     { label: 'Check Now', click: () => runAction('check', '') },
+    { label: 'Copy Access Key', click: copyAccessKey },
     { type: 'separator' },
     { label: 'Quit ClassDash', click: () => app.quit() },
   ]);
+}
+
+// For signing in to ClassDash in a browser (or setting up another client)
+// without opening Settings → API. Read from the file the server keeps it in,
+// never shown.
+function copyAccessKey() {
+  try {
+    const key = fs.readFileSync(path.join(projectDir, 'api-token.txt'), 'utf8').trim();
+    if (key) clipboard.writeText(key);
+  } catch { /* no key yet: the server makes one when it first starts */ }
 }
 
 function setupTray() {

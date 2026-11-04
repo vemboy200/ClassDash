@@ -167,7 +167,7 @@ Almost everything below now has a control in the settings panel (Settings in the
 | `showEmptyClasses` | `false` (default) — the class filter only lists classes with something currently due/overdue/removed; `true` always lists every known class with a 0 next to the empty ones instead of them disappearing |
 | `showKeyHints` | `true` (default) — the small key shown beside each filter, and the shortcut in the header buttons' tooltips (see "Keyboard shortcuts" below). Only the hints: the shortcuts themselves work either way. Display |
 | `apiLan` | `false` (default) — the API server always runs; on, it binds `0.0.0.0` (the home network too) instead of `127.0.0.1` (this machine only). Changing this restarts the server — the bind address is only decided at its own startup. Replaced `apiEnabled` and `apiNetwork` in v3: a settings.json with both on reads as `apiLan` on |
-| `apiPort` | port for the home API, default `8734`. **CLI/config-file only, deliberately not in the settings panel** — a user-changeable port would mean any client integration (e.g. a Home Assistant component) has to discover or be told about a moving target instead of a fixed default |
+| `apiPort` | port for the API, default `8734`. **CLI/config-file only, deliberately not in the settings panel** — a user-changeable port would mean any client integration (e.g. a Home Assistant component) has to discover or be told about a moving target instead of a fixed default |
 | `classTimeoutMs` | how long to wait for a class page, ms — panel's System section |
 | `emptyTimeoutMs` | shorter wait for classes that never had assignments, ms — System |
 | `passLimitMs` | a pass longer than this is treated as hung and killed, ms — System |
@@ -379,9 +379,9 @@ If a browser is needed and can't be started (none installed or chosen, or a lock
 
 ---
 
-## Home API — technical detail
+## API — technical detail
 
-The user-facing version is in the [Home API docs](docs/home-api.md). This is the actual protocol, for anything consuming it (a Home Assistant integration, a script, a phone shortcut).
+The user-facing version is in the [API docs](docs/api.md). This is the actual protocol, for anything consuming it (a Home Assistant integration, a script, a phone shortcut).
 
 - **Transport:** `https.createServer`. First run generates `api-cert.pem`
   + `api-key.pem` (self-signed, `openssl req`, RSA 2048, CN=`classdash-local`, 10-year expiry) and `api-token.txt` (32 random bytes, hex) next to `17-api.js` — gitignored, unique per install, never regenerated on their own. A client should pin the certificate's SHA-256 fingerprint rather than doing normal CA validation — there's no real CA for a private home address.
@@ -433,13 +433,13 @@ All of these live under `src/`, except `16-summary.swift` (`mac/`) and the two e
 | `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
 | `14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
 | `16-summary.swift` | the macOS app — the summary window, the `napominalka://` bridge and its browser-tab fallback, notifications, locating the project folder, and (since 2026-09-09) the no-terminal new-project setup wizard, all in one |
-| `17-api.js` | the home API |
+| `17-api.js` | the API server |
 | `18-language.js` | Russian and English wording |
 | `19-settings.js` | settings: read, write, validate |
 | `20-browser.js` | downloads and installs the project's own isolated Brave — **macOS only**; the Windows wrapper has its own, separate Brave-install logic in `electron/main.js`, since Windows has no equivalent of an isolated app-bundle copy |
 | `21-notifier-actions.js` | the actual logic behind every `napominalka://` action — run by 16-summary.swift directly on macOS, by `electron/main.js` (as a real spawned subprocess, see its own section above) on Windows, not a separate app on either platform |
 | `22-class-activity.js` | "has this class gone quiet?" — shared by Classroom's and Canvas's own staleness checks |
-| `23-api-security.js` | the home API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js; certificate generation uses the `selfsigned` package (pinned to 4.x), not `openssl` — Windows doesn't ship it the way macOS does |
+| `23-api-security.js` | the API's certificate/token generation, auth check, and running-process tracking — shared by 17-api.js and 21-notifier-actions.js; certificate generation uses the `selfsigned` package (pinned to 4.x), not `openssl` — Windows doesn't ship it the way macOS does |
 | `24-virtual-assignments.js` | reminders the user types in themselves — storage, done/hidden/delete, and bucketing by due date |
 | `25-check-status.js` | per-platform "did the last check work?" — ok/problem/unknown |
 | `26-update-check.js` | reads the update check the native wrapper already ran; writes dismissedVersion; downloads the release asset (`.dmg` on macOS, `.exe` on Windows — the destination filename is derived from the actual download URL's own extension) |

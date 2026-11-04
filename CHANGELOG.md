@@ -4,9 +4,12 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
-- **ClassDash in a browser.** The Home API now serves the ClassDash page too, so you can open it in a browser on the same computer or another device on your network: paste the access key once and the browser remembers it. Its buttons work the same as in the app, apart from the few things that need the app itself. See [Home API](docs/home-api.md#classdash-in-a-browser).
-- **The Home API always runs now, for this computer only**, and Settings → Home API has one switch, **Allow LAN access**, off by default, for reaching it from other devices like Home Assistant. If you had the Home API on and on the network, LAN access is already on, so Home Assistant keeps working.
+- **ClassDash in a browser.** The API now serves the ClassDash page too, so you can open it in a browser on the same computer or another device on your network: paste the access key once and the browser remembers it. Its buttons work the same as in the app, apart from the few things that need the app itself. See [API](docs/api.md#classdash-in-a-browser).
+- **The API always runs now, for this computer only**, and Settings → API has one switch, **Allow LAN access**, off by default, for reaching it from other devices like Home Assistant. If you had the Home API on and on the network, LAN access is already on, so Home Assistant keeps working.
 - **ClassDash stays in the menu bar (Mac) or the tray (Windows)** when you close its window, so its automatic checks, Home Assistant and a browser keep working. Its icon says whether the server is running, whether LAN access is on and when the last check was, with **Open ClassDash**, **Check Now** and **Quit ClassDash**. Quitting stops everything, the server included. On the Mac, the Dock icon goes away while the window is closed.
+- **Copy Access Key** in the menu bar and the tray, for signing in to ClassDash in a browser without opening Settings.
+- **Signing in to ClassDash in a browser** has its own page in ClassDash's style, and **Settings → Sign out** (only in a browser) signs that browser out again.
+- **The Home API is now just the API**, in Settings and the docs ([API](docs/api.md)), since it's what a browser and other apps use too, not only Home Assistant.
 
 ## v2.8.0 (2026-11-03)
 

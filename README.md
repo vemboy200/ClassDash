@@ -23,7 +23,7 @@ Four different sites, each with its own idea of what "your assignments" means. C
 | **Calendar and schedule** | Your school's calendar (from its PDF or a calendar feed), your class schedule with A/B or odd/even days and flipped days, and "class tomorrow" on the work that's due. [Calendar and schedule](docs/calendar.md) |
 | **Workspace** | Write on worksheets and export them ready to hand in, with Google Docs, Desmos or another PDF beside them, up to five panes. [Workspace](docs/workspace.md) |
 | **AI helper** | Bring your own: a model on your computer or one you already pay for. It knows your assignments, instructions and PDFs, helps you get there yourself (Hints only) instead of doing the work, and finds homework hidden in announcements. Off until you set one up. [AI](docs/ai.md) · [Using AI with ClassDash](docs/ai-use.md) |
-| **Home API** | Your schoolwork on a Home Assistant dashboard, or anything else on your home network. [Home API](docs/home-api.md) |
+| **API** | Your schoolwork in a browser, on a Home Assistant dashboard, or anything else on your home network. [API](docs/api.md) |
 
 ## How it works
 
@@ -48,7 +48,7 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 - [Workspace](docs/workspace.md): PDFs, web pages and the AI pane
 - [AI](docs/ai.md): a page for each AI, setting one up, picking a model, announcements, other AI apps
 - [Using AI with ClassDash](docs/ai-use.md): what the AI will and won't do, and advice about AI and school
-- [Home API](docs/home-api.md)
+- [API](docs/api.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Changelog](CHANGELOG.md): what's new, including what's built but not released yet
 - [CONTRIBUTING.md](CONTRIBUTING.md): how it works inside, building from source

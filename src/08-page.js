@@ -1859,6 +1859,9 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
       <div class="settings-menu" id="settings-menu">
       <div class="settings-section-head"><h2>${escapeHtml(t('settingsTitle'))}</h2></div>
 ${menuRows}
+        <form class="settings-signout" id="settings-signout" method="post" action="/logout" hidden>
+          <button type="submit" class="settings-row"><span class="settings-row-icon pixel-icon icon-back" aria-hidden="true"></span><span class="settings-row-text"><span class="settings-row-name">${escapeHtml(t('settingsSignOut'))}</span><span class="settings-row-desc">${escapeHtml(t('settingsSignOutDesc'))}</span></span></button>
+        </form>
       </div>
 ${sectionBlocks}
       <div class="settings-actions">
@@ -3236,6 +3239,11 @@ ${cardHtml[id]}
     text-align: left; color: var(--text); font: inherit; padding: 10px 8px; cursor: pointer;
   }
   .settings-row:first-of-type { border-top: none; }
+  /* Sign out (a browser only): a form around its row, so the row is the
+     first of its kind in there and needs its divider back. */
+  .settings-signout[hidden] { display: none; }
+  .settings-signout .settings-row { border-top: 1px solid var(--line); }
+  .settings-signout .settings-row-icon.icon-back { -webkit-mask-size: 32px 32px; mask-size: 32px 32px; -webkit-mask-image: var(--icon-back); mask-image: var(--icon-back); }
   .settings-row:hover, .settings-row:focus-visible { background: var(--line); }
   /* Drawn at 32 and shown at 32, so it stays crisp. A row with no icon
      would keep the empty space, so every name lines up. */
@@ -4137,6 +4145,9 @@ var WORKSPACE_ACTIONS = ['workspaceList', 'workspaceRemove', 'wsImport', 'wsSave
 var workspaceDoc = '';
 var workspaceClosing = null;
 if (hasNativeBridge()) document.getElementById('workspace-button').style.display = '';
+// Signing out is for a browser signed in with the access key (see /login in
+// 17-api.js). The app never signs in that way, so it never shows there.
+if (!hasNativeBridge() && location.protocol === 'https:') document.getElementById('settings-signout').hidden = false;
 
 function openWorkspace() {
   var panel = document.getElementById('workspace-panel');
@@ -7357,4 +7368,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite };

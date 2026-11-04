@@ -8,7 +8,7 @@
 
 **A full check or a save is stuck / did nothing (macOS).** The first one after install may be waiting on the App Management permission prompt — check System Settings → Privacy & Security.
 
-**On Windows, Settings → Home API says the server isn't running** — most likely after reinstalling the app or letting it self-update. Reopening ClassDash starts it again, and so does the next check.
+**On Windows, Settings → API says the server isn't running** — most likely after reinstalling the app or letting it self-update. Reopening ClassDash starts it again, and so does the next check.
 
 **A school sign-in doesn't work in a workspace web pane.** A known limitation for now: some school sign-ins (SSO), especially link hubs that open each app signed in, don't finish in a web pane. Use your usual browser for those sites.
 

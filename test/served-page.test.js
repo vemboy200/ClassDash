@@ -41,7 +41,7 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
 
   const formHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
   const wrong = await request('POST', '/login', { headers: formHeaders, body: 'token=nope' });
-  ok('a wrong token: 401, the form again with the error, no cookie', wrong.status === 401 && /not the right token/.test(wrong.body) && !wrong.headers['set-cookie'], JSON.stringify(wrong.headers));
+  ok('a wrong token: 401, the form again with the error, no cookie', wrong.status === 401 && /not the right key/.test(wrong.body) && !wrong.headers['set-cookie'], JSON.stringify(wrong.headers));
   const right = await request('POST', '/login', { headers: formHeaders, body: 'token=' + encodeURIComponent(token) });
   const cookie = (right.headers['set-cookie'] || [''])[0];
   ok('the right token: back to the page with a cookie', right.status === 303 && right.headers.location === '/' && cookie.startsWith('classdash_token='), JSON.stringify(right.headers));
@@ -102,6 +102,13 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ language: 'en' }));
   const sameApi = await act('config', chunk({ apiLan: false, showEmptyClasses: true }));
   ok('a settings save that leaves the Home API alone: runs', sameApi.status === 200 && JSON.parse(sameApi.body).ok === true, sameApi.body);
+
+  // ---- signing out ----
+  const getLogout = await request('GET', '/logout', { headers: withCookie });
+  ok('signing out is POST only (a link or a prefetch can\'t)', getLogout.status !== 303 && !getLogout.headers['set-cookie'], JSON.stringify(getLogout.headers));
+  const logout = await request('POST', '/logout', { headers: withCookie });
+  const cleared = (logout.headers['set-cookie'] || [''])[0];
+  ok('POST /logout clears the cookie and goes back to signing in', logout.status === 303 && logout.headers.location === '/login' && /^classdash_token=;/.test(cleared) && /Max-Age=0/.test(cleared), JSON.stringify(logout.headers));
 
   cleanup();
   console.log('served-page: done');

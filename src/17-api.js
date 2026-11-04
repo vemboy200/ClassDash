@@ -1005,9 +1005,25 @@ function wantsHtml(req) {
   return /text\/html/.test(req.headers['accept'] || '') && !(req.headers['authorization'] || '');
 }
 
-/** The sign-in page a browser gets before it has the cookie. Plain on
- *  purpose: it only ever asks for the token. */
+/** The sign-in page a browser gets before it has the cookie. It only ever
+ *  asks for the key, but it's ClassDash's own page, so it looks like one:
+ *  the same pixel-stepped frames, colours and hard shadows as the
+ *  dashboard (PIXEL_THEME and pixelSprite from 08-page.js), and the app
+ *  icon with its stepped corners (the Windows one, electron/build/
+ *  icon-source.png), drawn at a whole 2:1 so it stays crisp. */
+const APP_ICON_B64 = (() => {
+  try { return fs.readFileSync(path.join(__dirname, 'app-icon.png')).toString('base64'); } catch { return ''; }
+})();
+
 function loginPage(wrong) {
+  const { PIXEL_THEME, pixelSprite } = require('./08-page.js');
+  const theme = (th, shadow, text) => `
+    --bg: ${th.bg}; --card: ${th.card}; --text: ${text}; --dim: ${th.dim}; --hot: ${th.hot}; --new: ${th.new}; --shadow: ${shadow};
+    --frame-card: ${pixelSprite('large', th.ink, th.card)};
+    --frame-field: ${pixelSprite('medium', th.ink, th.bg)};
+    --frame-field-focus: ${pixelSprite('medium', th.new, th.bg)};
+    --frame-button: ${pixelSprite('medium', th.ink, th.new)};`;
+  const icon = APP_ICON_B64 ? `data:image/png;base64,${APP_ICON_B64}` : '';
   return `<!doctype html>
 <html lang="${currentLanguage()}">
 <head>
@@ -1015,22 +1031,61 @@ function loginPage(wrong) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>${t('loginTitle')}</title>
+${icon ? `<link rel="icon" type="image/png" href="${icon}">` : ''}
 <style>
-  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 26rem; margin: 15vh auto; padding: 0 16px; }
-  input { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; margin: 8px 0 12px; }
-  button { font: inherit; padding: 8px 16px; }
-  .wrong { color: #c62828; }
+  :root {${theme(PIXEL_THEME.light, '#101018', '#1a1c1e')}
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {${theme(PIXEL_THEME.dark, '#000', '#e8eaed')}
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .frame { border-style: solid; border-radius: 0; background: transparent; border-image-repeat: stretch; }
+  .card {
+    width: 100%; max-width: 380px; padding: 28px 24px 24px;
+    border-width: 10px; border-image: var(--frame-card) 10 fill / 10px stretch;
+    filter: drop-shadow(3px 3px 0 var(--shadow));
+  }
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .brand img { width: 64px; height: 64px; image-rendering: pixelated; }
+  h1 { margin: 0; font-size: 22px; line-height: 1.2; }
+  .brand span { display: block; color: var(--dim); font-size: 13px; }
+  p { margin: 0 0 16px; color: var(--dim); }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input {
+    width: 100%; font: inherit; color: var(--text); padding: 8px 10px; margin-bottom: 16px; outline: none;
+    border-width: 8px; border-image: var(--frame-field) 8 fill / 8px stretch;
+  }
+  input:focus { border-image-source: var(--frame-field-focus); }
+  button {
+    font: inherit; font-weight: 600; color: var(--card); padding: 6px 18px; cursor: pointer;
+    border-width: 8px; border-image: var(--frame-button) 8 fill / 8px stretch;
+    filter: drop-shadow(2px 2px 0 var(--shadow)); transition: none;
+  }
+  button:hover { transform: translateY(-1px); filter: drop-shadow(2px 3px 0 var(--shadow)); }
+  button:active { transform: translateY(2px); filter: drop-shadow(2px 0 0 var(--shadow)); }
+  .wrong { color: var(--hot); }
 </style>
 </head>
 <body>
-<h1>${t('loginTitle')}</h1>
-<p>${t('loginExplain')}</p>
-${wrong ? `<p class="wrong">${t('loginWrong')}</p>` : ''}
-<form method="post" action="/login">
-  <label for="token">${t('loginToken')}</label>
-  <input id="token" name="token" type="password" autocomplete="current-password" autofocus required>
-  <button type="submit">${t('loginButton')}</button>
-</form>
+<main class="card frame">
+  <div class="brand">
+    ${icon ? `<img src="${icon}" alt="" width="64" height="64">` : ''}
+    <div><h1>ClassDash</h1><span>${t('loginButton')}</span></div>
+  </div>
+  <p>${t('loginExplain')}</p>
+  ${wrong ? `<p class="wrong">${t('loginWrong')}</p>` : ''}
+  <form method="post" action="/login">
+    <label for="token">${t('loginToken')}</label>
+    <input class="frame" id="token" name="token" type="password" autocomplete="current-password" autofocus required>
+    <button class="frame" type="submit">${t('loginButton')}</button>
+  </form>
+</main>
 </body>
 </html>`;
 }
@@ -1203,6 +1258,14 @@ function start() {
     // Signing in is the one thing that can't need the token: it's how a
     // browser gets it.
     if (urlPath === '/login' && req.method === 'POST') return handleLogin(req, res);
+    // Signing out (Settings → Sign out, in a browser): the cookie is cleared
+    // and the browser goes back to signing in. POST only, so a link or a
+    // prefetch can't do it.
+    if (urlPath === '/logout' && req.method === 'POST') {
+      res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`);
+      res.setHeader('Location', '/login');
+      return res.writeHead(303).end();
+    }
     if (urlPath === '/login' && req.method === 'GET') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.writeHead(200).end(loginPage(false));
@@ -1362,5 +1425,5 @@ function start() {
   }
 }
 
-module.exports = { HANDLERS, WRITE_HANDLERS, gather, toPublic, snapshot };
+module.exports = { HANDLERS, WRITE_HANDLERS, gather, toPublic, snapshot, loginPage };
 if (require.main === module) start();
