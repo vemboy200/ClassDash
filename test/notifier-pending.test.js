@@ -22,7 +22,7 @@ ok('mode stays redraw for older pages', r.mode === 'redraw');
 ok('NO collection was started by saving', spawned.length === 0, JSON.stringify(spawned));
 ok('banner is on the redrawn page', page().includes('id="pending-banner"'));
 ok('banner has the check button', page().includes('startPendingCheck(this)'));
-ok('English text', page().includes('Some of your settings take effect after a fresh check.'));
+ok('English text', page().includes('Some of your settings take effect after the next check.'));
 
 r = A.main('config', enc({ exclusions: [] }));
 ok('reverting removes the banner', !page().includes('id="pending-banner"'));

@@ -32,8 +32,8 @@ async function open(file, { bridge = true } = {}) {
     const idleHtml = fs.readFileSync(idlePage, 'utf8');
     ok('idle page: freshcheck-button is not .running', !/id="freshcheck-button"[^>]*\bclass="[^"]*running/.test(idleHtml));
     ok('idle page: only one header button with this id — never a separate stop-check-button', !/stop-check-button/.test(idleHtml));
-    ok('its title is the Fresh check hint', /id="freshcheck-button"[\s\S]*?title="Checks everything again/.test(idleHtml));
-    ok('its label reads "Fresh check"', /id="freshcheck-button"[\s\S]*?class="reload-label">Fresh check</.test(idleHtml));
+    ok('its title is the Fresh check hint', /id="freshcheck-button"[\s\S]*?title="Checks everything, Edpuzzle included/.test(idleHtml));
+    ok('its label reads "Fresh check"', /id="freshcheck-button"[\s\S]*?class="reload-label">Full check</.test(idleHtml));
   }
 
   const runningPage = path.join(proj, 'running.html');
@@ -53,16 +53,16 @@ async function open(file, { bridge = true } = {}) {
     const button = d.getElementById('freshcheck-button');
     const label = () => button.querySelector('.reload-label').textContent;
     ok('starts as Fresh check on the idle page', !button.classList.contains('running'));
-    ok('...with the Fresh check hint', button.title === 'Checks everything again, Edpuzzle included — takes about a minute — ⇧⌘R' || /Checks everything again/.test(button.title));
-    ok('...and the "Fresh check" label', label() === 'Fresh check');
+    ok('...with the Fresh check hint', button.title === 'Checks everything, Edpuzzle included — opens a browser window, about a minute — ⇧⌘R' || /Checks everything, Edpuzzle included/.test(button.title));
+    ok('...and the "Fresh check" label', label() === 'Full check');
     w.classdashLiveChanged({ run: runState({ done: 2, total: 8 }), version: null });
     ok('becomes Stop once a check is heard running', await until(() => button.classList.contains('running')));
     ok('...and the title switches to the Stop hint', /Stop the check/.test(button.title));
     ok('...and the label switches to "Stop"', label() === 'Stop');
     w.classdashLiveChanged({ run: runState({ running: false, done: 8, total: 8 }), version: null });
     ok('becomes Fresh check again once the check ends', await until(() => !button.classList.contains('running')));
-    ok('...and the title switches back', /Checks everything again/.test(button.title));
-    ok('...and so does the label', label() === 'Fresh check');
+    ok('...and the title switches back', /Checks everything, Edpuzzle included/.test(button.title));
+    ok('...and so does the label', label() === 'Full check');
     close();
   }
 

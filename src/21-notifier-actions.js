@@ -670,6 +670,12 @@ function main(action, arg) {
       ensureApiServer();
       quickCheck();
       return { ok: true, action };
+    // The page's Quick check button and the server's schedule while
+    // someone's at the computer: Classroom and Canvas, no browser window.
+    // ('reload' above does the same, and is what /api/reload has always run.)
+    case 'quickCheck':
+      quickCheck();
+      return { ok: true, action };
     case 'signIn':
       signIn();
       return { ok: true, action };

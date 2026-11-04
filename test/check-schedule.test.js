@@ -24,6 +24,9 @@ ok('a check already running: none on top of it', d({ running: true }).why === 'a
 ok('interval 0: off for that state', d({ settings: { ...on, freshCheckAwakeMinutes: 0 } }).why === 'off while awake');
 ok('under 10 minutes is off, not rounded up (hand-edited settings.json)', d({ settings: { ...on, freshCheckAwakeMinutes: 5 } }).run === false);
 ok('...10 itself is fine', d({ settings: { ...on, freshCheckAwakeMinutes: 10 }, minutes: 11 }).run === true);
+ok('awake: a quick check (Classroom and Canvas, no window)', d({}).kind === 'quick');
+ok('asleep: a full one (Edpuzzle, in a browser window nobody is watching)', d({ host: { asleep: true, onBattery: false }, minutes: 30 }).kind === 'full');
+ok('headless: quick, a full check needs a screen', d({ host: null, headless: true }).kind === 'quick');
 
 // ---- the app's report ----
 const now = Date.now();
@@ -41,13 +44,14 @@ ok('a broken file: null, not a crash', S.readHostState(now) === null);
 
 // ---- tick(), with the real files ----
 const runs = [], lines = [];
-const tick = (headless = false) => S.tick({ headless, start: () => runs.push(1), log: l => lines.push(l) });
+const tick = (headless = false) => S.tick({ headless, start: kind => runs.push(kind), log: l => lines.push(l) });
 fs.writeFileSync('settings.json', JSON.stringify({ language: 'en', freshCheckAwakeMinutes: 60 }));
 report({ asleep: false, onBattery: false, at: Date.now() });
 fs.writeFileSync('last-collection.json', '{}');
 fs.utimesSync('last-collection.json', new Date(), new Date(Date.now() - 2 * 3600 * 1000));
 tick();
 ok('two hours since the last collection, hourly: one check started', runs.length === 1 && /running one/.test(lines.pop()), JSON.stringify(lines));
+ok('...a quick one, since the app says awake', runs[0] === 'quick');
 fs.utimesSync('last-collection.json', new Date(), new Date());
 tick();
 ok('just collected: none', runs.length === 1);
@@ -67,6 +71,6 @@ const swift = fs.readFileSync(path.join(__dirname, '..', 'mac', '16-summary.swif
 const electron = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
 ok('the Mac app reports host-state.json instead of starting checks', /host-state\.json/.test(swift) && !/maybeRunAutoFreshCheck/.test(swift));
 ok('so does the Windows app', /host-state\.json/.test(electron) && !/maybeRunAutoFreshCheck/.test(electron));
-ok('the server starts the schedule', /52-check-schedule\.js'\)\.startSchedule/.test(fs.readFileSync(path.join(proj, '17-api.js'), 'utf8')));
+ok('the server starts the schedule, running the kind it asks for', /kind === 'full' \? 'check' : 'quickCheck'/.test(fs.readFileSync(path.join(proj, '17-api.js'), 'utf8')) && /52-check-schedule\.js'\)\.startSchedule/.test(fs.readFileSync(path.join(proj, '17-api.js'), 'utf8')));
 
 console.log('check-schedule: done');

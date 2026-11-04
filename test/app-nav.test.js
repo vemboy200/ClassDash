@@ -32,7 +32,7 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
   ok('the header lost its Workspace and gear buttons', !d.querySelector('header #settings-button') && !d.querySelector('header #workspace-button'));
   ok('the gear item keeps its "Saving… / Saved." spot', !!d.querySelector('#settings-button #settings-status'));
   ok("ClassDash's name is at the top of the sidebar, not the header", d.querySelector('#app-nav .nav-brand').textContent === 'ClassDash' && !d.querySelector('header h1'));
-  ok('Refresh, Fresh check and the status dots are under Settings', ['refresh-button', 'freshcheck-button'].every(id => d.querySelector('#app-nav .nav-actions #' + id)) &&
+  ok('Quick check, Full check and the status dots are under Settings', ['quickcheck-button', 'freshcheck-button'].every(id => d.querySelector('#app-nav .nav-actions #' + id)) &&
     !!d.querySelector('#app-nav .nav-actions .check-status') && !d.querySelector('header .reload, header .check-status'));
   const edit = d.getElementById('dash-edit');
   ok('an Edit button on the dashboard, with what it does as its tooltip', !!edit && edit.textContent.trim() === 'Edit' && /Edit the dashboard/.test(edit.title) && !d.body.classList.contains('dash-editing'));
@@ -206,5 +206,25 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
   ok('...with a line saying they\'re changed in the app', note(browser) && !note(browser).hidden && /only be changed in the ClassDash app/.test(note(browser).textContent));
   const app = open(proj, []).document;
   ok('in the app they work, and there\'s no such line', !lan(app).disabled && !roll(app).disabled && note(app).hidden);
+}
+
+// ── Quick check and Full check ──
+{
+  const proj = T.makeProject({ 'settings.json': { language: 'en' } });
+  const w = open(proj, []);
+  const d = w.document, quick = d.getElementById('quickcheck-button'), full = d.getElementById('freshcheck-button');
+  ok('the buttons read Quick check and Full check', quick.querySelector('.reload-label').textContent === 'Quick check' && full.querySelector('.reload-label').textContent === 'Full check');
+  ok('Quick check has the wheel, hidden until a check runs', !!quick.querySelector('.pixel-spinner') && !quick.classList.contains('checking'));
+  w.applyRunState({ running: true, at: Date.now() });
+  ok('while any check runs it shows the wheel and can\'t be pressed', quick.classList.contains('checking') && quick.disabled);
+  ok('...and reads Checking…, since it may be a full check running', quick.querySelector('.reload-label').textContent === 'Checking…');
+  w.applyRunState({ running: false, at: Date.now() });
+  ok('...and goes back once it\'s over', !quick.classList.contains('checking') && !quick.disabled && quick.querySelector('.reload-label').textContent === 'Quick check');
+  ok('with Edpuzzle on, Full check is a different check, so it\'s there', !full.hasAttribute('data-quick-only'));
+  const off = T.makeProject({ 'settings.json': { language: 'en', edpuzzleEnabled: false } });
+  const offFull = open(off, []).document.getElementById('freshcheck-button');
+  ok('with Edpuzzle off it\'s the same as Quick check: marked to hide, except as Stop', offFull.hasAttribute('data-quick-only'));
+  const html = fs.readFileSync(path.join(off, 'summary.html'), 'utf8');
+  ok('...by its CSS', /#freshcheck-button\[data-quick-only\]:not\(\.running\) \{ display: none; \}/.test(html));
 }
 process.exit(process.exitCode || 0);

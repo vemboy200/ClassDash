@@ -1461,7 +1461,7 @@ function start() {
     // The automatic fresh checks: the server's job, not the app's.
     require('./52-check-schedule.js').startSchedule({
       headless,
-      start: () => notifierActions.main('check', ''),
+      start: kind => notifierActions.main(kind === 'full' ? 'check' : 'quickCheck', ''),
       log: line => console.log(line),
     });
   });

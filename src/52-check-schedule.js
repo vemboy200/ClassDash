@@ -12,8 +12,10 @@
  *
  *   asleep     the display is off (macOS) or the session is locked
  *              (Windows): nobody's there to be interrupted by Edpuzzle's
- *              visible browser window, so freshCheckAsleepMinutes applies
- *              instead of freshCheckAwakeMinutes.
+ *              visible browser window, so it's a FULL check, every
+ *              freshCheckAsleepMinutes. While awake it's a QUICK one
+ *              (Classroom and Canvas, no window) every
+ *              freshCheckAwakeMinutes.
  *   onBattery  for freshCheckOnlyWhenCharging.
  *
  * ── No report, no automatic checks ──
@@ -23,7 +25,8 @@
  * so with no report from the last few minutes nothing is started.
  * The exception is a server started with --headless (a NAS or Docker,
  * later), where there's no app and no screen to interrupt: it's treated as
- * always awake and plugged in.
+ * always awake and plugged in, so quick checks: a full one needs a screen
+ * for Edpuzzle's window.
  *
  * "Asleep" means the DISPLAY, not the whole system. Full system sleep
  * freezes this process, timer included, and the first tick after waking
@@ -94,16 +97,18 @@ function decide({ settings, host, headless, minutes, running }) {
   if (running) return { run: false, why: 'a check is running' };
   const elapsed = minutes === null || minutes === undefined ? Infinity : minutes;
   if (elapsed < interval) return { run: false, why: 'not yet' };
+  const kind = state.asleep ? 'full' : 'quick';
   return {
     run: true,
+    kind,
     why: `${Number.isFinite(elapsed) ? Math.floor(elapsed) + 'm' : 'never'} since last collection, ` +
-      `${interval}m interval (${state.asleep ? 'asleep' : 'awake'})`,
+      `${interval}m interval (${state.asleep ? 'asleep' : 'awake'}), ${kind} check`,
   };
 }
 
-/** One tick: starts a check when one is due. `start` runs it (the 'check'
- *  action), `log` gets a line when it does, or when a check was due but
- *  the battery held it back. */
+/** One tick: starts a check when one is due. `start(kind)` runs it,
+ *  'quick' or 'full', `log` gets a line when it does, or when a check was
+ *  due but the battery held it back. */
 function tick({ headless, start, log }) {
   const settings = require('./19-settings.js').read();
   const { readCollection } = require('./28-live-state.js');
@@ -117,7 +122,7 @@ function tick({ headless, start, log }) {
   });
   if (verdict.run) {
     log(`auto fresh check: ${verdict.why} — running one`);
-    start();
+    start(verdict.kind);
   } else if (verdict.why === 'on battery') {
     log('auto fresh check: skipped — on battery and freshCheckOnlyWhenCharging is on');
   }

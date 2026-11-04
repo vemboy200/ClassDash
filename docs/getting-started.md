@@ -40,7 +40,7 @@ Windows doesn't have an equivalent permission step — nothing extra to grant th
 
 ## 3. Keep it running automatically
 
-Right now, ClassDash checks on its own schedule only while it's open. To have it open itself after a restart, turn on **Open at login** in Settings → Checking (off unless you turn it on). On Windows it then starts minimized when you sign in; on a Mac it needs macOS 13 or later. Either way, opening the app also starts the home API again if it's switched on, so Home Assistant reconnects without waiting for a check.
+ClassDash checks on its own schedule (Settings → Checking): **quick checks** (Classroom and Canvas, no window) while someone's at the computer, and **full checks** (Edpuzzle too, in a browser window) only while the screen is off, so a window never pops up while you're using it. Right now, it does this only while it's open. To have it open itself after a restart, turn on **Open at login** in Settings → Checking (off unless you turn it on). On Windows it then starts minimized when you sign in; on a Mac it needs macOS 13 or later. Either way, opening the app also starts the home API again if it's switched on, so Home Assistant reconnects without waiting for a check.
 
 **On macOS**, the alternative is `launchd` (the built-in scheduler) to run a check periodically even while the app's closed. There's no ready-made schedule file in this repo — it needs your own computer's absolute file paths baked in, so this part's covered in [CONTRIBUTING.md](../CONTRIBUTING.md) rather than here.
 

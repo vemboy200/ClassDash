@@ -1523,9 +1523,9 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         // page: they aren't menu commands.
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        let refreshItem = viewMenu.addItem(withTitle: "Refresh", action: #selector(shortcutRefresh), keyEquivalent: "r")
+        let refreshItem = viewMenu.addItem(withTitle: "Quick Check", action: #selector(shortcutRefresh), keyEquivalent: "r")
         refreshItem.target = self
-        let freshItem = viewMenu.addItem(withTitle: "Fresh Check", action: #selector(shortcutFresh), keyEquivalent: "r")
+        let freshItem = viewMenu.addItem(withTitle: "Full Check", action: #selector(shortcutFresh), keyEquivalent: "r")
         freshItem.keyEquivalentModifierMask = [.command, .shift]
         freshItem.target = self
         viewMenu.addItem(NSMenuItem.separator())
@@ -1745,7 +1745,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // Assistant and a browser all depend on it. Something that keeps
     // running should show it's there and offer a way to stop it, so the
     // menu bar has an item saying how the server is, with Open ClassDash,
-    // Check Now and Quit ClassDash, which stops the server too.
+    // Quick Check, Full Check, Restart Server and Quit ClassDash, which stops the server too.
     //
     // (A status item existed once before and was removed, when all it did
     // was repeat the app menu. This one is for the server.)
@@ -1778,7 +1778,8 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         }
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Open ClassDash", action: #selector(openFromMenuBar), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Check Now", action: #selector(checkFromMenuBar), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Quick Check", action: #selector(quickCheckFromMenuBar), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Full Check", action: #selector(checkFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Restart Server", action: #selector(restartServerFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Copy Access Key", action: #selector(copyAccessKeyFromMenuBar), keyEquivalent: "").target = self
         menu.addItem(NSMenuItem.separator())
@@ -1830,6 +1831,12 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    // Classroom and Canvas, no window.
+    @objc func quickCheckFromMenuBar() {
+        runAction("quickCheck", "") { _ in }
+    }
+
+    // Everything, Edpuzzle included, in a browser window.
     @objc func checkFromMenuBar() {
         runAction("check", "") { _ in }
     }

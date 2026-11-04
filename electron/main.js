@@ -811,7 +811,8 @@ function trayMenu() {
     { label: lastCheckLine(), enabled: false },
     { type: 'separator' },
     { label: 'Open ClassDash', click: showWindow },
-    { label: 'Check Now', click: () => runAction('check', '') },
+    { label: 'Quick Check', click: () => runAction('quickCheck', '') },
+    { label: 'Full Check', click: () => runAction('check', '') },
     // Stops the server and starts it again; an open window reconnects by itself.
     { label: 'Restart Server', click: () => runAction('restartApi', '') },
     { label: 'Copy Access Key', click: copyAccessKey },
@@ -944,8 +945,8 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => runPageShortcut('refresh') },
-        { label: 'Fresh Check', accelerator: 'CmdOrCtrl+Shift+R', click: () => runPageShortcut('fresh') },
+        { label: 'Quick Check', accelerator: 'CmdOrCtrl+R', click: () => runPageShortcut('refresh') },
+        { label: 'Full Check', accelerator: 'CmdOrCtrl+Shift+R', click: () => runPageShortcut('fresh') },
         { type: 'separator' },
         { label: 'Check Status', accelerator: 'CmdOrCtrl+S', click: () => runPageShortcut('status') },
       ],

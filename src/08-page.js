@@ -3102,6 +3102,14 @@ ${cardHtml[id]}
      itself — with the label's TEXT swapped between Fresh check/Stop by
      the same code that sets .running, since CSS alone can't change what
      a span says. */
+  /* Quick check: the loading wheel in place of its icon while a check runs
+     (applyRunState), whichever kind it is, and nothing to press meanwhile. */
+  #quickcheck-button .pixel-spinner { display: none; }
+  #quickcheck-button.checking .icon-refresh { display: none; }
+  #quickcheck-button.checking .pixel-spinner { display: inline-block; }
+  /* Full check is quick check plus Edpuzzle, so with Edpuzzle off it's the
+     same check: hidden, except as the Stop button while one runs. */
+  #freshcheck-button[data-quick-only]:not(.running) { display: none; }
   #freshcheck-button .icon-stop { display: none; }
   #freshcheck-button.running .icon-freshcheck { display: none; }
   #freshcheck-button.running .icon-stop { display: inline-block; }
@@ -4020,10 +4028,10 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
   <img alt="">
   <div class="photo-bar"><a id="photo-viewer-link" href="#" target="_blank" rel="noopener">${escapeHtml(t('photoOpenInDrive'))}</a><button type="button" onclick="closePhoto()">${escapeHtml(t('photoClose'))}</button></div>
 </div>
-${appNav(gradesCenter, `<button class="reload named"
-         id="refresh-button"
-         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="reload-label">${escapeHtml(t('refreshLabel'))}</span></button>
-  <button class="reload named${progress ? ' running' : ''}"
+${appNav(gradesCenter, `<button class="reload named${progress ? ' checking' : ''}"
+         id="quickcheck-button"
+         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="pixel-spinner" aria-hidden="true"></span><span class="reload-label">${escapeHtml(t(progress ? 'checkingLabel' : 'refreshLabel'))}</span></button>
+  <button class="reload named${progress ? ' running' : ''}"${readSettings().edpuzzleEnabled === false ? ' data-quick-only' : ''}
          id="freshcheck-button"
          title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
   ${checkStatusIndicator()}
@@ -4132,6 +4140,8 @@ const WORDS = ${JSON.stringify({
   hideAgain: t('hideAgain'),
   showing: t('filterShowingCount'),
   checking: t('checking'),
+  checkingLabel: t('checkingLabel'),
+  refreshLabel: t('refreshLabel'),
   checkFailed: t('checkFailed'),
   pendingChecking: t('pendingFetchStarting'),
   browserOwnBrave: t('browserOwnBrave'),
@@ -7046,9 +7056,28 @@ function filterAnnouncements() {
 // this click handler only needs to ask, at the moment of the click, which
 // of the two the button currently IS.
 (function () {
-  var refreshButton = document.getElementById('refresh-button');
-  if (refreshButton) {
-    refreshButton.addEventListener('click', function () { location.reload(); });
+  // Quick check: Classroom and Canvas, no window. The wheel turns from the
+  // click until the run is confirmed and then over (applyRunState); the
+  // page reloads by itself when it's done, like after a full check.
+  var quickButton = document.getElementById('quickcheck-button');
+  if (quickButton) {
+    quickButton.addEventListener('click', function () {
+      if (quickButton.classList.contains('checking')) return;
+      quickButton.classList.add('checking');
+      quickButton.disabled = true;
+      var quickLabel = quickButton.querySelector('.reload-label');
+      if (quickLabel) quickLabel.textContent = WORDS.checkingLabel;
+      quickSpinUntil = Date.now() + 15000;
+      dispatchAction('quickCheck', '', function (res) {
+        if (res && res.ok) return;
+        quickSpinUntil = 0;
+        quickButton.classList.remove('checking');
+        quickButton.disabled = false;
+        var failedLabel = quickButton.querySelector('.reload-label');
+        if (failedLabel) failedLabel.textContent = WORDS.refreshLabel;
+        quickButton.title = (res && res.why) ? res.why : WORDS.checkFailed;
+      });
+    });
   }
 
   var freshCheckButton = document.getElementById('freshcheck-button');
@@ -7137,15 +7166,16 @@ function typeFilterBox(prefix) {
   return null;
 }
 
-// What Refresh, Fresh check and the status panel do — the same as clicking
-// them. Refresh and Fresh check leave things alone while the settings panel
-// holds unsaved edits: a reload would throw them away.
+// What Quick check, Full check and the status panel do — the same as clicking
+// them. Both checks leave things alone while the settings panel
+// holds unsaved edits: the reload after a check would throw them away.
 function runShortcut(name) {
   if (name === 'status') { toggleCheckStatusDetail(); return; }
   if (settingsPanelOpen() && settingsDirty()) return;
-  if (name === 'refresh') {
-    var refresh = document.getElementById('refresh-button');
-    if (refresh) refresh.click();
+  // 'refresh' is the old name, still what older app builds send.
+  if (name === 'quick' || name === 'refresh') {
+    var quick = document.getElementById('quickcheck-button');
+    if (quick && !quick.disabled) quick.click();
   } else if (name === 'fresh') {
     var fresh = document.getElementById('freshcheck-button');
     // Not while a dispatch is already in flight and unconfirmed (spinning)
@@ -7297,7 +7327,7 @@ var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
   var tip = function (el, keys) {
     if (el) el.title = (el.title ? el.title + ' \u2014 ' : '') + keys;
   };
-  tip(document.getElementById('refresh-button'), mac ? '\u2318R' : 'Ctrl+R');
+  tip(document.getElementById('quickcheck-button'), mac ? '\u2318R' : 'Ctrl+R');
   // Same key either way: freshcheck-button IS the Stop button while a
   // check is running (see applyRunState and its own click handler), one
   // element, one shortcut \u2014 nothing separate to hint here.
@@ -7337,6 +7367,7 @@ var pageLoadedAt = Date.now();
 var lastInteraction = Date.now();
 var reloadingForLive = false;
 var freshSpinUntil = 0;
+var quickSpinUntil = 0;
 var liveTimer = null;
 var livePushed = false;
 var lastRun = null;
@@ -7391,6 +7422,17 @@ function applyRunState(run) {
   var unknown = !run && (Date.now() - pageLoadedAt) < LIVE_UNKNOWN_MS;
   var box = document.getElementById('check-progress');
   var freshButton = document.getElementById('freshcheck-button');
+  var quickButton = document.getElementById('quickcheck-button');
+  if (quickButton && !unknown) {
+    if (live) quickSpinUntil = 0;
+    var quickBusy = live || Date.now() < quickSpinUntil;
+    quickButton.classList.toggle('checking', quickBusy);
+    quickButton.disabled = quickBusy;
+    // "Checking…" while any check runs, quick or full, so the wheel
+    // beside it doesn't read as a quick check that nobody started.
+    var quickLabel = quickButton.querySelector('.reload-label');
+    if (quickLabel) quickLabel.textContent = quickBusy ? WORDS.checkingLabel : WORDS.refreshLabel;
+  }
   // Fresh check IS the Stop button while a check runs — the same element,
   // not a second one next to it: .running switches the icon/label/title
   // (see its own CSS and click handler), flipped here the moment a check

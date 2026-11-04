@@ -77,7 +77,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   const dueBox = v => d.querySelector('.filters input[data-group="days"][value="' + v + '"]');
   const DUE = [['1', 'KeyT', 'T', 'today and tomorrow'], ['7', 'KeyW', 'W', 'this week'], ['31', 'KeyH', 'H', 'this month'], ['past', 'KeyO', 'O', 'overdue'], ['none', 'KeyN', 'N', 'no due date']];
   for (const [v, , key, label] of DUE) ok(dueBox(v) && dueBox(v).nextElementSibling.textContent === key, 'the ' + label + ' row shows ' + key);
-  ok(/Ctrl\+R/.test(d.getElementById('refresh-button').title) && /Ctrl\+Shift\+R/.test(d.getElementById('freshcheck-button').title) && /Ctrl\+S/.test(d.querySelector('.check-status').title), 'header tooltips carry the shortcuts (Windows style)');
+  ok(/Ctrl\+R/.test(d.getElementById('quickcheck-button').title) && /Ctrl\+Shift\+R/.test(d.getElementById('freshcheck-button').title) && /Ctrl\+S/.test(d.querySelector('.check-status').title), 'header tooltips carry the shortcuts (Windows style)');
 
   // ── class filter: every slot, digit row and numpad ──
   const slotCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal'];
@@ -170,19 +170,26 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   nothingHappened('...including the type and due keys', 'KeyN');
   w.toggleSettingsPanel();   // closes (saves if dirty — nothing dirty)
 
-  // ── Refresh / Fresh check / status ──
+  // ── Quick check / Full check / status ──
+  // Quick check stays pressed (the wheel) until its run is over, so each
+  // test that presses it again first lets it go.
+  const quicks = () => s.sent.filter(m => m.action === 'quickCheck').length;
+  const freeQuick = () => { const q = d.getElementById('quickcheck-button'); q.classList.remove('checking'); q.disabled = false; w.quickSpinUntil = 0; };
   s.reloads.n = 0; s.sent.length = 0;
   let e = press('KeyR', { ctrlKey: true });
-  ok(s.reloads.n === 1 && e.defaultPrevented, 'Ctrl+R = Refresh (and the browser\'s own reload is suppressed)');
+  ok(quicks() === 1 && s.reloads.n === 0 && e.defaultPrevented, 'Ctrl+R = Quick check (bridge "quickCheck"; the browser\'s own reload is suppressed)');
+  ok(d.getElementById('quickcheck-button').classList.contains('checking'), '...and the button shows the wheel');
+  freeQuick();
   press('KeyR', { ctrlKey: true, repeat: true });
-  ok(s.reloads.n === 1, 'a held Ctrl+R does not repeat');
+  ok(quicks() === 1, 'a held Ctrl+R does not repeat');
   press('KeyR', { metaKey: true });
-  ok(s.reloads.n === 1, 'on Windows the Windows/Meta key is not the command key');
+  ok(quicks() === 1, 'on Windows the Windows/Meta key is not the command key');
+  s.sent.length = 0;
   e = press('KeyR', { ctrlKey: true, shiftKey: true });
-  ok(s.sent.length === 1 && s.sent[0].action === 'check' && e.defaultPrevented, 'Shift+Ctrl+R = Fresh check (bridge "check")');
+  ok(s.sent.length === 1 && s.sent[0].action === 'check' && e.defaultPrevented, 'Shift+Ctrl+R = Full check (bridge "check")');
   ok(d.getElementById('freshcheck-button').classList.contains('spinning'), 'and the button spins while the dispatch is unconfirmed');
   press('KeyR', { ctrlKey: true, shiftKey: true });
-  ok(s.sent.length === 1, 'a second Fresh check is ignored while one is running');
+  ok(s.sent.length === 1, 'a second Full check is ignored while one is running');
   const panel = d.getElementById('check-status-panel');
   const startHidden = panel.hidden;
   e = press('KeyS', { ctrlKey: true });
@@ -192,24 +199,28 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   press('KeyS', { ctrlKey: true, shiftKey: true });
   ok(panel.hidden === startHidden, 'Shift+Ctrl+S is not the status panel');
   // the native menus call the same thing
-  s.reloads.n = 0;
-  w.classdashShortcut('refresh'); ok(s.reloads.n === 1, 'window.classdashShortcut("refresh") (the menu item) refreshes');
+  s.sent.length = 0; freeQuick();
+  w.classdashShortcut('quick'); ok(quicks() === 1, 'window.classdashShortcut("quick") (the menu item) runs a quick check');
+  freeQuick();
+  w.classdashShortcut('refresh'); ok(quicks() === 2, '...and so does "refresh", what older app builds send');
   w.classdashShortcut('status'); ok(panel.hidden !== startHidden, 'window.classdashShortcut("status") toggles the panel'); w.classdashShortcut('status');
   // unsaved settings are not thrown away by a reload
   w.toggleSettingsPanel();
   d.querySelector('[data-key="email"]').value = 'changed@x';
-  s.reloads.n = 0;
+  s.sent.length = 0; freeQuick();
   press('KeyR', { ctrlKey: true });
-  ok(s.reloads.n === 0, 'Ctrl+R with unsaved settings edits does not reload (it would discard them)');
+  ok(quicks() === 0, 'Ctrl+R with unsaved settings edits starts no check (its reload would discard them)');
   w.close();
 
   // ── macOS: Cmd is the command key, Ctrl is not ──
   s = await open({ mac: true });
   ({ w, d, press } = s);
-  ok(/⌘R/.test(d.getElementById('refresh-button').title) && /⇧⌘R/.test(d.getElementById('freshcheck-button').title) && /⌘S/.test(d.querySelector('.check-status').title), 'tooltips use the Mac symbols');
-  press('KeyR', { metaKey: true }); ok(s.reloads.n === 1, 'Cmd+R = Refresh');
-  press('KeyR', { ctrlKey: true }); ok(s.reloads.n === 1, 'Ctrl+R on a Mac is not Refresh');
-  s.sent.length = 0; press('KeyR', { metaKey: true, shiftKey: true }); ok(s.sent.length === 1 && s.sent[0].action === 'check', 'Shift+Cmd+R = Fresh check');
+  ok(/⌘R/.test(d.getElementById('quickcheck-button').title) && /⇧⌘R/.test(d.getElementById('freshcheck-button').title) && /⌘S/.test(d.querySelector('.check-status').title), 'tooltips use the Mac symbols');
+  const macQuicks = () => s.sent.filter(m => m.action === 'quickCheck').length;
+  press('KeyR', { metaKey: true }); ok(macQuicks() === 1, 'Cmd+R = Quick check');
+  { const q = d.getElementById('quickcheck-button'); q.classList.remove('checking'); q.disabled = false; w.quickSpinUntil = 0; }
+  press('KeyR', { ctrlKey: true }); ok(macQuicks() === 1, 'Ctrl+R on a Mac is not Quick check');
+  s.sent.length = 0; press('KeyR', { metaKey: true, shiftKey: true }); ok(s.sent.length === 1 && s.sent[0].action === 'check', 'Shift+Cmd+R = Full check');
   const p2 = d.getElementById('check-status-panel'); const h2 = p2.hidden; press('KeyS', { metaKey: true }); ok(p2.hidden !== h2, 'Cmd+S = status panel');
   ok(s.errors.filter(x => !/Not implemented|live\/(check-run|page-version)/.test(x)).length === 0, 'no page script errors: ' + s.errors.join('|'));
   w.close();
@@ -223,7 +234,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
     cp.spawnSync('node', ['05-playwright-draft.js', '--redraw'], { cwd: PROJ });
     const off = await open();
     ok(off.d.querySelectorAll('.key-hint').length === 0, 'hints off: no key badges on the filters');
-    ok(!/Ctrl\+R|Ctrl\+S/.test(off.d.getElementById('refresh-button').title + off.d.querySelector('.check-status').title), 'hints off: no shortcut in the tooltips either');
+    ok(!/Ctrl\+R|Ctrl\+S/.test(off.d.getElementById('quickcheck-button').title + off.d.querySelector('.check-status').title), 'hints off: no shortcut in the tooltips either');
     ok(!off.d.querySelector('[data-bool-key="showKeyHints"]').checked, 'the toggle shows as off');
     const b = clsBoxes(off.d)[0], before = b.checked;
     off.press('Digit1');
