@@ -676,8 +676,14 @@ function loadSummary() {
   }).then(() => {
     // The wheel while it connects (it waits a moment before showing, so a
     // quick load shows nothing), never over the page from disk.
-    const connecting = path.join(projectDir, 'connecting.html');
-    if (!offline && fs.existsSync(connecting)) win.loadFile(connecting);
+    // Loaded as the server's address (baseURLForDataURL), not as a file,
+    // the same as the Mac app: on the Mac, going from a file page to the
+    // server held back the SameSite=Strict app cookie and the window landed
+    // on the sign-in page.
+    const connecting = readPrivate('connecting.html');
+    if (!offline && connecting) {
+      win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(connecting), { baseURLForDataURL: servedUrl() }).catch(() => {});
+    }
     checkServer();
   }, loadFromDisk);
 }

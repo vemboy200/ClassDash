@@ -1626,10 +1626,16 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
             // the server's page arrives, which is usually too quick for it
             // to appear at all (it waits a moment before showing anything).
             // Not over the page from disk, which is more use than a wheel.
-            let connecting = projectDir + "/connecting.html"
-            if !self.offline, FileManager.default.fileExists(atPath: connecting) {
+            //
+            // Loaded AS THE SERVER'S ADDRESS (baseURL), not as a file: going
+            // from a file:// page to the server counts as coming from another
+            // site, and WebKit then holds back the SameSite=Strict app cookie,
+            // so the server sent the window to the sign-in page. Checked with
+            // a harness: from a file page the load ends at /login, from this
+            // it doesn't.
+            if !self.offline, let connecting = try? String(contentsOfFile: projectDir + "/connecting.html", encoding: .utf8) {
                 self.connectingFirst = true
-                self.web.loadFileURL(URL(fileURLWithPath: connecting), allowingReadAccessTo: URL(fileURLWithPath: projectDir))
+                self.web.loadHTMLString(connecting, baseURL: self.servedURL())
             } else {
                 self.loadServed()
             }
@@ -2193,7 +2199,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // A page that has just finished loading missed everything pushed before it
     // existed, so it's told the current state straight away.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if webView === web, connectingFirst, webView.url?.lastPathComponent == "connecting.html" {
+        if webView === web, connectingFirst {
             connectingFirst = false
             loadServed()
             return

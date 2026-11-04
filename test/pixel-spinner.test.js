@@ -59,5 +59,8 @@ const swift = fs.readFileSync(path.join(__dirname, '..', 'mac', '16-summary.swif
 const electron = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
 T.ok(/connecting\.html/.test(swift) && /classdashOffline/.test(swift), 'the Mac app shows the connecting screen, and the bar over the page from disk');
 T.ok(/connecting\.html/.test(electron) && /classdashOffline/.test(electron), 'so does the Windows app');
+T.ok(/loadHTMLString\(connecting, baseURL: self\.servedURL\(\)\)/.test(swift) && /baseURLForDataURL: servedUrl\(\)/.test(electron),
+  'the connecting screen is loaded as the server\'s address, not a file: from a file page WebKit held back the Strict app cookie and the window landed on sign-in');
+T.ok(!/loadFileURL\(URL\(fileURLWithPath: connecting/.test(swift) && !/loadFile\(connecting\)/.test(electron), '...and never as a file');
 T.ok(/function serverAnswers/.test(electron) && /checkServer/.test(electron), 'Windows asks whether the server answers before loading its page (a failed load would blank the window)');
 T.done();
