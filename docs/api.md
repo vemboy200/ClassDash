@@ -14,7 +14,7 @@ The API also serves the ClassDash page itself, so you can open it in a browser i
 
 The app's own window shows ClassDash from this same server: it signs itself in with a key of its own (not the access key, and never shown), so rolling the access key signs out browsers and other devices but not the app.
 
-If the page can't reach the server (it stopped, or the connection is weak), a bar across the top says so and it keeps trying; in the app, the server is started again by itself.
+If the page can't reach the server (it stopped, or the connection is weak), a bar across the top says so and it keeps trying; in the app, the server is started again by itself. When the app's window opens and the server isn't answering yet, it shows a loading wheel; if the server still can't be reached after a few seconds, the window shows the last saved copy of the page, with a bar saying so, and switches to the live page as soon as the server is back.
 
 Almost everything works the same as in the app. What needs the app itself stays there: the workspace, picking files (like a calendar PDF), signing in to a service's browser window, and turning LAN access on or off.
 

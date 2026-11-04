@@ -1163,6 +1163,12 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // Loading the page from the server (see show()): how many tries so far,
     // and the thin bar across the top while a page loads.
     var servedAttempts = 0
+    // Showing connecting.html while the server's page is asked for, which
+    // only starts once that screen is up (didFinish), and showing the page
+    // from disk because the server couldn't be reached.
+    var connectingFirst = false
+    var offline = false
+    var servedRetry: DispatchWorkItem?
     var loadingBar: NSView?
     var loadingObservation: NSKeyValueObservation?
     var updateCheckTimer: Timer?
@@ -1606,6 +1612,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     func show() {
         guard let key = appKey(), expectedCertHash() != nil else { showFile(); return }
         servedAttempts = 0
+        servedRetry?.cancel()
         var props: [HTTPCookiePropertyKey: Any] = [
             .name: "classdash_app", .value: key, .domain: "127.0.0.1", .path: "/",
             .secure: "TRUE", .expires: Date().addingTimeInterval(365 * 86400),
@@ -1614,7 +1621,18 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         if #available(macOS 10.15, *) { props[.sameSitePolicy] = HTTPCookieStringPolicy.sameSiteStrict }
         guard let cookie = HTTPCookie(properties: props) else { showFile(); return }
         web.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { [weak self] in
-            self?.loadServed()
+            guard let self = self else { return }
+            // The wheel while it connects: the window keeps showing it until
+            // the server's page arrives, which is usually too quick for it
+            // to appear at all (it waits a moment before showing anything).
+            // Not over the page from disk, which is more use than a wheel.
+            let connecting = projectDir + "/connecting.html"
+            if !self.offline, FileManager.default.fileExists(atPath: connecting) {
+                self.connectingFirst = true
+                self.web.loadFileURL(URL(fileURLWithPath: connecting), allowingReadAccessTo: URL(fileURLWithPath: projectDir))
+            } else {
+                self.loadServed()
+            }
         }
     }
 
@@ -2113,13 +2131,32 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         // A load cut short by another (the page reloading itself) isn't a failure.
         if (error as NSError).code == NSURLErrorCancelled { return }
         guard webView === web, isServedURL(webView.url ?? (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL) else { return }
-        if servedAttempts == 3 { runAction("ensureApi", "") { _ in } }
+        // Asked to start the server on the third try, then every third
+        // quiet try (about every 30 seconds) while it's offline.
+        if servedAttempts == 3 || (servedAttempts > 10 && servedAttempts % 3 == 0) { runAction("ensureApi", "") { _ in } }
         if servedAttempts < 10 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.loadServed() }
-        } else {
+            retryServed(after: 0.5)
+            return
+        }
+        // Still nothing: the page from disk, with the bar saying so
+        // (classdashOffline in 08-page.js, after it loads), and a quiet try
+        // every ten seconds. A failed try leaves the page as it is; the
+        // first that works replaces it with the server's.
+        if !offline {
             logWindow("server page: no answer after \(servedAttempts) tries (\(error.localizedDescription)) — showing the page from disk")
+            offline = true
             showFile()
         }
+        retryServed(after: 10)
+    }
+
+    // One try waiting at a time: a new one replaces it, so a show() while
+    // offline doesn't start a second round of tries beside the first.
+    private func retryServed(after seconds: Double) {
+        servedRetry?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.loadServed() }
+        servedRetry = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
     }
 
     // ONLY THE PROJECT'S OWN CERTIFICATE IS TRUSTED FOR THE SERVER.
@@ -2156,6 +2193,18 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // A page that has just finished loading missed everything pushed before it
     // existed, so it's told the current state straight away.
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if webView === web, connectingFirst, webView.url?.lastPathComponent == "connecting.html" {
+            connectingFirst = false
+            loadServed()
+            return
+        }
+        if webView === web {
+            if isServedURL(webView.url) {
+                offline = false
+            } else if offline {
+                webView.evaluateJavaScript("window.classdashOffline && window.classdashOffline()", completionHandler: nil)
+            }
+        }
         livePusher?.push()
         if let callback = afterNextPageLoad {
             afterNextPageLoad = nil

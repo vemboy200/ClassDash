@@ -2217,6 +2217,118 @@ function pixelSprite(size, edge, fill) {
   }, edge, fill);
 }
 
+/**
+ * The loading wheel: Instructure's Spinner (the one Canvas shows, from
+ * instructure-ui, MIT) drawn in pixels. Same motion — a pale track ring,
+ * and an arc that keeps turning while it grows and shrinks — but worked
+ * out cell by cell on a 16x16 grid (2px cells at 32px, like the frames)
+ * and stepped through frames instead of eased smoothly.
+ *
+ * Two masks, coloured by CSS: the track, and every arc frame side by side
+ * in one strip the animation steps across. Masks, not pictures, so the arc
+ * takes the theme's blue (--new) in both light and dark.
+ *
+ * Each loop drifts a further quarter turn, so its biggest and
+ * smallest arcs land somewhere new each time instead of always in the same
+ * spot; four loops come back round. All four are in the strip, one
+ * animation: turning the element a quarter at each seam with a second
+ * animation looked right on paper, but the two clocks can be a frame
+ * apart, and the short arc at the seam visibly jumped and came back.
+ */
+const SPINNER_GRID = 16;
+// Picked by eye with a tuning preview: the arc goes between a quarter and
+// three quarters of the ring, over a 2.5s loop at 16 frames a second.
+const SPINNER_SHORTEST = 0.25;
+const SPINNER_LONGEST = 0.75;
+const SPINNER_LOOP_SECONDS = 2.5;
+const SPINNER_LOOP = Math.round(SPINNER_LOOP_SECONDS * 16);
+const SPINNER_FRAMES = SPINNER_LOOP * 4;
+function pixelSpinner() {
+  const G = SPINNER_GRID, L = SPINNER_LOOP, F = SPINNER_FRAMES;
+  const ease = x => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const ring = [];
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    const dx = x + 0.5 - G / 2, dy = y + 0.5 - G / 2, d = Math.hypot(dx, dy);
+    // Clockwise from 12 o'clock, like the arc.
+    if (d >= 5.1 && d <= 7.4) ring.push({ x, y, angle: (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360 });
+  }
+  // Each row's lit cells as runs, one small subpath per run: the strip
+  // is 96 frames, and a <rect> per cell made it several times bigger.
+  const runs = (cells, offset) => {
+    let d = '';
+    for (let y = 0; y < G; y++) {
+      const xs = cells.filter(c => c.y === y).map(c => c.x).sort((a, b) => a - b);
+      for (let k = 0; k < xs.length;) {
+        let n = 1;
+        while (xs[k + n] === xs[k] + n) n++;
+        d += `M${xs[k] + offset} ${y}h${n}v1h-${n}z`;
+        k += n;
+      }
+    }
+    return d;
+  };
+  const mask = (width, d) => `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${G}" shape-rendering="crispEdges"><path d="${d}"/></svg>`)}")`;
+  // The steady turn, about 300 degrees a second, rounded so a loop turns
+  // a whole number of times plus the quarter-turn drift.
+  const steady = (360 * Math.round((300 * SPINNER_LOOP_SECONDS - 90) / 360) + 90);
+  const shortest = 360 * SPINNER_SHORTEST, longest = 360 * SPINNER_LONGEST;
+  let strip = '';
+  for (let i = 0; i < F; i++) {
+    const t = (i % L) / L;
+    // Grows to its longest and back (Spinner's dash offset), while its
+    // start swings a quarter turn then the rest of the way round, on top
+    // of the steady turn and the loop's quarter-turn drift.
+    const reach = t < 0.5 ? ease(2 * t) : ease(2 - 2 * t);
+    const length = shortest + (longest - shortest) * reach;
+    const swing = t < 0.5 ? 90 * ease(2 * t) : 90 + 270 * ease(2 * t - 1);
+    const start = (steady * t + swing + 90 * Math.floor(i / L)) % 360;
+    strip += runs(ring.filter(c => (c.angle - start + 360) % 360 < length), i * G);
+  }
+  return { track: mask(G, runs(ring, 0)), arc: mask(G * F, strip) };
+}
+const SPINNER = pixelSpinner();
+
+/**
+ * What the apps' window shows while it waits for the server's page
+ * (show() in 16-summary.swift, loadSummary() in electron/main.js): the
+ * wheel and "Connecting to ClassDash…", on the page's own background. A
+ * file of its own beside summary.html, since the server is exactly what
+ * might not be there. It only appears after a moment, so the usual quick
+ * load shows nothing but the page.
+ */
+const CONNECTING_PAGE = 'connecting.html';
+function connectingPage() {
+  const L = PIXEL_THEME.light, D = PIXEL_THEME.dark;
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>ClassDash</title>
+<style>
+  :root { --bg: ${L.bg}; --dim: ${L.dim}; --line: ${L.line}; --new: ${L.new}; --spinner-track: ${SPINNER.track}; --spinner-arc: ${SPINNER.arc}; }
+  @media (prefers-color-scheme: dark) { :root { --bg: ${D.bg}; --dim: ${D.dim}; --line: ${D.line}; --new: ${D.new}; } }
+  html, body { height: 100%; margin: 0; background: var(--bg); }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    font: 600 14px -apple-system, "Segoe UI", system-ui, sans-serif; color: var(--dim); }
+  body > * { animation: appear 0s .4s both; }
+  @keyframes appear { from { visibility: hidden; } }
+  .pixel-spinner { --size: 64px; position: relative; width: var(--size); height: var(--size); }
+  .pixel-spinner::before, .pixel-spinner::after { content: ""; position: absolute; inset: 0; }
+  .pixel-spinner::before { background: var(--line); -webkit-mask: var(--spinner-track) 0 0 / 100% 100% no-repeat; mask: var(--spinner-track) 0 0 / 100% 100% no-repeat; }
+  .pixel-spinner::after {
+    background: var(--new);
+    -webkit-mask-image: var(--spinner-arc); mask-image: var(--spinner-arc);
+    -webkit-mask-size: calc(var(--size) * ${SPINNER_FRAMES}) var(--size); mask-size: calc(var(--size) * ${SPINNER_FRAMES}) var(--size);
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    animation: appear 0s .4s both, spinner-frames ${SPINNER_LOOP_SECONDS * 4}s steps(${SPINNER_FRAMES}) infinite;
+  }
+  @keyframes spinner-frames {
+    from { -webkit-mask-position: 0 0; mask-position: 0 0; }
+    to { -webkit-mask-position: calc(var(--size) * -${SPINNER_FRAMES}) 0; mask-position: calc(var(--size) * -${SPINNER_FRAMES}) 0; }
+  }
+</style></head>
+<body><div class="pixel-spinner" aria-hidden="true"></div><div role="status">${escapeHtml(t('connConnecting'))}</div></body></html>
+`;
+}
+
 // A rounded square, 6 cells (12px) across: only the four corner cells
 // are missing, so the sides stay straight. (An earlier version cut 2
 // cells off the top row and 1 off the next — a proper pixel circle —
@@ -2964,6 +3076,8 @@ ${cardHtml[id]}
     --icon-line: url("data:image/png;base64,${ICON_LINE_B64}");
     --icon-line-broken: url("data:image/png;base64,${ICON_LINE_BROKEN_B64}");
     --icon-loading: url("data:image/png;base64,${ICON_LOADING_LIGHT_B64}");
+    --spinner-track: ${SPINNER.track};
+    --spinner-arc: ${SPINNER.arc};
   }
   @media (prefers-color-scheme: dark) {
     :root { --icon-loading: url("data:image/png;base64,${ICON_LOADING_B64}"); }
@@ -3079,6 +3193,28 @@ ${cardHtml[id]}
   .connection-line { -webkit-mask-image: var(--icon-line-broken); mask-image: var(--icon-line-broken); }
   .connection-bar.back .connection-line { -webkit-mask-image: var(--icon-line); mask-image: var(--icon-line); }
   .connection-bar[hidden] { display: none; }
+  /* The loading wheel (pixelSpinner): the track in the line colour, the
+     arc in the theme blue stepping through its frames. --size sets it;
+     32px keeps one art cell to 2px, like everything else here. */
+  .pixel-spinner { --size: 32px; flex: 0 0 auto; display: inline-block; position: relative; width: var(--size); height: var(--size); }
+  .pixel-spinner::before, .pixel-spinner::after { content: ""; position: absolute; inset: 0; }
+  .pixel-spinner::before {
+    background: var(--line);
+    -webkit-mask: var(--spinner-track) 0 0 / 100% 100% no-repeat; mask: var(--spinner-track) 0 0 / 100% 100% no-repeat;
+  }
+  .pixel-spinner::after {
+    background: var(--new);
+    -webkit-mask-image: var(--spinner-arc); mask-image: var(--spinner-arc);
+    -webkit-mask-size: calc(var(--size) * ${SPINNER_FRAMES}) var(--size); mask-size: calc(var(--size) * ${SPINNER_FRAMES}) var(--size);
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    animation: spinner-frames ${SPINNER_LOOP_SECONDS * 4}s steps(${SPINNER_FRAMES}) infinite;
+  }
+  @keyframes spinner-frames {
+    from { -webkit-mask-position: 0 0; mask-position: 0 0; }
+    to { -webkit-mask-position: calc(var(--size) * -${SPINNER_FRAMES}) 0; mask-position: calc(var(--size) * -${SPINNER_FRAMES}) 0; }
+  }
+  /* Turning while it reconnects; gone once it's back. */
+  .connection-bar.back .pixel-spinner { display: none; }
   /* An action sent to the server that hasn't answered yet (after a moment,
      so a quick one doesn't flicker): a thin bar sweeping across the top. */
   .acting-bar { position: fixed; top: 0; left: 0; height: 3px; width: 30%; z-index: 1001; background: var(--new); display: none; }
@@ -3870,7 +4006,7 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
 </style>
 </head>
 <body${readSettings().navCollapsed ? ' class="nav-collapsed"' : ''}>
-<div class="connection-bar" id="connection-bar" role="status" aria-live="polite" hidden><span class="connection-picture" aria-hidden="true"><span class="pixel-icon icon-display"></span><span class="pixel-icon connection-line"></span><span class="pixel-icon icon-server"></span></span><span class="connection-text" id="connection-text"></span></div>
+<div class="connection-bar" id="connection-bar" role="status" aria-live="polite" hidden><span class="connection-picture" aria-hidden="true"><span class="pixel-icon icon-display"></span><span class="pixel-icon connection-line"></span><span class="pixel-icon icon-server"></span></span><span class="connection-text" id="connection-text"></span><span class="pixel-spinner" aria-hidden="true"></span></div>
 <div class="acting-bar" id="acting-bar" aria-hidden="true"></div>
 <div id="photo-viewer" hidden onclick="if (event.target === this) closePhoto()">
   <img alt="">
@@ -3968,6 +4104,7 @@ window.onerror = function (message, source, line, column) {
 const WORDS = ${JSON.stringify({
   connLost: t('connLost'),
   connBack: t('connBack'),
+  connOffline: t('connOffline'),
   expand: t('expand'),
   photosOff: t('photosOff'),
   photosPerClass: t('photosPerClass', '{n}'),
@@ -7445,6 +7582,15 @@ function showConnection(down) {
   }
 }
 
+// The apps show this copy from disk when the server can't be reached at
+// all (16-summary.swift, electron/main.js): the bar says so, with the
+// wheel, while the app keeps trying. Called by the app after each load.
+window.classdashOffline = function () {
+  connectionDown = false;
+  showConnection(true);
+  document.getElementById('connection-text').textContent = WORDS.connOffline;
+};
+
 function connectionAlive() {
   connectionSeen = Date.now();
   showConnection(false);
@@ -7503,6 +7649,7 @@ applyFilters();
 `;
 
   fs.writeFileSync(outputPath, html);
+  fs.writeFileSync(path.join(path.dirname(outputPath), CONNECTING_PAGE), connectingPage());
   publishPageVersion(path.dirname(outputPath), pageVersion);
   return outputPath;
 }
@@ -7512,4 +7659,4 @@ applyFilters();
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite };
+module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite, pixelSpinner, connectingPage, CONNECTING_PAGE };

@@ -776,6 +776,8 @@ const DICTIONARIES = {
     settingsSignOut: 'Выйти',
     connLost: 'Нет связи с ClassDash — переподключаюсь…',
     connBack: 'Снова на связи',
+    connConnecting: 'Подключаюсь к ClassDash…',
+    connOffline: 'Нет связи с ClassDash — показана последняя сохранённая копия',
     settingsSignOutDesc: 'Выйти из ClassDash в этом браузере',
   },
 
@@ -1499,6 +1501,8 @@ const DICTIONARIES = {
     settingsSignOut: 'Sign out',
     connLost: 'Can\'t reach ClassDash — reconnecting…',
     connBack: 'Connected again',
+    connConnecting: 'Connecting to ClassDash…',
+    connOffline: 'Can\'t reach ClassDash — showing the last saved copy',
     settingsSignOutDesc: 'Signs this browser out of ClassDash',
   },
 };

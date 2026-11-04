@@ -620,6 +620,10 @@ function openWorkspace() {
 // failed load is tried again for about five seconds; after that, or with no
 // key yet, the page comes from disk as it always used to.
 let servedAttempts = 0;
+// Showing the page from disk because the server couldn't be reached, and
+// the one check for it that's waiting.
+let offline = false;
+let servedRetry = null;
 
 function apiPort() {
   try { return JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8')).apiPort || 8734; } catch { return 8734; }
@@ -664,15 +668,52 @@ function loadSummary() {
   const key = readPrivate('app-key.txt');
   if (!key || !readPrivate('api-cert.pem')) { loadFromDisk(); return; }
   servedAttempts = 0;
+  clearTimeout(servedRetry);
   win.webContents.session.cookies.set({
     url: servedUrl(), name: 'classdash_app', value: key, path: '/',
     secure: true, httpOnly: true, sameSite: 'strict',
     expirationDate: Math.floor(Date.now() / 1000) + 365 * 86400,
-  }).then(loadServed, loadFromDisk);
+  }).then(() => {
+    // The wheel while it connects (it waits a moment before showing, so a
+    // quick load shows nothing), never over the page from disk.
+    const connecting = path.join(projectDir, 'connecting.html');
+    if (!offline && fs.existsSync(connecting)) win.loadFile(connecting);
+    checkServer();
+  }, loadFromDisk);
+}
+
+// Whether the server answers, asked from here rather than by loading its
+// page: a load that fails swaps in Chromium's blank error page, which would
+// wipe the wheel, or the page from disk, on every try. Any answer at all
+// (even 401) means it's up, as long as the certificate is the project's own.
+function serverAnswers() {
+  return new Promise(resolve => {
+    const req = require('https').get({ host: '127.0.0.1', port: apiPort(), path: '/api/status', rejectUnauthorized: false, timeout: 3000 }, res => {
+      const cert = res.socket.getPeerCertificate();
+      res.resume();
+      const expected = certHash(readPrivate('api-cert.pem'));
+      resolve(!!(expected && cert && cert.raw && require('crypto').createHash('sha256').update(cert.raw).digest('hex') === expected));
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(false));
+  });
+}
+
+// Tried every half second for about five seconds, asking for the server to
+// be started on the third try; then the page from disk with the bar saying
+// so (classdashOffline in 08-page.js), and a quiet try every ten seconds,
+// asking again about every 30.
+async function checkServer() {
+  clearTimeout(servedRetry);
+  servedAttempts++;
+  if (await serverAnswers()) { loadServed(); return; }
+  if (servedAttempts === 3 || (servedAttempts > 10 && servedAttempts % 3 === 0)) runAction('ensureApi', '');
+  if (servedAttempts < 10) { servedRetry = setTimeout(checkServer, 500); return; }
+  if (!offline) { offline = true; loadFromDisk(); }
+  servedRetry = setTimeout(checkServer, 10000);
 }
 
 function loadServed() {
-  servedAttempts++;
   win.loadURL(servedUrl()).catch(() => { /* did-fail-load handles it */ });
 }
 
@@ -813,14 +854,20 @@ function createWindow() {
 
   if (openedAtLogin) win.once('ready-to-show', () => { win.showInactive(); win.minimize(); });
   trustOwnCertificate(win.webContents.session);
-  // The server didn't answer (still starting, or not running): tried again,
-  // asking for it to be started once along the way, then the page from disk.
+  // The server answered the check but its page still didn't load (it
+  // stopped in between): back to checking, from the page from disk.
   win.webContents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
     // -3 is a load cut short by another (the page reloading itself), not a failure.
     if (!isMainFrame || code === -3 || !isServedUrl(url)) return;
-    if (servedAttempts === 3) runAction('ensureApi', '');
-    if (servedAttempts < 10) setTimeout(loadServed, 500);
-    else loadFromDisk();
+    offline = true;
+    loadFromDisk();
+    clearTimeout(servedRetry);
+    servedRetry = setTimeout(checkServer, 10000);
+  });
+  win.webContents.on('did-finish-load', () => {
+    const url = win.webContents.getURL();
+    if (isServedUrl(url)) offline = false;
+    else if (offline) win.webContents.executeJavaScript('window.classdashOffline && window.classdashOffline()').catch(() => {});
   });
   // While the page loads, the taskbar button shows it's working (unless an
   // update is downloading, which uses the same bar).
