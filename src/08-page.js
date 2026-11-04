@@ -3191,6 +3191,11 @@ ${cardHtml[id]}
   .connection-picture { display: flex; align-items: center; }
   .connection-picture .pixel-icon { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
   .icon-server { -webkit-mask-image: var(--icon-server); mask-image: var(--icon-server); }
+  /* The line is drawn 48x32 (one art pixel per CSS pixel, so not stretched),
+     with 4px clear on each side. The server drawing already has 4px of
+     empty space on its left and the monitor none, so only the line gets a
+     margin, on the monitor's side. */
+  .connection-picture .connection-line { width: 48px; -webkit-mask-size: 48px 32px; mask-size: 48px 32px; margin-left: 4px; }
   .connection-line { -webkit-mask-image: var(--icon-line-broken); mask-image: var(--icon-line-broken); }
   .connection-bar.back .connection-line { -webkit-mask-image: var(--icon-line); mask-image: var(--icon-line); }
   .connection-bar[hidden] { display: none; }
