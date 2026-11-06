@@ -2293,6 +2293,16 @@ if (require.main !== module) return;
   // No browser launches here at all: it takes what's already in memory
   // and prints the page again. Half a second instead of a minute.
   if (process.argv.includes('--redraw')) {
+    // After Stop (21-notifier-actions.js): the stopped run could still write a
+    // draft over this until it's gone. Not waited for forever, though.
+    const stopped = process.argv.find(a => a.startsWith('--after-pid='));
+    if (stopped) {
+      const pid = Number(stopped.split('=')[1]);
+      for (let waited = 0; waited < 2000 && pid > 0; waited += 50) {
+        try { process.kill(pid, 0); } catch { break; }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
     redrawPage();
     return;
   }

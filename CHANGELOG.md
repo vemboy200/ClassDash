@@ -4,6 +4,10 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Opening ClassDash during a check can't load a broken page anymore.** A check rewrites the page after every class, and a browser or the app loading it at that moment could get only part of it, with things like the checkboxes drawn wrong until a reload.
+- **Stopping a check no longer leaves "Still reading" at the top of the page**, and that banner now goes away as soon as a check is over, even while Settings is open.
+- **Cmd/Ctrl + R reloads the page in a browser**, as it does on any other site, instead of starting a Quick check. In the app it's still Quick check, and Shift + Cmd/Ctrl + R is still Full check.
+- **Cancelling a pairing code works every time.** The box could come back saying the code had run out. If the page reloads while a code is waiting, Settings → API now says so and lets you cancel it.
 - **ClassDash in a browser.** The API now serves the ClassDash page too, so you can open it in a browser on the same computer or another device on your network: paste the access key once and the browser remembers it. Its buttons work the same as in the app, apart from the few things that need the app itself: those are greyed out with a note, like **Allow LAN access** and rolling the key, which only the app on the server's computer can change. See [API](docs/api.md#classdash-in-a-browser).
 - **Odd, even and flipped days from the school calendar.** Each PDF legend mark and each kind of calendar feed event now has a second choice beside what kind of day it is: which day of your class schedule it is (**Odd**, **Even**, **A**, **B** or **Flipped**), so one event can be both, like "Even Day. Also MINIMUM Day". Both are guessed from the name. An even day on an odd date (or the other way round) counts as a flipped day in your class schedule, heads-up the evening before included, without typing it into Settings → Schedule.
 - **Grade charts show the exact grade as you hover**, anywhere along the line and right away: the grade in effect at that point, with its dot lit. It used to need the pointer exactly on a dot and a moment's wait.

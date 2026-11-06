@@ -39,10 +39,14 @@ cleanup();
   // 3. a real "collection" running -> it is asked to stop and dies
   const collector = spawnDecoy([]);
   fs.writeFileSync(LOCK, String(collector.pid));
+  fs.writeFileSync(path.join(PROJ, 'summary.html'), '<div class="live">made-up half-read draft</div>');
   r = action();
   ok(r.ok && r.stopped === true, '3 a real process: stopped is true: ' + JSON.stringify(r));
   await sleep(300);
   ok(!alive(collector.pid), '3 the process actually died');
+  const stillDraft = () => /made-up half-read draft/.test(fs.readFileSync(path.join(PROJ, 'summary.html'), 'utf8'));
+  for (let i = 0; i < 100 && stillDraft(); i++) await sleep(100);
+  ok(!stillDraft(), "3 the run's half-read draft is replaced by a finished page");
   cleanup();
 
   // 4. killLeftoverBrowser only touches something whose command line names

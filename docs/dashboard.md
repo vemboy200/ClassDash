@@ -18,8 +18,8 @@ Cmd on a Mac, Ctrl on Windows. They also live in the **View** menu, and each fil
 
 | Keys | Does |
 |---|---|
-| Cmd/Ctrl + R | Quick check |
-| Shift + Cmd/Ctrl + R | Full check |
+| Cmd/Ctrl + R | Quick check (in the app; in a browser it reloads the page as usual) |
+| Shift + Cmd/Ctrl + R | Full check (in the app; in a browser it reloads the page as usual) |
 | Cmd/Ctrl + S | Show or hide the status of each source |
 | 1 to 9, 0, -, = | Turn the 1st to 12th class in the class filter on or off (the numpad works too, with `-` and `+` as 11 and 12) |
 | Shift + those keys | The same, for the 1st to 12th class in the announcements filter |

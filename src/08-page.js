@@ -4176,6 +4176,7 @@ const WORDS = ${JSON.stringify({
   apiPairNote: t('settingsApiPairNote', '{minutes}'),
   apiPairDone: t('settingsApiPairDone', '{name}'),
   apiPairExpired: t('settingsApiPairExpired'),
+  apiPairWaiting: t('settingsApiPairWaiting', '{minutes}'),
   connLost: t('connLost'),
   connBack: t('connBack'),
   connOffline: t('connOffline'),
@@ -5480,7 +5481,7 @@ function loadDevices(then) {
 // this page. Stops by itself once the section is closed.
 var devicesWatch = null;
 function watchDevices() {
-  loadDevices();
+  loadDevices(resumePairing);
   if (devicesWatch) return;
   devicesWatch = setInterval(function () {
     var section = document.querySelector('.settings-section[data-section="api"]');
@@ -5494,46 +5495,73 @@ function watchDevices() {
   }, 5000);
 }
 
-function showPairState(code, note) {
+function showPairState(code, note, canCancel) {
   var box = document.getElementById('api-pair-code');
   document.getElementById('api-pair-value').textContent = code || '';
   document.getElementById('api-pair-note').textContent = note;
-  document.getElementById('api-pair-cancel').hidden = !code;
+  document.getElementById('api-pair-cancel').hidden = !(code || canCancel);
   box.hidden = false;
 }
 
+// Bumped whenever the watch stops, so an answer still on its way from before
+// that can't act afterwards: one arriving just after Cancel would see no code
+// waiting and put the box back, saying the code ran out.
+var pairGeneration = 0;
 function stopPairWatch() {
+  pairGeneration++;
   if (pairWatch) clearInterval(pairWatch);
   pairWatch = null;
 }
 
-// Makes a code, shows it, and watches for it being used (or running out),
-// then shows which device it became.
+// Watches a waiting code being used (or running out), then shows which device
+// it became.
+function startPairWatch() {
+  var mine = pairGeneration;
+  loadDevices(function (first) {
+    if (mine !== pairGeneration) return;
+    pairDeviceCount = (first.devices || []).length;
+    pairWatch = setInterval(function () {
+      loadDevices(function (now) {
+        if (mine !== pairGeneration) return;
+        if (now.pairing && now.pairing.waiting) return;
+        stopPairWatch();
+        var devices = now.devices || [];
+        if (devices.length > pairDeviceCount) showPairState('', WORDS.apiPairDone.replace('{name}', devices[devices.length - 1].name));
+        else showPairState('', WORDS.apiPairExpired);
+      });
+    }, 2000);
+  });
+}
+
+// A code outlives the page that made it (a reload loses the box), and only its
+// hash is kept, so it can't be shown again. It can still be cancelled.
+function resumePairing(res) {
+  if (pairWatch || !hasNativeBridge() || !res.pairing || !res.pairing.waiting) return;
+  if (document.getElementById('api-pair-value').textContent) return;
+  var minutes = Math.max(1, Math.ceil((res.pairing.expires - Date.now()) / 60000));
+  showPairState('', WORDS.apiPairWaiting.replace('{minutes}', minutes), true);
+  startPairWatch();
+}
+
+// Makes a code, shows it, and watches it.
 function pairDevice() {
   stopPairWatch();
+  var mine = pairGeneration;
   dispatchAction('pairCode', '', function (res) {
-    if (!res || !res.ok || !res.code) return;
+    if (mine !== pairGeneration || !res || !res.ok || !res.code) return;
     var minutes = Math.round((res.expires - Date.now()) / 60000);
     showPairState(res.code, WORDS.apiPairNote.replace('{minutes}', minutes));
-    loadDevices(function (first) {
-      pairDeviceCount = (first.devices || []).length;
-      pairWatch = setInterval(function () {
-        loadDevices(function (now) {
-          if (now.pairing && now.pairing.waiting) return;
-          stopPairWatch();
-          var devices = now.devices || [];
-          if (devices.length > pairDeviceCount) showPairState('', WORDS.apiPairDone.replace('{name}', devices[devices.length - 1].name));
-          else showPairState('', WORDS.apiPairExpired);
-        });
-      }, 2000);
-    });
+    startPairWatch();
   });
 }
 
 function cancelPairing() {
   stopPairWatch();
-  dispatchAction('pairCancel', '', function () {
-    document.getElementById('api-pair-code').hidden = true;
+  document.getElementById('api-pair-code').hidden = true;
+  document.getElementById('api-pair-value').textContent = '';
+  // If it didn't go through the code still works, so it comes back to say so.
+  dispatchAction('pairCancel', '', function (res) {
+    if (!res || !res.ok) loadDevices(resumePairing);
   });
 }
 
@@ -7541,7 +7569,9 @@ document.addEventListener('keydown', function (e) {
 
   if (command && !wrongModifier) {
     if (e.code === 'KeyR') {
-      e.preventDefault();   // not the browser's own reload
+      // In a browser it's the browser's own reload; only the app has it free.
+      if (!hasNativeBridge() && location.protocol === 'https:') return;
+      e.preventDefault();   // not the app's page reload
       if (!e.repeat) runShortcut(e.shiftKey ? 'fresh' : 'refresh');
     } else if (e.code === 'KeyS' && !e.shiftKey) {
       e.preventDefault();   // not the browser's own "save page"
@@ -7601,11 +7631,12 @@ var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
   var tip = function (el, keys) {
     if (el) el.title = (el.title ? el.title + ' \u2014 ' : '') + keys;
   };
-  tip(document.getElementById('quickcheck-button'), mac ? '\u2318R' : 'Ctrl+R');
+  var reloadKeyIsOurs = hasNativeBridge() || location.protocol !== 'https:';
+  if (reloadKeyIsOurs) tip(document.getElementById('quickcheck-button'), mac ? '\u2318R' : 'Ctrl+R');
   // Same key either way: freshcheck-button IS the Stop button while a
   // check is running (see applyRunState and its own click handler), one
   // element, one shortcut \u2014 nothing separate to hint here.
-  tip(document.getElementById('freshcheck-button'), mac ? '\u21E7\u2318R' : 'Ctrl+Shift+R');
+  if (reloadKeyIsOurs) tip(document.getElementById('freshcheck-button'), mac ? '\u21E7\u2318R' : 'Ctrl+Shift+R');
   tip(document.querySelector('.check-status'), mac ? '\u2318S' : 'Ctrl+S');
 })();
 
@@ -7820,6 +7851,12 @@ function onLiveState(run, version) {
   if (run) lastRun = run;
   if (version && version > newestVersion) newestVersion = version;
   var running = applyRunState(lastRun);
+  // A draft saying "Still reading" stops being true once the run is known to
+  // be over, even while something open (Settings, say) holds the reload back.
+  if (lastRun && !running) {
+    var staleDraft = document.querySelector('.live');
+    if (staleDraft) staleDraft.remove();
+  }
   // Strictly newer, never just different: if the version ever lags or goes
   // missing this can leave a page un-refreshed, but can't make one reload
   // forever.
@@ -7983,10 +8020,30 @@ applyFilters();
 </html>
 `;
 
-  fs.writeFileSync(outputPath, html);
-  fs.writeFileSync(path.join(path.dirname(outputPath), CONNECTING_PAGE), connectingPage());
+  writeWhole(outputPath, html);
+  writeWhole(path.join(path.dirname(outputPath), CONNECTING_PAGE), connectingPage());
   publishPageVersion(path.dirname(outputPath), pageVersion);
   return outputPath;
+}
+
+// Written beside the file and renamed over it, so anyone reading it (the
+// server sending the page, while a check rewrites it after every class) gets
+// the old page or the new one, never part of one. Windows refuses the rename
+// while something has the file open, so it tries again for a moment, and only
+// then writes in place: better a rare torn read than no page at all.
+function writeWhole(file, body) {
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
+  fs.writeFileSync(tmp, body);
+  for (let tries = 0; tries < 10; tries++) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  fs.writeFileSync(file, body);
+  try { fs.unlinkSync(tmp); } catch { /* left for the next write's name to reuse */ }
 }
 
 // allKnownClasses/knownClassStatus are exported for 17-api.js's own
