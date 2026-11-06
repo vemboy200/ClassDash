@@ -79,4 +79,4 @@ function streamWriter(req, res) {
   };
 }
 
-module.exports = { sendBody, streamWriter, wantsCompression };
+module.exports = { sendBody, streamWriter, wantsCompression, isThisComputer };

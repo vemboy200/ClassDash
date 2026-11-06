@@ -4112,7 +4112,16 @@ ${dashCard('transcripts')}
   </div>
   <footer>${escapeHtml(t(readSettings().aiProvider && readSettings().aiProvider !== 'none' ? 'footerNoteAi' : 'footerNote'))}</footer>
 </main>
-<script>
+<script id="page-values">
+// What changes from one redraw to the next, apart from the main script below,
+// so that script stays the same and other devices can keep it (54-page-assets.js).
+var browserState = { ownBrave: ${ownBraveInstalled() ? 'true' : 'false'} };
+var savedFilterState = ${JSON.stringify(readSettings().filterUnchecked || {}).split('<').join('\\u003c')};
+var ASSIGNMENT_LINKS_SAME_CLASS = ${readSettings().assignmentLinksSameClass ? 'true' : 'false'};
+var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
+var PAGE_VERSION = ${pageVersion};
+</script>
+<script id="page-main">
 // A BROKEN SCRIPT HAS TO SAY SO OUT LOUD.
 //
 // This page's buttons all depend on the script below. In a browser, a
@@ -5714,7 +5723,7 @@ function updateSourceRows() {
 // answers with the path, the page puts it in its own field, and it's saved
 // with everything else when the panel closes — a write to the file underneath
 // an open panel would just be overwritten by that panel's next save.
-var browserState = { ownBrave: ${ownBraveInstalled() ? 'true' : 'false'} };
+// (browserState is in the "page-values" script.)
 
 // The name of the browser a path points at — a copy of browserNameFromPath in
 // 08-page.js's own code, written without regexes or backslash literals
@@ -7235,8 +7244,8 @@ function saveSettings(then) {
 // resets on the next refresh, as it always did.
 //
 // The unchecked lists as this page was built, so a save can keep choices
-// about options this page doesn't happen to list right now.
-var savedFilterState = ${JSON.stringify(readSettings().filterUnchecked || {}).split('<').join('\\u003c')};
+// about options this page doesn't happen to list right now: savedFilterState,
+// in the "page-values" script.
 var rememberTimer = null;
 
 // What's unchecked now, per group. Options that aren't on this page at the
@@ -7481,7 +7490,6 @@ window.classdashShortcut = runShortcut;
 // "Link here" shows on the cards it can be linked with (the same class as
 // shown, unless that's switched off in Settings → Classes). The notifier
 // writes assignment-links.json and redraws; the page reloads to show it.
-var ASSIGNMENT_LINKS_SAME_CLASS = ${readSettings().assignmentLinksSameClass ? 'true' : 'false'};
 var linkSource = null;
 
 function startLink(e, button) {
@@ -7586,7 +7594,6 @@ document.addEventListener('keydown', function (e) {
 // depends on the order they're listed in: a small key beside each filter, and
 // the shortcut in the tooltip of the header buttons. Can be switched off in
 // Settings → Display (showKeyHints); the shortcuts themselves stay on.
-var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
 (function () {
   if (!showKeyHints) return;
   var mac = /Mac/.test(navigator.platform || '');
@@ -7647,7 +7654,6 @@ var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
 // open, a field is being typed in, or anything was clicked, typed or
 // scrolled in the last few seconds. It keeps trying, so it happens the
 // moment things go quiet.
-var PAGE_VERSION = ${pageVersion};
 var LIVE_POLL_IDLE = 5000;
 var LIVE_POLL_RUNNING = 2000;
 var LIVE_STALE_MS = 30000;

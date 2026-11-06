@@ -99,7 +99,8 @@ const {
 // that could drift. See the WRITE_HANDLERS comment below for the one
 // case (apiLan) that's deliberately NOT reachable this way.
 const notifierActions = require('./21-notifier-actions.js');
-const { sendBody, streamWriter } = require('./53-compress.js');
+const { sendBody, streamWriter, isThisComputer } = require('./53-compress.js');
+const { splitPage, pageAsset } = require('./54-page-assets.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
 const { readUpdateStatus } = require('./26-update-check.js');
@@ -1013,6 +1014,14 @@ function workspaceFile(urlPath) {
  *  that isn't there (yet) is a 404, which is how the page's live polling
  *  already reads a missing file. */
 function sendPageFile(urlPath, req, res, kind) {
+  const asset = pageAsset(urlPath);
+  if (asset) {
+    // Named after what's in it, so it never changes under the same address.
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    res.setHeader('Content-Type', asset.type);
+    sendBody(req, res, 200, asset.body);
+    return true;
+  }
   const isPage = urlPath === '/';
   const ws = workspaceFile(urlPath);
   const match = isPage ? { type: 'text/html; charset=utf-8' } : ws || PAGE_FILES.find(f => f.pattern.test(urlPath));
@@ -1032,6 +1041,7 @@ function sendPageFile(urlPath, req, res, kind) {
     // after being removed. It's taken out here, as the page is sent, and
     // the page is told why its key field is empty.
     if (isPage && kind === 'device') data = pageForDevice(data);
+    if (isPage && !isThisComputer(req) && !/[?&]whole=1(&|$)/.test(req.url || '')) data = splitPage(data);
     if (match.type === 'application/pdf') return res.writeHead(200).end(data);
     sendBody(req, res, 200, data);
   });

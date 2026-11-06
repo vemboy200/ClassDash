@@ -18,6 +18,8 @@ If the page can't reach the server (it stopped, or the connection is weak), a ba
 
 To other devices, the server compresses the page, its files and API answers when the client asks for gzip (browsers do this by themselves), which takes the page from about 1 MB to about 170 KB. A browser's `/api/stream` is compressed too, but a program reading it with an `Authorization` header always gets it plain. Nothing is compressed for clients on the same computer.
 
+Other devices also get the page's styling and main script as separate files a browser can keep, named after what's in them. Adding `?whole=1` to the address gets the whole page as one file instead.
+
 ## Pairing a device
 
 Rather than copying the long access key to every phone and laptop, each device can get a key of its own. In the app, **Settings → API → Pair a Device** shows a short code like `K7M-4QX`. Type it on ClassDash's sign-in page on the other device, and that browser is signed in with its own key. It shows up under **Devices** in Settings → API, named after it ("Safari on iPhone"), with when it was paired and last used.
