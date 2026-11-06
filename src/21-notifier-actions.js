@@ -152,8 +152,7 @@ function stopCheck() {
     killLeftoverBrowser();
   }
   require('./28-live-state.js').markRunStopped(PROJECT_ROOT);
-  // The page on disk is the run's last half-read draft, "Still reading" banner
-  // and all, and a stopped run never writes the finished one, so it's drawn
+  // The page on disk is the run's last half-read draft, and a stopped run never writes the finished one, so it's drawn
   // from memory once the run is really gone. In the background: from a browser
   // this runs inside the server, which must keep answering, and whose own
   // stopped child isn't gone until the server is free to notice.

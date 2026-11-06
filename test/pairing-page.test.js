@@ -1,6 +1,6 @@
-// The page's side of three things, with made-up data: cancelling a pairing code
-// (answers arriving late, a code outliving the page), the "Still reading" banner
-// once a check is over, and Cmd/Ctrl+R in a browser versus in the app.
+// The page's side of two things, with made-up data: cancelling a pairing code
+// (answers arriving late, a code outliving the page), and Cmd/Ctrl+R in a browser
+// versus in the app.
 const T = require('./helpers');
 const path = require('path'), fs = require('fs');
 const PROJ = T.makeProject({ 'settings.json': { language: 'en' } }); process.chdir(PROJ);
@@ -80,15 +80,6 @@ function open({ bridge }) {
   p.answer('devices', { devices: [], pairing: { waiting: true, expires: Date.now() + 240000 } });
   ok(!box().hidden, 'a Cancel that failed brings it back');
   p.w.cancelPairing();
-  p.close();
-
-  // ---- "Still reading" ----
-  p = open({ bridge: true });
-  const banner = p.d.createElement('div'); banner.className = 'live'; p.d.body.appendChild(banner);
-  p.w.classdashLiveChanged({ run: { running: true, at: Date.now() }, version: 0 });
-  ok(p.d.querySelector('.live'), 'the banner stays while a check runs');
-  p.w.classdashLiveChanged({ run: { running: false, at: Date.now() }, version: 0 });
-  ok(!p.d.querySelector('.live'), 'and goes once it is over');
   p.close();
 
   // ---- Cmd+R ----

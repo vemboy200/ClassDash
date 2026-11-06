@@ -602,7 +602,6 @@ const DICTIONARIES = {
 
     // States
     emptyState: 'Ничего не горит и ничего нового. Можно выдохнуть.',
-    stillReading: 'Ещё читаю:',
     fromMemoryNotice: 'Пока показаны данные с прошлого раза.',
     couldNotRead: 'Не удалось прочитать:',
     footerNote: 'Собрано без модели, обычным скриптом. Клик по заданию открывает его в Classroom.',
@@ -1357,7 +1356,6 @@ const DICTIONARIES = {
     browserSystemChrome: 'Google Chrome (system)',
 
     emptyState: 'Nothing due and nothing new. You can relax.',
-    stillReading: 'Still reading:',
     fromMemoryNotice: 'Showing data from the previous run for now.',
     couldNotRead: 'Could not read:',
     footerNote: 'Collected by a plain script, no model involved. Click an assignment to open it in Classroom.',

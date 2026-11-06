@@ -66,7 +66,6 @@ const runState = o => ({ running: true, done: 0, total: 0, at: Date.now(), ...o 
   {
     const { w, d, posted, close } = await open();
     const box = d.getElementById('check-progress');
-    ok('an in-progress page is used for this test (has the banner)', !!d.querySelector('.live'));
     w.classdashLiveChanged({ run: runState({ done: 4, total: 8 }), version: null });
     ok('bar is up', box.hidden === false);
     w.lastRun = runState({ done: 4, total: 8, at: Date.now() - 45000 });   // heartbeat stopped 45s ago

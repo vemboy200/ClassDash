@@ -2407,7 +2407,7 @@ function rasterSprite(N, shapeAt, edge, fill) {
 /** The stepped-corner rules — shared geometry once, then the sprite each
  *  kind of element uses, generated for both themes. */
 function pixelCornerCss() {
-  const TILES = '.post, .item, .live, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai, .svc-card';
+  const TILES = '.post, .item, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai, .svc-card';
   const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, .dash-edit, .dash-hide, ' +
     '.show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
@@ -2621,15 +2621,6 @@ function writePage(data, outputPath) {
   });
 
   // newMaterials was already computed above, together with the filter lists.
-
-  // The page is rewritten after every class read, so it can be checked
-  // without waiting for the pass to finish. Which means it MUST be honest
-  // about its own state — otherwise a half-read list looks like a
-  // complete one, and that's worse than waiting.
-  const inProgress = reading.length
-    ? `  <div class="live"><span class="loading-icon" aria-hidden="true"></span>${escapeHtml(t('stillReading'))} ${escapeHtml(reading.join(', '))}.
-       ${escapeHtml(t('fromMemoryNotice'))}</div>`
-    : '';
 
   const warning = broken.length
     ? `  <div class="warn">${escapeHtml(t('couldNotRead'))} ${escapeHtml(broken.join(', '))}.
@@ -3287,7 +3278,7 @@ ${cardHtml[id]}
      frame, then jumps). At its own 32px, one art pixel per CSS pixel, so it's
      crisp on every display — the header icons taught that shrinking pixel art
      by half only works where the screen can spare the pixels. Used on the
-     progress bar (leading the fill) and in the "Still reading" banner. */
+     progress bar (leading the fill). */
   .loading-icon {
     flex: 0 0 auto; display: inline-block; width: 32px; height: 32px;
     background-image: var(--icon-loading); background-repeat: no-repeat;
@@ -3366,11 +3357,6 @@ ${cardHtml[id]}
   }
   .update-dismiss:hover { opacity: 1; }
   .update-error-note { color: var(--warn); }
-  .live {
-    background: var(--card); border: 2px solid var(--ink); border-radius: 10px;
-    padding: 6px 14px; margin-bottom: 20px; font-size: 14px; color: var(--dim);
-    display: flex; gap: 10px; align-items: center;
-  }
   .empty { color: var(--dim); padding: 20px 0; }
   .row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; }
   .row .item { flex: 1; margin-bottom: 0; }
@@ -4093,7 +4079,6 @@ ${checkStatusPanel()}
 <main>
 ${settingsPanel()}
 ${progressBar}
-${inProgress}
 ${setupBanner}
 ${signInBanner}
   <div class="warn link-bar" id="link-bar" hidden>
@@ -7775,7 +7760,7 @@ function applyRunState(run) {
   }
   if (box && !unknown) {
     if (!live) {
-      if (!box.hidden && document.querySelector('.live')) reportLiveDecision(run);
+      if (!box.hidden) reportLiveDecision(run);
       box.hidden = true;
     } else {
       box.hidden = false;
@@ -7851,12 +7836,6 @@ function onLiveState(run, version) {
   if (run) lastRun = run;
   if (version && version > newestVersion) newestVersion = version;
   var running = applyRunState(lastRun);
-  // A draft saying "Still reading" stops being true once the run is known to
-  // be over, even while something open (Settings, say) holds the reload back.
-  if (lastRun && !running) {
-    var staleDraft = document.querySelector('.live');
-    if (staleDraft) staleDraft.remove();
-  }
   // Strictly newer, never just different: if the version ever lags or goes
   // missing this can leave a page un-refreshed, but can't make one reload
   // forever.

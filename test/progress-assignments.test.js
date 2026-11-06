@@ -55,5 +55,5 @@ ok('everything empty -> empty, no crash', assignmentsForProgress([], [], [], [])
   ok('a finished read with nothing due says so', /<div class="empty">Nothing due and nothing new/.test(write({})));
   ok('a page written mid-check does not (nothing due YET is not nothing due)',
     !/<div class="empty">/.test(write({ reading: ['Canvas'], progress: { done: 3, total: 8 } })));
-  ok('...but still says it is still reading', /Still reading/.test(write({ reading: ['Canvas'], progress: { done: 3, total: 8 } })));
+  ok('...and has no "Still reading" banner: the progress bar says it', !/Still reading/.test(write({ reading: ['Canvas'], progress: { done: 3, total: 8 } })));
 }
