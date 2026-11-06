@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Each page has its own address in a browser**, like Home Assistant: `/dashboard`, `/grades`, `/settings/api` and so on. You can bookmark one, Back and Forward work, a reload stays on the page you're on, and signing in takes you to the page you asked for.
 - **ClassDash loads faster on other devices after the first time**: its styling and code are now files a browser can keep, so reloading the page only fetches what changed.
 - **ClassDash uses much less data on other devices**, such as a phone or another computer on your network: the server now compresses what it sends them, so the page goes from about 1 MB to about 170 KB. The app and browsers on the same computer aren't affected.
 - **Opening ClassDash during a check can't load a broken page anymore.** A check rewrites the page after every class, and a browser or the app loading it at that moment could get only part of it, with things like the checkboxes drawn wrong until a reload.

@@ -4528,7 +4528,7 @@ function dispatchAction(action, arg, onResult) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: action, arg: arg || '' })
     }).then(function (r) {
-      if (r.status === 401) { location.href = '/login'; return null; }
+      if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return null; }
       return r.json();
     }).then(function (result) {
       actingEnd();
@@ -5207,12 +5207,16 @@ function currentPage() {
 function showPage(name) {
   var from = currentPage();
   if (from === name) return;
+  // One step Back, however many panels close and open on the way.
+  var wasApplying = routeApplying;
+  routeApplying = true;
   if (from === 'settings') toggleSettingsPanel();
   else if (from === 'grades') toggleGradesCenter(false);
   else if (from === 'workspace') closeWorkspace();
   if (name === 'settings') toggleSettingsPanel();
   else if (name === 'grades') toggleGradesCenter(true);
   else if (name === 'workspace') openWorkspace();
+  routeApplying = wasApplying;
   syncPages();
 }
 // The ☰: folds the sidebar down to its icons and back. Remembered as a
@@ -5275,8 +5279,51 @@ function syncPages() {
     if (items[i].getAttribute('data-page') === page) items[i].setAttribute('aria-current', 'page');
     else items[i].removeAttribute('aria-current');
   }
+  syncUrl();
 }
 syncPages();
+
+// ── The address ──
+//
+// Served by ClassDash's server, each page has an address of its own, so it can
+// be bookmarked, Back works and a reload stays put (isPageRoute in 17-api.js
+// lists them). The address follows the page rather than leading it: everything
+// that changes the page ends in syncUrl, the app's menu items included. A page
+// opened from disk has no addresses to go to.
+var routesReady = false;   // until applyRoute has read the address it opened at
+var routeApplying = false; // applying the address isn't a new place to go back to
+function routeForPage() {
+  var page = currentPage();
+  if (page !== 'settings') return '/' + page;
+  var open = document.querySelector('.settings-section:not([hidden])');
+  if (!open) return '/settings';
+  return '/settings/' + open.getAttribute('data-section').replace(/^svc-/, 'services/');
+}
+function syncUrl() {
+  if (!routesReady || routeApplying) return;
+  var route = routeForPage();
+  if (route !== location.pathname) history.pushState(null, '', route + location.search);
+}
+function applyRoute() {
+  if (location.protocol !== 'https:' || !window.history || !history.pushState) return;
+  var parts = location.pathname.split('/').filter(Boolean);
+  routeApplying = true;
+  // "/" is wherever the page already is (the Grades center reopens itself after
+  // a reload), and anything this page can't show ends up on the Dashboard.
+  if (parts.length) {
+    showPage(['workspace', 'grades', 'settings'].indexOf(parts[0]) >= 0 ? parts[0] : 'dashboard');
+    if (parts[0] === 'settings' && currentPage() === 'settings') {
+      var section = parts[1] === 'services' && parts[2] ? 'svc-' + parts[2] : parts[1];
+      if (section && document.querySelector('.settings-section[data-section="' + section + '"]')) showSettingsSection(section);
+      else showSettingsMenu();
+    }
+  }
+  routeApplying = false;
+  routesReady = true;
+  var route = routeForPage();
+  if (route !== location.pathname) history.replaceState(null, '', route + location.search);
+}
+window.addEventListener('popstate', applyRoute);
 
 // The "some settings need a fresh check" notice's button. Starts the same
 // quick pass the home API's reload does (Classroom and Canvas, no
@@ -5412,6 +5459,7 @@ function showSettingsSection(name) {
   window.scrollTo(0, 0);
   if (name === 'ai') refreshAiStates();
   if (name === 'api') watchDevices();
+  syncUrl();
 }
 
 // ── Paired devices (Settings → API) ──
@@ -5583,6 +5631,7 @@ function showSettingsMenu() {
   window.scrollTo(0, 0);
   var row = open && document.querySelector('.settings-row[data-open="' + open.getAttribute('data-section') + '"]');
   if (row) row.focus();
+  syncUrl();
 }
 // The back arrow and Esc: a service's page goes back to Services, a
 // section to the menu, with what was opened focused again.
@@ -7688,7 +7737,8 @@ function loadLiveFile(name, done, folder) {
   };
   el.onload = function () { finish(true); };
   el.onerror = function () { finish(false); };
-  el.src = (folder || 'live') + '/' + name + '?t=' + Date.now();
+  // From the server's root: the page's own address can be any depth.
+  el.src = (location.protocol === 'https:' ? '/' : '') + (folder || 'live') + '/' + name + '?t=' + Date.now();
   document.head.appendChild(el);
 }
 
@@ -7973,7 +8023,7 @@ function openConnection() {
     // (an answer that wasn't the stream, like 401) needs a look first.
     if (stream.readyState === EventSource.CLOSED) {
       fetch('/api/status', { credentials: 'same-origin' }).then(function (r) {
-        if (r.status === 401 && !hasNativeBridge()) { location.href = '/login'; return; }
+        if (r.status === 401 && !hasNativeBridge()) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return; }
         connectionLost();
         setTimeout(openConnection, 3000);
       }).catch(function () {
@@ -8000,6 +8050,7 @@ if (location.protocol === 'https:' && window.EventSource) {
 // Filters are applied right away on load, not just counted: otherwise
 // removed items would show up until the first checkbox click.
 applyFilters();
+applyRoute();
 </script>
 </body>
 </html>

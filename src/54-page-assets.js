@@ -41,7 +41,7 @@ function splitPage(page) {
 
   const css = keep('text/css; charset=utf-8', 'css', text.slice(styleAt + STYLE_OPEN.length, styleEnd));
   const js = keep('text/javascript; charset=utf-8', 'js', text.slice(scriptAt + SCRIPT_OPEN.length, scriptEnd));
-  const whole = `onerror="location.replace('/?whole=1')"`;
+  const whole = `onerror="location.replace(location.pathname + '?whole=1')"`;
   const html = Buffer.from(
     text.slice(0, styleAt) +
     `<link rel="stylesheet" href="${css}" ${whole}>` +

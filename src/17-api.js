@@ -980,6 +980,11 @@ function sendHeartbeat() {
 // pattern, so no other file in the project folder can be read this way
 // (settings.json, the token, the certificate's key).
 const PAGE_FILE = path.join(PROJECT_ROOT, 'summary.html');
+// The page's own addresses, one for each of its pages (routeForPage in
+// 08-page.js). A browser asking for one gets the page, which opens there.
+function isPageRoute(urlPath) {
+  return /^\/(dashboard|workspace|grades|settings(\/services)?(\/[a-z0-9-]+)?)$/.test(urlPath);
+}
 const PAGE_FILES = [
   { pattern: /^\/live\/(page-version|check-run)\.js$/, type: 'text/javascript; charset=utf-8' },
   { pattern: /^\/chat-live\/answer\.js$/, type: 'text/javascript; charset=utf-8' },
@@ -1022,7 +1027,7 @@ function sendPageFile(urlPath, req, res, kind) {
     sendBody(req, res, 200, asset.body);
     return true;
   }
-  const isPage = urlPath === '/';
+  const isPage = urlPath === '/' || (isPageRoute(urlPath) && wantsHtml(req));
   const ws = workspaceFile(urlPath);
   const match = isPage ? { type: 'text/html; charset=utf-8' } : ws || PAGE_FILES.find(f => f.pattern.test(urlPath));
   if (!match) return false;
@@ -1040,6 +1045,8 @@ function sendPageFile(urlPath, req, res, kind) {
     // Settings → API, and a device that could copy it would keep access
     // after being removed. It's taken out here, as the page is sent, and
     // the page is told why its key field is empty.
+    // Written for being opened from disk, where it's relative to the file.
+    if (isPage) data = Buffer.from(data.toString('utf8').split('<img src="announcement-photos/').join('<img src="/announcement-photos/'), 'utf8');
     if (isPage && kind === 'device') data = pageForDevice(data);
     if (isPage && !isThisComputer(req) && !/[?&]whole=1(&|$)/.test(req.url || '')) data = splitPage(data);
     if (match.type === 'application/pdf') return res.writeHead(200).end(data);
@@ -1073,7 +1080,7 @@ const APP_ICON_B64 = (() => {
   try { return fs.readFileSync(path.join(__dirname, 'app-icon.png')).toString('base64'); } catch { return ''; }
 })();
 
-function loginPage(wrong) {
+function loginPage(wrong, next) {
   const { PIXEL_THEME, pixelSprite } = require('./08-page.js');
   const theme = (th, shadow, text) => `
     --bg: ${th.bg}; --card: ${th.card}; --text: ${text}; --dim: ${th.dim}; --hot: ${th.hot}; --new: ${th.new}; --shadow: ${shadow};
@@ -1138,7 +1145,7 @@ ${icon ? `<link rel="icon" type="image/png" href="${icon}">` : ''}
   </div>
   <p>${t('loginExplain')}</p>
   ${wrong ? `<p class="wrong">${t('loginWrong')}</p>` : ''}
-  <form method="post" action="/login">
+  <form method="post" action="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">
     <label for="token">${t('loginToken')}</label>
     <input class="frame" id="token" name="token" type="password" autocomplete="current-password" autofocus required>
     <button class="frame" type="submit">${t('loginButton')}</button>
@@ -1208,6 +1215,13 @@ function readLoginToken(req) {
 /** POST /login: a right token sets the cookie and goes to the page; a wrong
  *  one shows the form again. The cookie lasts a year; rolling the token in
  *  Settings → Home API signs every browser out. */
+/** Where to go after signing in: only ever one of the page's own addresses, so
+ *  a link can't use the sign-in page to send someone somewhere else. */
+function loginNext(req) {
+  const next = new URL(req.url || '/', 'https://classdash.invalid').searchParams.get('next') || '';
+  return isPageRoute(next) ? next : '';
+}
+
 function handleLogin(req, res) {
   readLoginToken(req).then((token) => {
     token = token.trim();
@@ -1219,10 +1233,10 @@ function handleLogin(req, res) {
     }
     if (!isToken(token) && !deviceFor(token)) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.writeHead(401).end(loginPage(true));
+      return res.writeHead(401).end(loginPage(true, loginNext(req)));
     }
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`);
-    res.setHeader('Location', '/');
+    res.setHeader('Location', loginNext(req) || '/');
     res.writeHead(303).end();
   }).catch(() => res.writeHead(400).end());
 }
@@ -1378,14 +1392,14 @@ function start() {
     }
     if (urlPath === '/login' && req.method === 'GET') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.writeHead(200).end(loginPage(false));
+      return res.writeHead(200).end(loginPage(false, loginNext(req)));
     }
 
     if (!isAuthorized(req)) {
       // A browser asking for the page goes to sign in instead of getting
       // JSON it can't do anything with.
-      if (req.method === 'GET' && urlPath === '/' && wantsHtml(req)) {
-        res.setHeader('Location', '/login');
+      if (req.method === 'GET' && (urlPath === '/' || isPageRoute(urlPath)) && wantsHtml(req)) {
+        res.setHeader('Location', urlPath === '/' ? '/login' : `/login?next=${encodeURIComponent(urlPath)}`);
         return res.writeHead(303).end();
       }
       return respond(401, { error: 'missing or wrong bearer token' });

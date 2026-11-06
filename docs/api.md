@@ -18,6 +18,8 @@ If the page can't reach the server (it stopped, or the connection is weak), a ba
 
 To other devices, the server compresses the page, its files and API answers when the client asks for gzip (browsers do this by themselves), which takes the page from about 1 MB to about 170 KB. A browser's `/api/stream` is compressed too, but a program reading it with an `Authorization` header always gets it plain. Nothing is compressed for clients on the same computer.
 
+Each page has its own address: `/dashboard`, `/workspace`, `/grades`, `/settings`, a section like `/settings/api`, and a service's page like `/settings/services/canvas`.
+
 Other devices also get the page's styling and main script as separate files a browser can keep, named after what's in them. Adding `?whole=1` to the address gets the whole page as one file instead.
 
 ## Pairing a device
