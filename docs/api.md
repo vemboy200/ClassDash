@@ -16,6 +16,8 @@ The app's own window shows ClassDash from this same server: it signs itself in w
 
 If the page can't reach the server (it stopped, or the connection is weak), a bar across the top says so and it keeps trying; in the app, the server is started again by itself. When the app's window opens and the server isn't answering yet, it shows a loading wheel; if the server still can't be reached after a few seconds, the window shows the last saved copy of the page, with a bar saying so, and switches to the live page as soon as the server is back.
 
+To other devices, the server compresses the page, its files and API answers when the client asks for gzip (browsers do this by themselves), which takes the page from about 1 MB to about 170 KB. A browser's `/api/stream` is compressed too, but a program reading it with an `Authorization` header always gets it plain. Nothing is compressed for clients on the same computer.
+
 ## Pairing a device
 
 Rather than copying the long access key to every phone and laptop, each device can get a key of its own. In the app, **Settings → API → Pair a Device** shows a short code like `K7M-4QX`. Type it on ClassDash's sign-in page on the other device, and that browser is signed in with its own key. It shows up under **Devices** in Settings → API, named after it ("Safari on iPhone"), with when it was paired and last used.

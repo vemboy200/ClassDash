@@ -99,6 +99,7 @@ const {
 // that could drift. See the WRITE_HANDLERS comment below for the one
 // case (apiLan) that's deliberately NOT reachable this way.
 const notifierActions = require('./21-notifier-actions.js');
+const { sendBody, streamWriter } = require('./53-compress.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
 const { readUpdateStatus } = require('./26-update-check.js');
@@ -883,7 +884,7 @@ function broadcastIfChanged() {
   if (comparable === lastBroadcast) return;
   lastBroadcast = comparable;
   const payload = JSON.stringify(data);
-  for (const res of sseClients) res.write(`event: update\ndata: ${payload}\n\n`);
+  for (const client of sseClients) client.write(`event: update\ndata: ${payload}\n\n`);
 }
 
 function watchForChanges() {
@@ -949,7 +950,7 @@ const HEARTBEAT_INTERVAL_MS = 60000; // 1 minute
 // (ha-classdash reads only update and heartbeat) skip it.
 const PING_INTERVAL_MS = 20000;
 function sendPing() {
-  for (const res of sseClients) res.write('event: ping\ndata: {}\n\n');
+  for (const client of sseClients) client.write('event: ping\ndata: {}\n\n');
 }
 
 function sendHeartbeat() {
@@ -962,7 +963,7 @@ function sendHeartbeat() {
     return;
   }
   const payload = JSON.stringify(status);
-  for (const res of sseClients) res.write(`event: heartbeat\ndata: ${payload}\n\n`);
+  for (const client of sseClients) client.write(`event: heartbeat\ndata: ${payload}\n\n`);
 }
 
 // ── The page itself ──
@@ -1011,7 +1012,7 @@ function workspaceFile(urlPath) {
 /** Sends one of the page's files, or false when urlPath isn't one. A file
  *  that isn't there (yet) is a 404, which is how the page's live polling
  *  already reads a missing file. */
-function sendPageFile(urlPath, res, kind) {
+function sendPageFile(urlPath, req, res, kind) {
   const isPage = urlPath === '/';
   const ws = workspaceFile(urlPath);
   const match = isPage ? { type: 'text/html; charset=utf-8' } : ws || PAGE_FILES.find(f => f.pattern.test(urlPath));
@@ -1031,7 +1032,8 @@ function sendPageFile(urlPath, res, kind) {
     // after being removed. It's taken out here, as the page is sent, and
     // the page is told why its key field is empty.
     if (isPage && kind === 'device') data = pageForDevice(data);
-    res.writeHead(200).end(data);
+    if (match.type === 'application/pdf') return res.writeHead(200).end(data);
+    sendBody(req, res, 200, data);
   });
   return true;
 }
@@ -1329,7 +1331,7 @@ function start() {
 
     const respond = (status, body) => {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.writeHead(status).end(JSON.stringify(body, null, 2));
+      sendBody(req, res, status, JSON.stringify(body, null, 2));
     };
 
     // A browser's own CORS preflight for a POST write handle — answered
@@ -1411,9 +1413,10 @@ function start() {
     }
 
     if (urlPath === '/api' || (urlPath === '/' && !wantsHtml(req))) return respond(200, index());
-    if (sendPageFile(urlPath, res, clientKind(req))) return;
+    if (sendPageFile(urlPath, req, res, clientKind(req))) return;
 
     if (urlPath === '/api/stream') {
+      const client = streamWriter(req, res);
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -1423,12 +1426,15 @@ function start() {
       // a client that just connected shouldn't have to wait for the next
       // collection pass to find out anything at all.
       try {
-        res.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
+        client.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
       } catch (e) {
         console.error('stream: could not build the first update:', e.message);
       }
-      sseClients.push(res);
-      const drop = () => { sseClients = sseClients.filter(r => r !== res); };
+      sseClients.push(client);
+      const drop = () => {
+        sseClients = sseClients.filter(c => c !== client);
+        client.close();
+      };
       req.on('close', drop);
       res.on('error', drop);
       return;

@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **ClassDash uses much less data on other devices**, such as a phone or another computer on your network: the server now compresses what it sends them, so the page goes from about 1 MB to about 170 KB. The app and browsers on the same computer aren't affected.
 - **Opening ClassDash during a check can't load a broken page anymore.** A check rewrites the page after every class, and a browser or the app loading it at that moment could get only part of it, with things like the checkboxes drawn wrong until a reload.
 - **The "Still reading" banner is gone.** The progress bar already shows how a check is going, and the banner could get stuck at the top of the page after stopping a check.
 - **Cmd/Ctrl + R reloads the page in a browser**, as it does on any other site, instead of starting a Quick check. In the app it's still Quick check, and Shift + Cmd/Ctrl + R is still Full check.
