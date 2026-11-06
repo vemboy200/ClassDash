@@ -42,7 +42,10 @@ for (const language of ['en', 'ru']) {
 
   // Every row on the disk copy is what the page draws from the same data.
   process.env.CLASSDASH_TEST = '1';
-  const { dashboardView } = require(path.join(proj, '08-page.js'));
+  const { dashboardView, gradeHistoryChart } = require(path.join(proj, '08-page.js'));
+  const points = [{ at: '2026-03-01T12:00:00Z', percent: 80 }, { at: '2026-03-08T12:00:00Z', percent: 85 }];
+  T.ok(`${language}: a grade chart doesn't move during the day`, gradeHistoryChart(points, new Date(2026, 2, 10, 8, 0)) === gradeHistoryChart(points, new Date(2026, 2, 10, 21, 0)));
+  T.ok(`${language}: ...but does the next day`, gradeHistoryChart(points, new Date(2026, 2, 10, 8, 0)) !== gradeHistoryChart(points, new Date(2026, 2, 11, 8, 0)));
   const api = require(path.join(proj, '05-playwright-draft.js'));
   const items = JSON.parse(fs.readFileSync('last-collection.json', 'utf8'));
   const buckets = api.sortIntoBuckets(items, now, api.readMutedIds(), api.readHiddenIds());

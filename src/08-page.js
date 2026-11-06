@@ -123,6 +123,7 @@ const PAGE_SHELL = 'page-shell.html';
 const LIVE_OPEN = '<!--dash-->';
 const LIVE_CLOSE = '<!--/dash-->';
 const liveData = html => LIVE_OPEN + html + LIVE_CLOSE;
+const liveSpan = (name, html) => `<span class="dash-pieces" data-piece="${name}">${liveData(html)}</span>`;
 const livePiece = (name, html, placeholder = '') => `<div class="dash-pieces" data-piece="${name}">${placeholder}${liveData(html)}</div>`;
 
 // What the page shows if its data takes a moment: the shape of what's coming,
@@ -304,6 +305,39 @@ function dashboardView(data) {
   };
 }
 
+/** Settings → Aequitas Q: how the last read of the grades went, and when. */
+function qStatusLine(s = readSettings()) {
+  const view = require('./40-grades.js').gradesView(s);
+  const when = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const status = s.gradesProvider !== 'q' ? ''
+    : view.newPassword ? t('gradesNewPassword', view.why)
+    : view.rejected ? t('gradesRejected')
+    : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
+    : view.checkedAt ? t('gradesLastRead', when(view.checkedAt), view.classes.length)
+    : t('gradesNotYet');
+  return `<span class="field-hint" id="grades-check-status">${escapeHtml(status)}</span>`;
+}
+
+/** Each service card's status line: how it went, and when. Changes with every check. */
+function serviceStatusLines() {
+  const status = checkStatus();
+  const ics = (c => (c.ics && c.ics.url ? c.ics : null))(schoolCalendar.readCalendar());
+  const icsWhen = ics && ics.fetchedAt ? new Date(ics.fetchedAt).toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+  const line = st => `<span class="svc-status status-${st ? st.status : 'unknown'}">${escapeHtml(st ? st.text : '')}</span>`;
+  const forService = (key) => {
+    const st = status[key];
+    return line(st.status === 'unknown' ? { status: 'unknown', text: t('checkSummaryNone') }
+      : { status: st.status, text: `${checkStatusWord(st.status)} · ${checkStatusWhen(st)}` });
+  };
+  return {
+    classroom: forService('classroom'), canvas: forService('canvas'), edpuzzle: forService('edpuzzle'), q: forService('q'),
+    calendar: line(!ics ? null
+      : ics.error ? { status: 'problem', text: ics.error }
+      : ics.fetchedAt ? { status: 'ok', text: t('calendarIcsStatus', (ics.events || []).length, icsWhen) }
+      : { status: 'unknown', text: t('checkSummaryNone') }),
+  };
+}
+
 /**
  * The parts of the page that are still drawn here as HTML rather than from
  * data, sent as they are: they change with a check, and without this each of
@@ -319,6 +353,8 @@ function dashPieces(updatedAt, now) {
     bannersTop: setupAndSignInBanners(),
     bannersBelow: pendingScheduleAndUpdateBanners(now),
     grades: gradesSection(),
+    qStatus: qStatusLine(),
+    ...Object.fromEntries(Object.entries(serviceStatusLines()).map(([id, html]) => [`svc-${id}`, html])),
   };
 }
 
@@ -878,13 +914,6 @@ function qSettings(s, field) {
   const base = grades.portalBase(s.gradesAddress);
   const view = grades.gradesView(s);
   const saved = on && grades.hasPassword();
-  const when = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  const status = !on ? ''
-    : view.newPassword ? t('gradesNewPassword', view.why)
-    : view.rejected ? t('gradesRejected')
-    : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
-    : view.checkedAt ? t('gradesLastRead', when(view.checkedAt), view.classes.length)
-    : t('gradesNotYet');
   return `
       <p class="hint">${escapeHtml(t('svcQHint'))}</p>
       <select data-key="gradesProvider" onchange="updateGradesRows()" hidden>
@@ -911,7 +940,7 @@ ${field('gradesUsername', t('gradesUsername'), s.gradesUsername, t('gradesUserna
           <span class="field-with-value">
             <button type="button" class="mini-btn" onclick="checkGradesNow(this)">${escapeHtml(t('gradesCheckNow'))}</button>
           </span>
-          <span class="field-hint" id="grades-check-status">${escapeHtml(status)}</span>
+          ${liveSpan('qStatus', qStatusLine(s))}
         </div>
       </div>`;
 }
@@ -973,7 +1002,10 @@ function gradeHistoryChart(points, now = new Date()) {
   if (!pts.length) return '';
   if (pts.length < 2) return `          <p class="hint gc-history-note">${escapeHtml(t('gcHistoryStart', day(pts[0].at)))}</p>\n`;
   const W = 260, H = 56, PAD = 4;
-  const t0 = Date.parse(pts[0].at), t1 = Math.max(now.getTime(), Date.parse(pts[pts.length - 1].at) + 1);
+  // To the end of today, not this moment: the chart is part of the page itself,
+  // and one that moved every minute would make every open page reload.
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const t0 = Date.parse(pts[0].at), t1 = Math.max(endOfToday, Date.parse(pts[pts.length - 1].at) + 1);
   let lo = Math.min(...pts.map(p => p.percent)), hi = Math.max(...pts.map(p => p.percent));
   if (hi - lo < 2) { const mid = (hi + lo) / 2; lo = mid - 1; hi = mid + 1; }
   const x = at => PAD + (Date.parse(at) - t0) / (t1 - t0) * (W - 2 * PAD);
@@ -1314,35 +1346,25 @@ function settingsPanel() {
   // script, shows the cards and rows that follow from them. A service
   // turned off keeps what was typed for it, since its fields stay in the
   // panel and are saved with the rest.
-  const status = checkStatus();
   const cal = schoolCalendar.readCalendar();
   const ics = cal.ics && cal.ics.url ? cal.ics : null;
-  const icsWhen = ics && ics.fetchedAt ? new Date(ics.fetchedAt).toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
-  const icsStatus = !ics ? null
-    : ics.error ? { status: 'problem', text: ics.error }
-    : ics.fetchedAt ? { status: 'ok', text: t('calendarIcsStatus', (ics.events || []).length, icsWhen) }
-    : { status: 'unknown', text: t('checkSummaryNone') };
-  const cardStatus = key => {
-    const st = status[key];
-    return st.status === 'unknown' ? { status: 'unknown', text: t('checkSummaryNone') }
-      : { status: st.status, text: `${checkStatusWord(st.status)} · ${checkStatusWhen(st)}` };
-  };
+  const statusLines = serviceStatusLines();
   const BADGE = {
     browser: ['icon-browser', 'svcBrowser'],
     head: ['icon-browser-head', 'svcBrowserHead'],
     maybe: ['icon-browser-question', 'svcBrowserMaybe'],
   };
   const SERVICES = [
-    { id: 'classroom', name: 'Google Classroom', browser: 'browser', state: cardStatus('classroom') },
-    { id: 'canvas', name: 'Canvas', browser: 'maybe', state: cardStatus('canvas') },
-    { id: 'edpuzzle', name: 'Edpuzzle', browser: 'head', state: cardStatus('edpuzzle') },
-    { id: 'q', name: 'Aequitas Q', browser: 'browser', state: cardStatus('q') },
-    { id: 'calendar', name: t('calendarIcs'), browser: null, state: icsStatus, opens: 'calendar' },
+    { id: 'classroom', name: 'Google Classroom', browser: 'browser', },
+    { id: 'canvas', name: 'Canvas', browser: 'maybe', },
+    { id: 'edpuzzle', name: 'Edpuzzle', browser: 'head', },
+    { id: 'q', name: 'Aequitas Q', browser: 'browser', },
+    { id: 'calendar', name: t('calendarIcs'), browser: null, opens: 'calendar' },
   ];
   const badge = ([icon, words]) => `<span class="svc-badge pixel-icon ${icon}" title="${escapeHtml(t(words))}"></span>`;
   const card = v => `        <button type="button" class="svc-card" data-svc-card="${v.id}" onclick="showSettingsSection('${v.opens || 'svc-' + v.id}')"${v.id === 'calendar' && !ics ? ' hidden' : ''}>
           <span class="svc-name">${escapeHtml(v.name)}</span>
-          <span class="svc-status status-${v.state ? v.state.status : 'unknown'}">${escapeHtml(v.state ? v.state.text : '')}</span>
+          ${liveSpan(`svc-${v.id}`, statusLines[v.id])}
           <span class="svc-badges">${badge(['icon-cloud-polling', 'svcPolling'])}${v.browser ? badge(BADGE[v.browser]) : ''}</span>
         </button>`;
   const servicesBody = () => `
@@ -8072,4 +8094,4 @@ function writeWhole(file, body) {
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, dashboardView, PAGE_SHELL, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite, pixelSpinner, connectingPage, CONNECTING_PAGE };
+module.exports = { writePage, dashboardView, gradeHistoryChart, PAGE_SHELL, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite, pixelSpinner, connectingPage, CONNECTING_PAGE };

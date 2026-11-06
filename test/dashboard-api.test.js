@@ -30,6 +30,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   fs.writeFileSync('last-collection.json', JSON.stringify([...items, item('a3', 'Quiz about moss', 3)]));
   T.redraw(proj);
   ok('new schoolwork does not change the page itself', hash() === h1);
+  // The timestamps every check leaves: a real page reloaded after each check over these.
+  const stamp = new Date(Date.now() + 3600e3).toISOString();
+  fs.writeFileSync('check-status.json', JSON.stringify({ canvas: { status: 'ok', at: stamp }, classroom: { status: 'ok', at: stamp } }));
+  T.redraw(proj);
+  ok('nor does a check saying when it ran', hash() === h1);
   fs.writeFileSync('last-collection.json', JSON.stringify(items));
   T.redraw(proj);
 
