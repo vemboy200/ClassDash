@@ -30,7 +30,7 @@ A **Web** pane shows a site from your bookmarks (Mac app only for now): Google D
 
 - It isn't a whole second browser, so there's no address bar: ☆ **Bookmarks** shows them again, **Bookmark this page** keeps the one you're on, **New bookmark** adds a site by its address, and × on a bookmark removes it. Back, forward and reload work as usual.
 - You sign in to each site once, and that sign-in is the workspace's own: apart from Safari, and apart from the browser ClassDash checks your classes with.
-- **Known limitation:** some school sign-ins (SSO), like a link hub of your school's apps that signs you in to each one, don't work in a web pane yet. Sign in to those sites in your usual browser instead.
+- **Known limitation:** a few sites don't finish signing in through a school link hub in a web pane, such as ExploreLearning. Most sites work. Use your usual browser for the ones that don't.
 - Downloads go to your Downloads folder.
 - Closing the workspace closes its pages so nothing keeps running in the background; they open again on the same page next time.
 - The **AI** button in a web page's bar says what the AI may see of it (see below).

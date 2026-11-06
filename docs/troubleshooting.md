@@ -10,6 +10,6 @@
 
 **On Windows, the home API shows as enabled but doesn't seem to be running** — most likely after reinstalling the app or letting it self-update. Reopening ClassDash starts it again. If it still isn't running, toggle **Enable home API** off, Save, back on, Save again — that forces a fresh restart of the server process.
 
-**A school sign-in doesn't work in a workspace web pane.** A known limitation for now: some school sign-ins (SSO), especially link hubs that open each app signed in, don't finish in a web pane. Use your usual browser for those sites.
+**A site from your school's link hub doesn't work in a workspace web pane.** A known limitation for now: a few sites, such as ExploreLearning, don't finish signing in through a link hub in a web pane, though most do. Use your usual browser for those sites. If the site shows the same error there too, the problem is with the site or your school's setup, not ClassDash.
 
 **Something in the code itself is misbehaving**, or you want to understand *why* something works the way it does — that detail lives in [CONTRIBUTING.md](../CONTRIBUTING.md), not here.
