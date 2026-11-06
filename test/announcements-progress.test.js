@@ -38,11 +38,12 @@ const page = path.join(proj, 'progress-test.html');
 writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [],
   reading: ['Science'], progress: { done: 5, total: 8 }, now, announcements: out }, page);
 const html = fs.readFileSync(page, 'utf8');
-ok('page shows the announcements column instead of "Nothing yet"', !html.includes('Nothing yet') && /announcements-count">3</.test(html));
+const emptyNoteHidden = text => { const { JSDOM } = T.jsdom(); return new JSDOM(text, { runScripts: 'dangerously' }).window.document.getElementById('announcements-empty').hidden; };
+ok('page shows the announcements column instead of "Nothing yet"', emptyNoteHidden(html) && /announcements-count"><!--dash-->3</.test(html));
 ok('...with each post as a card', ['NEW text', 'brand new', 'kept'].every(t => html.includes(t)));
 ok('...the excluded class\'s post is not there', !html.includes('zzz-excluded-marker'));
 const bare = path.join(proj, 'progress-test2.html');
 writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [], reading: ['Science'], progress: { done: 5, total: 8 }, now }, bare);
-ok('(control) without announcements the old empty state still renders', fs.readFileSync(bare, 'utf8').includes('Nothing yet'));
+ok('(control) without announcements the old empty state still renders', !emptyNoteHidden(fs.readFileSync(bare, 'utf8')));
 fs.unlinkSync(page); fs.unlinkSync(bare);
 process.exit(process.exitCode || 0);

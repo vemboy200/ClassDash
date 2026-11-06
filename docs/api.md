@@ -22,6 +22,8 @@ Each page has its own address: `/dashboard`, `/workspace`, `/grades`, `/settings
 
 Other devices also get the page's styling and main script as separate files a browser can keep, named after what's in them. Adding `?whole=1` to the address gets the whole page as one file instead.
 
+The page itself no longer carries your schoolwork: the server sends it without its cards, and it gets them from `/api/dashboard` (`{rev, shell, view}`). A browser asks whether the page has changed before downloading it again, and it usually hasn't. After that, `/api/stream?view=dashboard` sends only what changed, as `dash` events, and only the cards that changed are redrawn, so nothing has to reload after a check. Programs like Home Assistant keep the plain `/api/stream` as it was. The file on disk that the apps fall back on when the server can't be reached still has everything in it.
+
 ## Pairing a device
 
 Rather than copying the long access key to every phone and laptop, each device can get a key of its own. In the app, **Settings → API → Pair a Device** shows a short code like `K7M-4QX`. Type it on ClassDash's sign-in page on the other device, and that browser is signed in with its own key. It shows up under **Devices** in Settings → API, named after it ("Safari on iPhone"), with when it was paired and last used.

@@ -84,6 +84,27 @@ function redraw() {
     { stdio: 'ignore' });
 }
 
+// Inside the server, waiting for a redraw stops everything it's doing, every
+// open page's updates included. What changes only the cards doesn't need it:
+// the page hears from the file itself, and only the copy on disk is left to
+// catch up, so this runs it alongside. One at a time, and once more if asked
+// again meanwhile. In the apps' own short-lived process, waiting costs nothing.
+let inServer = false;
+let backgroundRedraw = null;
+let redrawAgain = false;
+function redrawCards() {
+  if (!inServer) return redraw();
+  if (backgroundRedraw) { redrawAgain = true; return undefined; }
+  backgroundRedraw = spawn(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), '--redraw'], { stdio: 'ignore' });
+  const finished = () => {
+    backgroundRedraw = null;
+    if (redrawAgain) { redrawAgain = false; redrawCards(); }
+  };
+  backgroundRedraw.on('exit', finished);
+  backgroundRedraw.on('error', finished);
+  return undefined;
+}
+
 /** A full collection pass takes about a minute. The caller (the
  *  AppleScript app, ultimately triggered by a click on the page) can't
  *  sit around waiting for that, so this starts it and returns
@@ -408,7 +429,11 @@ function main(action, arg) {
         if (moved) logAction(`  reminders moved to renamed classes: ${moved}`);
       }
 
-      redraw();
+      // Ticking a filter or folding the sidebar saves on every click, and those
+      // are already showing on the page that did it.
+      const PAGE_MEMORY = ['filterUnchecked', 'filterShowHidden', 'filterShowRemoved', 'navCollapsed', 'dashHidden'];
+      if (result.changed.length && result.changed.every(key => PAGE_MEMORY.includes(key))) redrawCards();
+      else redraw();
       const pending = require('./19-settings.js').pendingFetchKeys();
       logAction(pending.length
         ? `  redrawn; waiting for a fresh check to apply: ${pending.join(', ')}`
@@ -423,11 +448,11 @@ function main(action, arg) {
     }
     case 'quiet':
       appendLine(QUIET_FILE, arg);
-      redraw();
+      redrawCards();
       return { ok: true, action };
     case 'unquiet':
       removeLine(QUIET_FILE, arg);
-      redraw();
+      redrawCards();
       return { ok: true, action };
     // Assignment links (31-assignment-links.js): arg "a,b" links b to a;
     // unlinkAssignment undoes the whole link an assignment is in. An id that
@@ -435,13 +460,13 @@ function main(action, arg) {
     case 'linkAssignments': {
       const [a, b] = String(arg || '').split(',').map(safeDecode);
       const result = require('./31-assignment-links.js').link(a, b);
-      if (result.ok) redraw();
+      if (result.ok) redrawCards();
       else logAction(`  not linked: ${result.why}`);
       return { ...result, action };
     }
     case 'unlinkAssignment': {
       const result = require('./31-assignment-links.js').unlink(safeDecode(arg));
-      if (result.ok) redraw();
+      if (result.ok) redrawCards();
       return { ...result, action };
     }
     // The page's Calendar section. importCalendarPdf reads a PDF (the path
@@ -645,11 +670,11 @@ function main(action, arg) {
     }
     case 'hide':
       appendLine(HIDDEN_FILE, arg);
-      redraw();
+      redrawCards();
       return { ok: true, action };
     case 'unhide':
       removeLine(HIDDEN_FILE, arg);
-      redraw();
+      redrawCards();
       return { ok: true, action };
     // Closed Canvas work, deleted from the page for good: it's left out of
     // everything from now on, and there's no undo (the page asks first).
@@ -657,7 +682,7 @@ function main(action, arg) {
       if (!arg) return { ok: false, action, why: 'no assignment id' };
       appendLine(DELETED_FILE, arg);
       removeLine(HIDDEN_FILE, arg);
-      redraw();
+      redrawCards();
       return { ok: true, action };
     case 'check':
       ensureApiServer();
@@ -814,7 +839,7 @@ function main(action, arg) {
       }
       const result = va.create({ title: payload.title, class: payload.class, due: payload.due });
       if (!result.ok) return { ok: false, action, why: result.why };
-      redraw();
+      redrawCards();
       return { ok: true, action, entry: result.entry };
     }
     case 'virtualEdit': {
@@ -829,27 +854,27 @@ function main(action, arg) {
       if (!payload.id) return { ok: false, action, why: 'id is required' };
       const result = va.edit(payload.id, payload);
       if (!result.ok) return { ok: false, action, why: result.why };
-      redraw();
+      redrawCards();
       return { ok: true, action, entry: result.entry };
     }
     case 'virtualDone':
     case 'virtualUndone': {
       const result = require('./24-virtual-assignments.js').markDone(arg, action === 'virtualDone');
       if (!result.ok) return { ok: false, action, why: result.why };
-      redraw();
+      redrawCards();
       return { ok: true, action, entry: result.entry };
     }
     case 'virtualHide':
     case 'virtualUnhide': {
       const result = require('./24-virtual-assignments.js').setHidden(arg, action === 'virtualHide');
       if (!result.ok) return { ok: false, action, why: result.why };
-      redraw();
+      redrawCards();
       return { ok: true, action, entry: result.entry };
     }
     case 'virtualDelete': {
       const result = require('./24-virtual-assignments.js').remove(arg);
       if (!result.ok) return { ok: false, action, why: result.why };
-      redraw();
+      redrawCards();
       return { ok: true, action, entry: result.entry };
     }
     // The PDF workspace (46-workspace.js). The app runs workspacePage
@@ -926,7 +951,8 @@ function main(action, arg) {
   }
 }
 
-module.exports = { main, appendLine, removeLine, readLines, ensureApiServer };
+module.exports = {
+  setInServer(yes) { inServer = yes; }, main, appendLine, removeLine, readLines, ensureApiServer };
 
 if (require.main === module) {
   const [action, arg] = process.argv.slice(2);

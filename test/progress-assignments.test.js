@@ -52,8 +52,8 @@ ok('everything empty -> empty, no crash', assignmentsForProgress([], [], [], [])
   const page = path.join(proj, 'empty-test.html');
   const write = extra => { writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [],
     freshIds: new Set(), broken: [], now: new Date(2026, 8, 21, 10, 0, 0), ...extra }, page); return fs.readFileSync(page, 'utf8'); };
-  ok('a finished read with nothing due says so', /<div class="empty">Nothing due and nothing new/.test(write({})));
+  ok('a finished read with nothing due says so', /id="dash-empty"><!--dash-->\s*<div class="empty">Nothing due and nothing new/.test(write({})));
   ok('a page written mid-check does not (nothing due YET is not nothing due)',
-    !/<div class="empty">/.test(write({ reading: ['Canvas'], progress: { done: 3, total: 8 } })));
+    /id="dash-empty"><!--dash--><!--\/dash-->/.test(write({ reading: ['Canvas'], progress: { done: 3, total: 8 } })));
   ok('...and has no "Still reading" banner: the progress bar says it', !/Still reading/.test(write({ reading: ['Canvas'], progress: { done: 3, total: 8 } })));
 }

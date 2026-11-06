@@ -64,7 +64,9 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   // ---- the page and its files ----
   const page = await request('GET', '/', { headers: { ...browser, ...withCookie } });
   ok('signed in: the page itself', page.status === 200 && /text\/html/.test(page.headers['content-type']) && page.body.includes('made-up page'), JSON.stringify(page).slice(0, 300));
-  ok('...never cached', page.headers['cache-control'] === 'no-store');
+  ok('...asked about every time', page.headers['cache-control'] === 'no-cache' && !!page.headers.etag);
+  const again = await request('GET', '/', { headers: { ...browser, ...withCookie, 'If-None-Match': page.headers.etag } });
+  ok('...and not sent again when it hasn\'t changed', again.status === 304 && again.body === '');
   const live = await request('GET', '/live/page-version.js', { headers: withCookie });
   ok('its live files', live.status === 200 && /javascript/.test(live.headers['content-type']) && live.body.includes('classdashPageVersion'), JSON.stringify(live));
   const missing = await request('GET', '/live/check-run.js', { headers: withCookie });

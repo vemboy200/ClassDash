@@ -12,7 +12,9 @@
  */
 
 const fs = require('fs');
-const { t, locale } = require('./18-language.js');
+const { t, locale, currentLanguage, pluralizeRu, DICTIONARIES } = require('./18-language.js');
+const crypto = require('crypto');
+const makeDashRender = require('./55-dash-render.js');
 const { read: readSettings, appliedFetchSettings, pendingFetchKeys } = require('./19-settings.js');
 const path = require('path');
 const { PROJECT_ROOT } = require('./00-project-root.js');
@@ -111,6 +113,33 @@ const ICON_LOADING_LIGHT_B64 = readIcon('loading-icon-light.png');
 // Classroom assignments arrive. Canvas and Edpuzzle have their own field.
 const DEFAULT_PLATFORM = 'Google Classroom';
 
+// The dashboard's cards are drawn by 55-dash-render.js, here and on the page.
+const dashRender = makeDashRender({ t, locale });
+
+// What a served page gets from /api/dashboard instead. pageShell() takes
+// everything between these out, so the page itself stays the same when only
+// the data changes (see writePage).
+const PAGE_SHELL = 'page-shell.html';
+const LIVE_OPEN = '<!--dash-->';
+const LIVE_CLOSE = '<!--/dash-->';
+const liveData = html => LIVE_OPEN + html + LIVE_CLOSE;
+const livePiece = (name, html, placeholder = '') => `<div class="dash-pieces" data-piece="${name}">${placeholder}${liveData(html)}</div>`;
+
+// What the page shows if its data takes a moment: the shape of what's coming,
+// in the page's own chunky frames. Only the served page has these (writePage
+// strips them from the copy on disk), and only CSS decides when they appear
+// (.dash-skeleton), so they work before any script has arrived.
+const skeleton = html => `<!--skel-->${html}<!--/skel-->`;
+const bone = (width, cls = '') => `<span class="bone${cls}" style="width: ${width}"></span>`;
+const skeletonCard = (a, b) => `<div class="item"><div class="title">${bone(a)}</div><div class="meta">${bone('64px')}${bone(b)}</div></div>`;
+const SKELETONS = {
+  filters: skeleton([['72%', '58%', '66%'], ['48%'], ['62%', '44%', '54%']].map(rows => `<div class="filter-group dash-skeleton"><div class="group-name">${bone('56px')}</div>${rows.map(w => `<div class="check-row">${bone(w)}</div>`).join('')}</div>`).join('')),
+  cards: skeleton(`<div class="dash-skeleton dash-skeleton-section"><h2>${bone('96px')}</h2>${skeletonCard('62%', '34%')}${skeletonCard('48%', '42%')}${skeletonCard('70%', '28%')}</div>`),
+  posts: skeleton(`<div class="dash-skeleton">${['92%', '78%'].map(w => `<div class="post"><div class="post-top">${bone('104px')}</div><div class="text">${bone(w)}${bone('84%')}${bone('46%')}</div></div>`).join('')}</div>`),
+  grades: skeleton(`<div class="dash-skeleton"><h2>${bone('72px')}</h2>${['58%', '48%', '64%'].map(w => `<div class="check-row">${bone(w)}</div>`).join('')}</div>`),
+  status: skeleton(`<div class="dash-skeleton nav-updated">${bone('80%')}</div>`),
+};
+
 const escapeHtml = s => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
@@ -138,37 +167,6 @@ function daysUntil(from, to) {
   return Math.round((d1 - d0) / 864e5);
 }
 
-/** "in 3 days", "today", "tomorrow", "2 days overdue" */
-function when(due, now) {
-  const days = daysUntil(now, due);
-  if (days < 0) return t('overdueByDays', -days);
-  if (days === 0) return t('today');
-  if (days === 1) return t('tomorrow');
-  return t('inDays', days);
-}
-
-// The teachers for the page being written, set at the top of writePage().
-let teacherByClass = new Map();
-
-/** The teacher line for a card's meta row, or nothing when there's no name. */
-function teacherSpan(className) {
-  const teacher = teacherByClass.get(className);
-  return teacher
-    ? `<span class="teacher" title="${escapeHtml(t('teacherLabel'))}">${escapeHtml(teacher)}</span>`
-    : '';
-}
-
-// Assignment links (31-assignment-links.js). A linked card's meta gets a
-// "1 of 2 done" pill while some parts are still open.
-function partsBadge(x) {
-  return x.partsTotal > 1 && x.partsDone > 0 && x.partsDone < x.partsTotal
-    ? `<span class="plat parts-badge">${escapeHtml(t('partsDone', x.partsDone, x.partsTotal))}</span>`
-    : '';
-}
-
-// Classes meeting on the next school day (Settings → Schedule), set by
-// writePage for itemCard's "class tomorrow" pill.
-let nextClasses = { names: new Set(), label: '' };
 
 /** A schedule heads-up in words, for the banner and the notification. */
 function headsUpText(h) {
@@ -181,277 +179,7 @@ function headsUpText(h) {
     : t('headsUpRepeat', date(h.date), word(h.day), date(h.previous));
 }
 
-// Locked Canvas work (see lockState in 05-playwright-draft.js): why it
-// can't be opened yet, or that it closed.
-function lockBadge(x) {
-  const lock = x.locked;
-  if (!lock) return '';
-  const text = lock.why === 'closed' ? t('closedBadge')
-    : lock.why === 'opens' ? t('lockedOpens', lock.at.toLocaleString(locale(),
-        { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))
-    : lock.why === 'module' ? t('lockedModule', lock.module)
-    : t('lockedOther');
-  return `<span class="lock-badge">${escapeHtml(text)}</span>`;
-}
 
-// A card's buttons only show while the card is hovered (or has keyboard
-// focus), so they take no room on every card; on a screen with no hover
-// (touch) they always show. They go in a wrapper beside the card, not
-// inside it: the card is usually a link itself, and a link can't hold links.
-function cardWithActions(card, actions) {
-  return `<div class="card-wrap">${card}${actions.trim()
-    ? `\n        <span class="card-actions"><span class="card-actions-inner">${actions}</span></span>` : ''}
-      </div>`;
-}
-
-// A linked assignment's other parts (with a ✓ once turned in), Unlink, and
-// Link — for cardWithActions().
-function linkButtons(x) {
-  if (x.removed) return '';
-  const id = escapeHtml(x.id);
-  const others = (x.parts || []).filter(p => p.id !== x.id && p.link && !p.removed)
-    .map(p => `<a class="quiet also" href="${escapeHtml(p.link)}" target="_blank" rel="noopener"` +
-      ` title="${escapeHtml(p.title || '')}">${escapeHtml(p.platform || DEFAULT_PLATFORM)}${p.done ? ' ✓' : ''}</a>`).join('');
-  const unlink = x.parts
-    ? `<a class="quiet" href="napominalka://unlinkAssignment/${id}" onclick="return unlinkItem(event, this)">${escapeHtml(t('unlink'))}</a>`
-    : '';
-  return `${others}${unlink}<a class="quiet link-start" href="#" onclick="return startLink(event, this)">${escapeHtml(t('linkStart'))}</a>`;
-}
-
-// "Link here" stays beside the card: it's only there while another card is
-// picking a partner, and has to be seen without hovering.
-function linkHereButton(x) {
-  return x.removed ? ''
-    : `\n      <button type="button" class="quiet link-here" onclick="linkHere(this)">${escapeHtml(t('linkHere'))}</button>`;
-}
-
-function itemCard(x, now, isFresh, section) {
-  // Same trap as in 05-...js: Classroom's due date arrives as text, while
-  // Canvas and Edpuzzle have no text field at all — only the machine one.
-  // Touching x.due without checking crashed the whole script.
-  const dueText = x.due
-    ? x.due.replace(/^Due\s+/, '')
-    : (x.due_at
-        ? x.due_at.toLocaleString(locale(),
-            { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-        : '');
-
-  const due = x.note
-    ? t(x.note)
-    : (x.due_at ? `${dueText} · ${when(x.due_at, now)}` : '');
-
-  // target="_blank" — open in a new tab, not over the summary page:
-  // otherwise going back loses your place in the list.
-  // rel="noopener" — a technical detail, so the opened page can't get
-  // a handle back to this one.
-  const href = x.link
-    ? ` href="${escapeHtml(x.link)}" target="_blank" rel="noopener"`
-    : '';
-  const tag = x.link ? 'a' : 'div';
-
-  // The "not urgent" button — only for assignments the teacher never gave
-  // a due date, which is why they count as due-soon. Clicking it goes to
-  // the notifier via a napominalka:// link, which writes the id to disk.
-  // The page itself can't write anything — the browser won't allow it.
-  // Compared against the KEY, not the phrase: see the comment in
-  // 18-language.js.
-  //
-  // A muted item gets the opposite button — "restore". This button used
-  // to not exist at all, and muting was only undoable by hand in a
-  // `not-urgent.txt` file: hidden overdue items could be restored, muted
-  // ones couldn't. Asymmetric and inconvenient.
-  const button = x.muted
-    ? `\n        <a class="quiet" href="napominalka://unquiet/${escapeHtml(x.id)}"
-           onclick="restoreUrgency(event, this)">${escapeHtml(t('restore'))}</a>`
-    : (x.note === 'noDueDateNote')
-      ? `\n        <a class="quiet" href="napominalka://quiet/${escapeHtml(x.id)}"
-           onclick="muteItem(event, this)">${escapeHtml(t('notUrgent'))}</a>`
-      : '';
-
-  // Invisible tags for the filters. Names are Latin on purpose: code
-  // inside the page will address them, and it doesn't behave consistently
-  // everywhere with Cyrillic names.
-  //
-  // data-days — how many days until due: negative means overdue, "none"
-  // means there's no due date at all. Computed here, not in the browser,
-  // because "now" at the moment the page is built is known here.
-  const days = x.due_at ? daysUntil(now, x.due_at) : 'none';
-  const tags = ` data-id="${escapeHtml(x.id)}"` +
-                  ` data-cls="${escapeHtml(x.class)}"` +
-                  ` data-type="${escapeHtml(x.type || '')}"` +
-                  ` data-days="${days}"` +
-                  ` data-removed="${x.removed ? 'yes' : 'no'}"` +
-                  ` data-sect="${escapeHtml(section || '')}"` +
-                  (x.removed ? '' : ' data-linkable="yes"');
-
-  const card = `<${tag}${href} class="item${isFresh ? ' new' : ''}">
-        <div class="title">${escapeHtml(x.title)}</div>
-        <div class="meta">
-          <span class="plat">${escapeHtml(x.platform || DEFAULT_PLATFORM)}</span>
-          <span class="cls">${escapeHtml(x.class)}</span>
-          ${teacherSpan(x.class)}
-          ${due ? `<span class="due">${escapeHtml(due)}</span>` : ''}
-          ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
-          ${x.removed ? `<span class="removed-badge">${escapeHtml(t('removedBadge'))}</span>` : ''}
-          ${lockBadge(x)}
-          ${nextClasses.names.has(x.class) && !x.removed ? `<span class="class-next-badge">${escapeHtml(nextClasses.label)}</span>` : ''}
-          ${partsBadge(x)}
-        </div>
-      </${tag}>`;
-  return `      <div class="row${x.removed ? ' gone' : ''}"${tags}>
-      ${cardWithActions(instructionsBlock(x) ? `<div class="item-stack">${card}${instructionsBlock(x)}</div>` : card, linkButtons(x) + button)}${linkHereButton(x)}
-      </div>`;
-}
-
-/**
- * The teacher's instructions under a card, folded (Canvas's description,
- * Classroom's from readInstructions in 05-playwright-draft.js). Outside the
- * card itself: the card is a link, and a click in here mustn't open it.
- * Web addresses in them can be clicked.
- */
-function instructionsBlock(x) {
-  const text = typeof x.description === 'string' ? x.description.trim() : '';
-  if (!text) return '';
-  const linked = escapeHtml(text).replace(/https?:\/\/[^\s<>()"]+/g, url => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
-  return `<details class="instructions"><summary>${escapeHtml(t('instructions'))}</summary><div class="instructions-text">${linked}</div></details>`;
-}
-
-/**
- * Right column: announcements from Classroom streams.
- *
- * ALL of them are shown, not just new ones — unlike materials. Reason: an
- * announcement stays relevant for weeks ("field trip on the 20th, bring
- * the permission slip"), and hiding it after the first view would be wrong.
- * New ones are just marked.
- */
-/**
- * An announcement's attachments: photos saved by the collector as pictures
- * (a click shows them whole, see openPhoto), everything else as a chip
- * that opens it. Only a photo path the collector would write is used
- * (39-announcement-photos.js's PHOTO_PATH), and only web links.
- */
-function attachmentsBlock(p) {
-  const list = Array.isArray(p.attachments) ? p.attachments : [];
-  const { PHOTO_PATH } = require('./39-announcement-photos.js');
-  const web = u => /^https?:\/\//i.test(String(u || ''));
-  const photos = list.filter(a => a && a.photo && PHOTO_PATH.test(a.photo));
-  const chips = list.filter(a => a && !photos.includes(a) && web(a.link));
-  if (!photos.length && !chips.length) return '';
-  const kind = k => t(`attachment_${['image', 'pdf', 'doc', 'slides', 'sheet', 'form', 'video', 'link'].includes(k) ? k : 'file'}`);
-  return `        <div class="post-attachments">
-${photos.map(a => `          <button type="button" class="post-photo" onclick="openPhoto(this)" data-link="${web(a.link) ? escapeHtml(a.link) : ''}" title="${escapeHtml(a.title || '')}"><img src="${escapeHtml(a.photo)}" alt="${escapeHtml(a.title || kind('image'))}" loading="lazy"></button>`).join('\n')}
-${chips.map(a => `          <a class="att-chip" href="${escapeHtml(a.link)}" target="_blank" rel="noopener"><span class="att-kind">${escapeHtml(kind(a.kind))}</span> ${escapeHtml(a.title || '')}</a>`).join('\n')}
-        </div>`;
-}
-
-/**
- * What the last AI scan of an announcement did (38-announcement-scan.js's
- * record): a fold-out under its text, closed, with each item the AI found
- * and what became of it, what it answered, and its thinking when the
- * model sent any. A scan from before these were kept says so.
- */
-function aiResultBlock(p, record) {
-  if (!record) return '';
-  const date = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  const summary = record.error ? t('aiPostSummaryFailed') : record.kept ? t('aiPostSummaryKept', record.kept) : t('aiPostSummaryNone');
-  const outcome = st => st.outcome === 'kept' ? t('aiStepKept')
-    : st.outcome === 'notInText' ? t('aiStepNotInText')
-    : st.outcome === 'sameTitle' ? t('aiStepSameTitle', st.match || '?')
-    : st.outcome === 'sameWork' ? t('aiStepSameWork', st.match || '?')
-    : t('aiStepNotAdded');
-  const steps = Array.isArray(record.steps) ? record.steps : [];
-  const due = st => !st.due ? t('aiStepNoDue') : st.dueFrom === 'nextClass' ? t('aiStepDueNextClass', date(st.due)) : t('aiStepDue', date(st.due));
-  const body = [
-    record.error ? `<p>${escapeHtml(t('aiPostWhy', record.error))}</p>` : '',
-    steps.length ? `<ul>${steps.map(st => `<li class="ai-step ai-step-${escapeHtml(st.outcome || '')}"><b>${escapeHtml(st.title)}</b> · ${escapeHtml(due(st))} — ${escapeHtml(outcome(st))}</li>`).join('')}</ul>`
-      : !record.error && record.answer !== undefined ? `<p>${escapeHtml(t('aiPostNothing'))}</p>` : '',
-    record.answer !== undefined ? `<div class="ai-result-label">${escapeHtml(t('aiPostAnswer'))}</div><pre>${escapeHtml(record.answer)}</pre>`
-      : !record.error ? `<p class="hint">${escapeHtml(t('aiPostOld'))}</p>` : '',
-    record.thinking ? `<div class="ai-result-label">${escapeHtml(t('aiPostThinking'))}</div><pre>${escapeHtml(record.thinking)}</pre>`
-      : record.answer !== undefined ? `<p class="hint">${escapeHtml(t('aiPostNoThinking'))}</p>` : '',
-  ].filter(Boolean).join('\n');
-  return `        <details class="ai-result" data-scan-for="${escapeHtml(p.id)}"><summary>${escapeHtml(summary)}${record.at ? ` · ${escapeHtml(date(record.at))}` : ''}</summary>
-${body}
-        </details>`;
-}
-
-function announcementsSection(announcements, freshIds) {
-  if (!announcements.length) {
-    return `    <section>
-      <h2>${escapeHtml(t('announcements'))}</h2>
-      <p class="hint">${escapeHtml(t('noAnnouncements'))}</p>
-    </section>`;
-  }
-
-  // The card isn't one big link, it's a block with buttons. Otherwise
-  // clicking "expand" would navigate to Classroom instead of expanding
-  // the text.
-  // With AI on, each card gets an AI scan button beside it (the same
-  // slide-out as an assignment's buttons) and, once scanned, a fold-out
-  // with what the AI did.
-  const aiOn = !!readSettings().aiProvider && readSettings().aiProvider !== 'none';
-  const scanned = aiOn ? require('./38-announcement-scan.js').readState().scanned : {};
-  const cards = announcements.map(p => {
-    const isFresh = freshIds.has(p.id);
-    const scanButton = aiOn
-      ? `<button type="button" class="quiet ai-scan-btn" data-id="${escapeHtml(p.id)}" onclick="scanPost(this)">${escapeHtml(t('aiPostScan'))}</button>` : '';
-    return `      <div class="post-row">
-      ${cardWithActions(`<div class="post" data-cls="${escapeHtml(p.class)}" data-new="${isFresh ? 'yes' : 'no'}">
-        <div class="post-top">
-          <span class="cls">${escapeHtml(p.class)}</span>
-          <span>${escapeHtml(p.author || '')}</span>
-          ${p.date ? `<span>${escapeHtml(p.date)}</span>` : ''}
-          ${isFresh ? `<span class="badge">${escapeHtml(t('newLabel'))}</span>` : ''}
-        </div>
-        <div class="text collapsed">${escapeHtml(p.text || (p.attachments && p.attachments.length ? '' : p.title) || '')}</div>
-${attachmentsBlock(p)}
-        <div class="actions">
-          <button class="expand-btn" onclick="expandPost(this)" hidden>${escapeHtml(t('expand'))}</button>
-          <a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(t('openInClassroom'))}</a>
-        </div>
-${aiOn ? `        <div class="ai-post-status" hidden></div>
-${aiResultBlock(p, scanned[p.id])}` : ''}
-      </div>`, scanButton)}
-      </div>`;
-  }).join('\n');
-
-  // Its own scroll area: without it, nineteen announcements stretch the
-  // page so far that the assignments on the left get lost somewhere up top.
-  // Checkboxes by class plus "new only". Separate from the main panel:
-  // announcements have no due date or type, and the general filters don't
-  // apply to them.
-  const counts = new Map();
-  for (const p of announcements) counts.set(p.class, (counts.get(p.class) || 0) + 1);
-  const byClass = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru'));
-  const freshCount = announcements.filter(p => freshIds.has(p.id)).length;
-
-  const checkRow = (group, value, label, count, id) =>
-    `        <label class="check-row"><input type="checkbox"` +
-    // A lone id (no group/value) means this one isn't part of a
-    // multi-select set — "new only" is its own single yes/no, same as
-    // the two "show hidden/removed" filters, so it gets the toggle look
-    // instead of the checkbox one.
-    (id ? ` id="${id}" class="toggle"` : ` data-group="${group}" value="${escapeHtml(value)}"`) +
-    ` onchange="filterAnnouncements()">` +
-    `<span class="label-text">${escapeHtml(label)}</span>` +
-    `<span class="count-badge">${count}</span></label>`;
-
-  const checkboxes = byClass.map(([c, n]) => checkRow('post-cls', c, c, n));
-  if (freshCount) checkboxes.push(checkRow(null, null, t('filterNewOnly'), freshCount, 'f-post-new'));
-
-  const bar = byClass.length > 1 || freshCount
-    ? `      <div class="announcement-filters">\n${checkboxes.join('\n')}\n      </div>`
-    : '';
-
-  return `    <section>
-      <h2>${escapeHtml(t('announcements'))} <span class="count announcements-count">${announcements.length}</span></h2>
-      <p class="hint">${escapeHtml(t('announcementsCaption'))}</p>
-${bar}
-      <div class="feed">
-${cards}
-      </div>
-    </section>`;
-}
 
 /**
  * Reminders — virtual assignments the user typed in themselves. See
@@ -475,119 +203,149 @@ function activeReminderItems(now) {
   return classLinks.linkItems([...overdue, ...burning, ...later, ...undated].filter(x => !x.hidden));
 }
 
-function remindersSection(now) {
+/**
+ * The dashboard's cards as plain data: what /api/dashboard sends, and what
+ * this page is drawn from too (55-dash-render.js draws both), so the served
+ * page and the copy on disk can't come out different.
+ *
+ * Everything in here is JSON-safe. `data` is what sortIntoBuckets gave, with
+ * class names already linked, plus freshIds and freshAnnouncements.
+ */
+function dashboardView(data) {
+  const { now, freshIds } = data;
   const settings = readSettings();
-  const { burning, later, overdue, undated, done: rawDone } =
-    virtualAssignments.bucketed(now, settings.treatUndatedAsUrgent);
-  const all = classLinks.linkItems([...overdue, ...burning, ...later, ...undated]);
-  const done = classLinks.linkItems(rawDone);
-  const active = all.filter(x => !x.hidden)
+  const links = classLinks.linkMap();
+  const teachers = classLinks.linkedTeachers(classTeachers(), links);
+
+  // Which classes meet on the next school day (Settings → Schedule), for the
+  // pill on their cards.
+  const nextView = schoolSchedule.scheduleView(now).next;
+  const tomorrowKey = schoolCalendar.dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+  const nextNames = new Set(nextView.classes.map(c => c.class));
+  const nextLabel = nextView.date === tomorrowKey ? t('classTomorrow')
+    : t('classNextOn', new Date(nextView.date + 'T12:00:00').toLocaleDateString(locale(), { weekday: 'short' }));
+
+  const iso = d => (d instanceof Date ? d.toISOString() : d || null);
+  const card = x => ({
+    id: x.id, title: x.title, class: x.class, type: x.type || null,
+    platform: x.platform || null, link: x.link || null, due: x.due || null,
+    dueAt: iso(x.due_at), note: x.note || null, noteText: x.note ? t(x.note) : null,
+    muted: !!x.muted, hidden: !!x.hidden, removed: !!x.removed, fresh: freshIds.has(x.id),
+    teacher: teachers.get(x.class) || null,
+    nextClass: nextNames.has(x.class) ? nextLabel : null,
+    description: typeof x.description === 'string' && x.description.trim() ? x.description : null,
+    locked: x.locked ? { why: x.locked.why, at: iso(x.locked.at), module: x.locked.module || null } : null,
+    parts: x.parts || null, partsDone: x.partsDone || 0, partsTotal: x.partsTotal || 0,
+  });
+
+  // Materials only show new ones: old ones are already read.
+  const newMaterials = data.undated.filter(x => freshIds.has(x.id));
+  const overdue = data.overdue || [];
+
+  const rem = virtualAssignments.bucketed(now, settings.treatUndatedAsUrgent);
+  const allReminders = classLinks.linkItems([...rem.overdue, ...rem.burning, ...rem.later, ...rem.undated], links);
+  const reminder = x => ({
+    id: x.id, title: x.title, class: x.class || null, type: x.type || null,
+    rawDue: x.rawDue || null, dueAt: iso(x.due_at), noteText: x.note ? t(x.note) : null,
+    fromLink: x.fromLink === undefined ? null : x.fromLink,
+  });
+  const activeReminders = allReminders.filter(x => !x.hidden)
     .sort((a, b) => {
       if (!a.due_at && !b.due_at) return 0;
       if (!a.due_at) return 1;
       if (!b.due_at) return -1;
       return a.due_at - b.due_at;
     });
-  const hiddenItems = all.filter(x => x.hidden);
 
-  const dueText = (x, kind) => {
-    if (!x.due_at) return t('reminderNoDue');
-    if (x.note) return t(x.note);
-    const date = x.due_at.toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    // A DONE reminder isn't overdue, however long ago it was due — "4
-    // days overdue" next to something already completed read as if the
-    // check-off hadn't taken. Just the date it was due.
-    return kind === 'done' ? date : `${date} · ${when(x.due_at, now)}`;
+  // With AI on, a scanned announcement carries what the AI did.
+  const aiOn = !!settings.aiProvider && settings.aiProvider !== 'none';
+  const scanned = aiOn ? require('./38-announcement-scan.js').readState().scanned : {};
+  const freshPosts = data.freshAnnouncements || new Set();
+  const { PHOTO_PATH } = require('./39-announcement-photos.js');
+  const web = u => /^https?:\/\//i.test(String(u || ''));
+  const post = p => {
+    // Only a photo path the collector would write is used, and only web links.
+    const list = Array.isArray(p.attachments) ? p.attachments : [];
+    const photos = list.filter(a => a && a.photo && PHOTO_PATH.test(a.photo));
+    const chips = list.filter(a => a && !photos.includes(a) && web(a.link));
+    return {
+      id: p.id, class: p.class, author: p.author || null, date: p.date || null,
+      title: p.title || null, text: p.text || null, link: p.link || '',
+      fresh: freshPosts.has(p.id), hadAttachments: list.length > 0,
+      photos: photos.map(a => ({ photo: a.photo, title: a.title || null, link: web(a.link) ? a.link : null })),
+      chips: chips.map(a => ({ link: a.link, title: a.title || null, kind: a.kind || null })),
+      scan: scanned[p.id] || null,
+    };
   };
 
-  const card = (x, kind) => {
-    // Edit isn't offered for done ones — the add-form only has fields
-    // for title/class/due, nothing to un-do "done" through, and that's
-    // what the undo link right below is already for.
-    const editLink = kind !== 'done'
-      ? `<a class="quiet" href="#" onclick="return startEditReminder(event, this)">${escapeHtml(t('reminderEdit'))}</a>`
-      : '';
-    const actions = kind === 'done'
-      ? `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUndone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderUndo'))}</a>`
-      : kind === 'hidden'
-        ? editLink + `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualUnhide', '${escapeHtml(x.id)}')">${escapeHtml(t('restore'))}</a>`
-        : editLink +
-          `<a class="quiet" href="#" onclick="return virtualAction(event, 'virtualDone', '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDone'))}</a>` +
-          `<a class="quiet quiet-faint" href="#" onclick="return virtualAction(event, 'virtualHide', '${escapeHtml(x.id)}')">${escapeHtml(t('hide'))}</a>` +
-          `<a class="quiet quiet-faint" href="#" onclick="return virtualDeleteConfirm(event, '${escapeHtml(x.id)}')">${escapeHtml(t('reminderDelete'))}</a>`;
-    // data-title/data-class/data-raw-due — read by startEditReminder()
-    // to pre-fill the add form. data-raw-due specifically, not
-    // x.due_at: due_at gets forced to "tomorrow" by treatUndatedAsUrgent
-    // for a reminder that never had a real due date, and editing needs
-    // the actual stored value, not that display-only stand-in.
-    //
-    // data-cls/data-type/data-days — the SAME attributes itemCard()
-    // puts on a real assignment's row, so a reminder assigned to a
-    // class actually participates in the main filter panel: hiding that
-    // class hides this too, and its own class-count badge includes it.
-    // Without these, applyFilters() had nothing to match against and
-    // exempted every reminder from class filtering entirely — a
-    // reminder for a hidden class stayed on screen regardless.
-    const days = x.due_at ? daysUntil(now, x.due_at) : 'none';
-    return `      <div class="row" data-id="${escapeHtml(x.id)}"
-           data-title="${escapeHtml(x.title)}" data-class="${escapeHtml(x.class || '')}"
-           data-raw-due="${escapeHtml(x.rawDue || '')}"
-           data-cls="${escapeHtml(x.class || '')}" data-type="${escapeHtml(x.type || '')}"
-           data-days="${days}">
-      ${cardWithActions(`<div class="item">
-        <div class="title">${escapeHtml(x.title)}</div>
-        <div class="meta">
-          <span class="plat">${escapeHtml(t('reminderPlatform'))}</span>
-          ${x.class ? `<span class="cls">${escapeHtml(x.class)}</span>` : ''}
-          <span class="due">${escapeHtml(dueText(x, kind))}</span>
-          ${x.fromLink === null || x.fromLink === undefined ? '' : x.fromLink
-            ? `<a class="reminder-from" href="${escapeHtml(x.fromLink)}" target="_blank" rel="noopener">${escapeHtml(t('reminderFromAnnouncement'))}</a>`
-            : `<span class="reminder-from">${escapeHtml(t('reminderFromAnnouncement'))}</span>`}
-        </div>
-      </div>`, actions)}
-      </div>`;
+  return {
+    lists: {
+      remindersActive: activeReminders.map(reminder),
+      remindersHidden: allReminders.filter(x => x.hidden).map(reminder),
+      remindersDone: classLinks.linkItems(rem.done, links).map(reminder),
+      // Visible first, then the hidden ones at the bottom of the section.
+      overdue: [...overdue.filter(x => !x.hidden), ...overdue.filter(x => x.hidden)].map(card),
+      dueSoon: data.burning.map(card),
+      ahead: data.later.map(card),
+      materials: newMaterials.map(card),
+      muted: (data.deferred || []).map(card),
+      removed: (data.gone || []).map(card),
+      announcements: (data.announcements || []).map(post),
+    },
+    filters: filterChoicesData(data, newMaterials, now),
+    filterOff: settings.filterUnchecked || {},
+    filterToggles: { hidden: !!settings.filterShowHidden, removed: !!settings.filterShowRemoved },
+    // "You can relax" is a verdict; the page holds it back while a check runs.
+    nothingDue: !data.burning.length && !data.later.length && !newMaterials.length,
+    aiOn,
+    reminderClasses: reminderClassChoices(settings),
+    nextMeetings: schoolSchedule.nextMeetings(now),
+    pieces: dashPieces(data.updatedAt || now, now),
   };
+}
 
-  // NOT .show-hidden-btn — that class is swept up globally by
-  // applyFilters() (querySelectorAll('.show-hidden-btn') across the
-  // WHOLE page, not scoped to one section), which calls refreshSection()
-  // on whatever section it's in. refreshSection() counts .row.hidden-row
-  // elements specifically, which these cards never use, so it would
-  // force-hide this button on every filter change regardless of whether
-  // there's actually anything hidden. Own class, own styling instead.
-  const hiddenButton =
-    `      <button class="reminder-toggle-btn"${hiddenItems.length ? '' : ' hidden'}
-              id="reminders-hidden-btn" onclick="toggleReminderGroup('reminders-hidden')">${escapeHtml(t('showHidden'))} (${hiddenItems.length})</button>`;
-  const doneButton =
-    `      <button class="reminder-toggle-btn"${done.length ? '' : ' hidden'}
-              id="reminders-done-btn" onclick="toggleReminderGroup('reminders-done')">${escapeHtml(t('reminderShowDone'))} (${done.length})</button>`;
+/**
+ * The parts of the page that are still drawn here as HTML rather than from
+ * data, sent as they are: they change with a check, and without this each of
+ * them would mean reloading the whole page. Each can become data of its own
+ * later, one at a time.
+ */
+function dashPieces(updatedAt, now) {
+  const time = updatedAt.toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  return {
+    status: checkStatusIndicator(),
+    statusPanel: checkStatusPanel(),
+    updated: `<div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`,
+    bannersTop: setupAndSignInBanners(),
+    bannersBelow: pendingScheduleAndUpdateBanners(now),
+    grades: gradesSection(),
+  };
+}
 
-  // <datalist> — suggests, doesn't apply. Typing "che" offers "Chemistry"
-  // in a dropdown, same as any browser's own address-bar autocomplete,
-  // but nothing is auto-corrected or forced: the field stays a plain
-  // text input, and submitting whatever was actually typed — a class
-  // not in this list, a typo, a made-up label for something that isn't
-  // a real class at all — works exactly the same as picking a suggestion.
-  // allKnownClasses() deliberately still includes excluded classes too
-  // (see exclusionsField()'s own comment — that's what lets a settings
-  // checkbox turn one back on). A reminder isn't that: excluding a
-  // class means "stop reading and showing this one", so suggesting it
-  // here would offer something that isn't actually shown anywhere else
-  // on the page right now.
-  // appliedFetchSettings, not the file: a class excluded a moment ago is
-  // still in the data until the next collection purges it, and this list
-  // should change at that moment along with everything else.
+// <datalist> for the reminder form's class field: suggests, doesn't apply, so
+// anything typed still works. An excluded class isn't shown anywhere else on
+// the page, so it isn't suggested here. appliedFetchSettings, not the file: a
+// class excluded a moment ago stays until the next collection purges it.
+function reminderClassChoices(settings) {
   const excludedClasses = new Set(appliedFetchSettings(settings).exclusions);
-  const classOptions = classLinks.linkedClassNames(allKnownClasses()
-    .filter(name => !excludedClasses.has(name)))
-    .map(name => `<option value="${escapeHtml(name)}">`).join('');
+  return classLinks.linkedClassNames(allKnownClasses().filter(name => !excludedClasses.has(name)));
+}
 
+/**
+ * Reminders: virtual assignments the user typed in themselves
+ * (24-virtual-assignments.js). Its own section, not folded into Due
+ * Soon/Ahead/Overdue: those are built around platform assumptions that don't
+ * fit something the user fully owns. Not data-has-items: the add form stays
+ * even with no reminders. The form's own values come with the data.
+ */
+function remindersSection(view, now) {
+  const rows = (list) => view.lists[list].map(x => dashRender.row(list, x, now, view)).join('\n');
   const addForm = `      <div class="reminder-add">
         <input type="hidden" id="reminder-editing-id" value="">
         <input type="text" id="reminder-title" placeholder="${escapeHtml(t('reminderTitlePlaceholder'))}">
         <input type="text" id="reminder-class" list="reminder-class-list" placeholder="${escapeHtml(t('reminderClassPlaceholder'))}"
                oninput="suggestNextClassDue()">
-        <datalist id="reminder-class-list">${classOptions}</datalist>
+        <datalist id="reminder-class-list">${liveData(view.reminderClasses.map(name => `<option value="${escapeHtml(name)}">`).join(''))}</datalist>
         <span class="reminder-due-field">
           <input type="datetime-local" id="reminder-due" title="${escapeHtml(t('reminderDueHint'))}"
                  oninput="document.getElementById('reminder-due-clear').hidden = !this.value; if (this.value !== reminderDueFromClass) showNextClassNote(null)">
@@ -600,120 +358,55 @@ function remindersSection(now) {
         <span class="result" id="reminders-result"></span>
       </div>
       <p class="hint reminder-next-class" id="reminder-next-class" hidden></p>
-      <script type="application/json" id="reminder-next-meetings">${jsonForScript(schoolSchedule.nextMeetings(now))}</script>
+      ${liveData(`<script type="application/json" id="reminder-next-meetings">${jsonForScript(view.nextMeetings)}</script>`)}
       <p class="hint">${escapeHtml(t('reminderCaption'))}</p>`;
 
-  // NOT data-has-items="yes" — that opts a section into recount()'s
-  // live auto-hide-when-empty behavior, which only knows about the
-  // .hidden-row/shown convention (real assignments' hide mechanism),
-  // not this section's own [hidden]-wrapper-div one. Every state change
-  // here reloads the page anyway (see virtualAction() etc.), so this
-  // section never needs recount()'s LIVE recalculation in the first
-  // place — and skipping it is what keeps the add-reminder form always
-  // visible even with zero reminders, rather than the whole section
-  // vanishing the moment there's nothing active in it.
+  // Own class, not .show-hidden-btn: applyFilters() sweeps that one up across
+  // the whole page and it counts .row.hidden-row, which these never use. Their
+  // words and whether they show are set by syncReminderButtons().
   return `    <section>
-      <h2>${escapeHtml(t('reminders'))} <span class="count">${active.length}</span></h2>
+      <h2>${escapeHtml(t('reminders'))} <span class="count" id="reminders-count">${liveData(view.lists.remindersActive.length)}</span></h2>
 ${addForm}
-${active.map(x => card(x, 'active')).join('\n')}
-      <div id="reminders-hidden" hidden>
-${hiddenItems.map(x => card(x, 'hidden')).join('\n')}
-      </div>
-${hiddenButton}
-      <div id="reminders-done" hidden>
-${done.map(x => card(x, 'done')).join('\n')}
-      </div>
-${doneButton}
+      <div class="dash-rows" data-rows="remindersActive">${liveData(rows('remindersActive'))}</div>
+      <div id="reminders-hidden" class="dash-rows" data-rows="remindersHidden" hidden>${liveData(rows('remindersHidden'))}</div>
+      <button class="reminder-toggle-btn" hidden id="reminders-hidden-btn" onclick="toggleReminderGroup('reminders-hidden')"></button>
+      <div id="reminders-done" class="dash-rows" data-rows="remindersDone" hidden>${liveData(rows('remindersDone'))}</div>
+      <button class="reminder-toggle-btn" hidden id="reminders-done-btn" onclick="toggleReminderGroup('reminders-done')"></button>
     </section>`;
 }
 
 /**
- * Overdue. A separate section because it needs to behave differently.
- *
- * Overdue assignments used to silently drop out — only a number in the
- * stats. Tolerable for Classroom (turned-in work stays in its past), but
- * Canvas and Edpuzzle only ever return what's NOT turned in: overdue there
- * means "didn't turn it in and missed it". The user asked for it to be
- * shown, but UNDER "Due soon", not above — what's due soon matters more
- * than what's already a lost cause.
- *
- * Each one has a "hide" button: staring forever at something that can't
- * be fixed anymore serves no purpose. The button is deliberately
- * unobtrusive and asks for confirmation, so it isn't hit by accident.
- * Hidden items aren't deleted — they can be shown again with the button
- * at the bottom of the section.
+ * The assignment sections, always all of them: recount() hides a section with
+ * nothing to show (data-has-items), so a card arriving later has somewhere to
+ * go. Overdue's "show hidden" button is always there too, and refreshSection()
+ * fills it in.
  */
-function overdueSection(items, now) {
-  if (!items.length) return '';
-
-  const visible = items.filter(x => !x.hidden);
-  const hiddenItems = items.filter(x => x.hidden);
-
-  const overdueCard = (x) => {
-    const days = Math.round((now - x.due_at) / 864e5);
-    const wasDue = x.due
-      ? x.due.replace(/^Due\s+/, '')
-      : x.due_at.toLocaleString(locale(), { day: 'numeric', month: 'short' });
-
-    // data-id is needed by the page so that clicking "hide" can move the
-    // card into "hidden" itself, without waiting for the next collection.
-    const tags = ` data-cls="${escapeHtml(x.class)}"` +
-                    ` data-type="${escapeHtml(x.type || '')}"` +
-                    ` data-days="${-days}"` +
-                    ` data-sect="overdue"` +
-                    ' data-linkable="yes"';
-
-    const card = `<a href="${escapeHtml(x.link || '#')}" target="_blank" rel="noopener" class="item overdue-item">
-        <div class="title">${escapeHtml(x.title)}</div>
-        <div class="meta">
-          <span class="plat">${escapeHtml(x.platform || DEFAULT_PLATFORM)}</span>
-          <span class="cls">${escapeHtml(x.class)}</span>
-          ${teacherSpan(x.class)}
-          <span class="overdue-since">${escapeHtml(wasDue)} · ${escapeHtml(t('lateByDays', days))}</span>
-          ${lockBadge(x)}
-          ${partsBadge(x)}
-        </div>
-      </a>`;
-    return `      <div class="row${x.hidden ? ' hidden-row' : ''}" data-id="${escapeHtml(x.id)}"${tags}>
-      ${cardWithActions(card, linkButtons(x) + (x.hidden
-        ? `<a class="quiet" href="napominalka://unhide/${escapeHtml(x.id)}"
-             onclick="restoreOverdueItem(event, this)">${escapeHtml(t('restore'))}</a>`
-        : `<a class="quiet quiet-faint" href="napominalka://hide/${escapeHtml(x.id)}"
-             onclick="return hideOverdueItem(event, this)">${escapeHtml(t('hide'))}</a>`) +
-        // Closed work can't ever be turned in, so it can also go for good.
-        (x.locked && x.locked.why === 'closed'
-          ? `<a class="quiet quiet-faint" href="napominalka://deleteAssignment/${escapeHtml(encodeURIComponent(x.id))}"
-             onclick="return deleteClosedItem(event, this)">${escapeHtml(t('deleteForGood'))}</a>`
-          : ''))}${linkHereButton(x)}
-      </div>`;
-  };
-
-  // The button is always rendered, just hidden when empty. That way the
-  // page doesn't need to create it on the fly when the user hides the
-  // first assignment.
-  const hiddenButton =
-    `      <button class="show-hidden-btn"${hiddenItems.length ? '' : ' hidden'}
-              onclick="toggleHiddenRows(this)">${escapeHtml(t('showHidden'))} (${hiddenItems.length})</button>`;
-
-  return `    <section data-has-items="yes">
-      <h2>${escapeHtml(t('overdue'))} <span class="count">${visible.length}</span></h2>
-      <p class="hint">${escapeHtml(t('overdueCaption'))}</p>
-${visible.map(overdueCard).join('\n')}
-${hiddenItems.map(overdueCard).join('\n')}
-${hiddenButton}
+function assignmentSections(view, now) {
+  return dashRender.SECTIONS.map((s) => {
+    const items = view.lists[s.list];
+    const visible = items.filter(x => !x.hidden).length;
+    return `    <section data-has-items="yes" data-list="${s.list}" hidden>
+      <h2>${escapeHtml(s.heading())} <span class="count">${liveData(visible)}</span></h2>
+      ${s.caption ? `<p class="hint">${escapeHtml(s.caption())}</p>` : ''}
+      <div class="dash-rows" data-rows="${s.list}">${liveData(items.map(x => dashRender.row(s.list, x, now, view)).join('\n'))}</div>
+${s.list === 'overdue' ? `      <button class="show-hidden-btn" hidden onclick="toggleHiddenRows(this)"></button>` : ''}
     </section>`;
+  }).join('\n');
 }
 
-function section(heading, items, now, freshIds, caption) {
-  if (!items.length) return '';
-  const sectionKey = heading.toLowerCase();
-  // data-has-items — a "cards live in this section" marker. Needed by the
-  // recount: the section the LAST card was removed from used to stay
-  // hanging around empty — heading and caption, but no content.
-  return `    <section data-has-items="yes">
-      <h2>${escapeHtml(heading)} <span class="count">${items.length}</span></h2>
-      ${caption ? `<p class="hint">${escapeHtml(caption)}</p>` : ''}
-${items.map(x => itemCard(x, now, freshIds.has(x.id), sectionKey)).join('\n')}
+/**
+ * Right column: announcements from Classroom streams. ALL of them, not just new
+ * ones: an announcement stays relevant for weeks. Its own scroll area, and its
+ * own checkboxes: the general filters don't apply to it.
+ */
+function announcementsSection(view, now) {
+  const posts = view.lists.announcements;
+  return `    <section id="announcements-section">
+      <h2>${escapeHtml(t('announcements'))} <span class="count announcements-count">${liveData(posts.length || '')}</span></h2>
+      <p class="hint" id="announcements-caption">${escapeHtml(t('announcementsCaption'))}</p>
+      <p class="hint" id="announcements-empty" hidden>${escapeHtml(t('noAnnouncements'))}</p>
+      <div id="announcement-filter-box">${liveData(dashRender.announcementFilters(posts))}</div>
+      <div class="feed" data-rows="announcements">${SKELETONS.posts}${liveData(posts.map(p => dashRender.row('announcements', p, now, view)).join('\n'))}</div>
     </section>`;
 }
 
@@ -1943,7 +1636,15 @@ ${item('settings', 'settings-button', t('settingsTitle'))}<span class="settings-
  * page, not from a list known ahead of time: classes now come from the
  * site itself, and a hardcoded list would go stale by September.
  */
-function filtersPanel(allItems, announcements, now, rawItems) {
+/**
+ * The main filters' choices. Separate from the panel's frame so it can be sent
+ * as data; the numbers beside them are worked out live on the page anyway (see
+ * updateCounts), these only say which choices there are to begin with.
+ */
+function filterChoicesData(data, newMaterials, now) {
+  const allItems = [...data.burning, ...data.later, ...newMaterials, ...(data.deferred || []), ...(data.overdue || []), ...(data.gone || [])];
+  const announcements = data.announcements || [];
+  const rawItems = data.items || null;
   // ACTIVE REMINDERS ARE PART OF WHAT THIS PANEL OFFERS, NOT JUST REAL
   // ASSIGNMENTS. Every card on the page — reminders included — is
   // filtered against the checked boxes below, but the boxes used to be
@@ -1981,35 +1682,7 @@ function filtersPanel(allItems, announcements, now, rawItems) {
     ['none', t('filterNoDueDate'), countByDue(d => d === null)],
   ];
 
-  // CHECKBOXES START CHECKED. The user's request, and a fair point: they
-  // used to all start unchecked while everything was still shown — visually
-  // that looks contradictory. And removing one class meant checking every
-  // other one.
-  //
-  // The mechanism stays the same: an empty group means "everything
-  // matches". So "all checked" and "none checked" give the same result —
-  // the first one just looks more honest.
-  //
-  // REMEMBERED ACROSS REFRESHES: the boxes the user unchecked last time
-  // start unchecked (settings.filterUnchecked); everything else — including
-  // an option that's new since — starts checked, as before.
-  const savedOff = readSettings().filterUnchecked || {};
-  const isOff = (group, value) => (savedOff[group] || []).includes(value);
-  const checkRow = (group, value, label, count) =>
-    `        <label class="check-row"><input type="checkbox" data-group="${group}"` +
-    ` value="${escapeHtml(value)}" onchange="rememberFilters(); applyFilters()"` +
-    `${isOff(group, value) ? '' : ' checked'}>` +
-    `<span class="label-text">${escapeHtml(label)}</span>` +
-    `<span class="count-badge">${count}</span></label>`;
-
-  const group = (name, content) =>
-    `    <div class="filter-group">
-      <div class="group-name">${escapeHtml(name)}</div>
-${content.join('\n')}
-    </div>`;
-
-  const parts = [];
-
+  const parts = {};
   let classCounts = count(x => x.class);
   // Off by default: without this, a class with nothing due/overdue/removed
   // just never appears here at all, which reads as "this class doesn't
@@ -2085,31 +1758,32 @@ ${content.join('\n')}
     }
     classCounts = classCounts.sort((a, b) => a[0].localeCompare(b[0], 'ru'));
   }
-  parts.push(group(t('filterClass'), classCounts
-    .map(([v, n]) => checkRow('cls', v, v, n))));
+  parts.classes = classCounts;
+  parts.types = count(x => (x.type || '').trim());
+  parts.dues = dueRanges.filter(([, , n]) => n > 0).map(([v, , n]) => [v, n]);
+  return parts;
+}
 
-  parts.push(group(t('filterType'), count(x => (x.type || '').trim())
-    .map(([v, n]) => checkRow('type', v, v, n))));
-
-  parts.push(group(t('filterDue'), dueRanges
-    .filter(([, , n]) => n > 0)
-    .map(([v, label, n]) => checkRow('days', v, label, n))));
-
-  // A separate checkbox: not a value filter, but "show what's been removed".
-  parts.push(`    <div class="filter-group">
+/**
+ * The filter panel's frame: the choices inside it come with the data
+ * (filterChoices in 55-dash-render.js). The two toggles are ticked by the page
+ * from savedFilterToggles, so saving one doesn't change the page itself.
+ */
+function filtersPanel(view) {
+  return `  <div class="filters">
+    <div class="dash-pieces" id="filter-choices">${SKELETONS.filters}${liveData(dashRender.filterChoices(view.filters, view.filterOff))}</div>
+    <div class="filter-group">
       <div class="group-name">${escapeHtml(t('filterHidden'))}</div>
-        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden"${filterSettings.filterShowHidden ? ' checked' : ''} onchange="rememberFilters(); applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-hidden" onchange="rememberFilters(); applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowHiddenMuted'))}</span></label>
-        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed"${filterSettings.filterShowRemoved ? ' checked' : ''} onchange="rememberFilters(); applyFilters()">
+        <label class="check-row"><input type="checkbox" class="toggle" id="f-removed" onchange="rememberFilters(); applyFilters()">
           <span class="label-text">${escapeHtml(t('filterShowRemoved'))}</span></label>
       <button onclick="resetFilters()">${escapeHtml(t('filterResetAll'))}</button>
       <div class="result" id="f-result"></div>
-    </div>`);
-
-  return `  <div class="filters">
-${parts.join('\n')}
+    </div>
   </div>`;
 }
+
 
 /**
  * "Did the last check actually work?" — one cloud in the sidebar, click to
@@ -2548,111 +2222,8 @@ function pixelCornerCss() {
  * @param {object} data — {burning, later, undated, fresh, broken, now}
  * @param {string} outputPath — where to write the html
  */
-function writePage(data, outputPath) {
-  // Linked classes (Settings → Classes) take their linked name here, once,
-  // so everything below that groups by class groups by the linked name.
-  const links = classLinks.linkMap();
-  data = { ...data };
-  for (const key of ['burning', 'later', 'undated', 'deferred', 'overdue', 'gone', 'items', 'announcements']) {
-    if (data[key]) data[key] = classLinks.linkItems(data[key], links);
-  }
-  for (const key of ['broken', 'reading']) {
-    if (data[key]) data[key] = classLinks.linkedClassNames(data[key], links);
-  }
-  const { burning, later, undated, freshIds, broken, now } = data;
-  const reading = data.reading || [];
-  // Read once per page, not once per card.
-  teacherByClass = classLinks.linkedTeachers(classTeachers(), links);
-
-  // Stamped into the page and published beside it once it's on disk, so an
-  // open copy can tell a newer one exists (see "Live updates" in the page
-  // script and 28-live-state.js).
-  const pageVersion = Date.now();
-
-  // Set only by a collection's in-progress writes: how many sources are
-  // done out of how many. Baked in so a page reloaded mid-run already shows
-  // the bar in the right place instead of flashing empty until the first
-  // poll; the page's own script keeps it moving from there.
-  const progress = data.progress || null;
-  const progressPct = progress && progress.total
-    ? Math.round(progress.done / progress.total * 100) : 0;
-  const progressLabel = progress
-    ? (progress.total && progress.done >= progress.total
-        ? t('progressFinishing')
-        : `${t('progressChecking')} ${progress.done} ${t('settingsOf')} ${progress.total}`)
-    : '';
-  const progressFinishing = !!(progress && progress.total && progress.done >= progress.total);
-  const progressBar = `  <div class="check-progress${progressFinishing ? ' finishing' : ''}" id="check-progress" role="progressbar"
-       aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}"${progress ? '' : ' hidden'}>
-    <div class="check-progress-body">
-      <div class="check-progress-head"><span id="check-progress-label">${escapeHtml(progressLabel)}</span><span id="check-progress-pct">${progressPct}%</span></div>
-      <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"><span class="loading-icon check-progress-runner" aria-hidden="true"></span></div></div>
-    </div>
-  </div>`;
-  const deferred = data.deferred || [];
-  // Full, unbucketed collection — everything last-collection.json has
-  // ever recorded, materials included regardless of whether they're
-  // still "new". Only used for hideInactiveClasses's history check (see
-  // filtersPanel's own comment on why that can't just reuse allItems);
-  // falls back to allItems itself if a caller doesn't have it, so a
-  // missing rawItems degrades to the old (buggy but harmless) behavior
-  // instead of crashing.
-  const rawItems = data.items || null;
-
-  // Announcements from streams. Freshest on top.
-  const overdue = data.overdue || [];
-  const gone = data.gone || [];
-  const announcements = [...(data.announcements || [])];
-  const freshAnnouncementIds = data.freshAnnouncements || new Set();
-
-  // Materials only show new ones (old ones are already read, no reason
-  // for them to hang around in the list — same logic as the popup).
-  //
-  // Computed here, not further down, because the checkboxes in the
-  // filters need to match what's actually drawn. Otherwise "no due date"
-  // would show 32 next to it while the page had no such card at all.
-  const newMaterials = undated.filter(x => freshIds.has(x.id));
-
-  // Everything that will actually land on the page — for the filter lists.
-  const allItems = [...burning, ...later, ...newMaterials, ...deferred, ...overdue, ...gone];
-
-  const time = now.toLocaleString(locale(), {
-    day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-  });
-
-  // newMaterials was already computed above, together with the filter lists.
-
-  const warning = broken.length
-    ? `  <div class="warn">${escapeHtml(t('couldNotRead'))} ${escapeHtml(broken.join(', '))}.
-       ${escapeHtml(t('fromMemoryNotice'))}</div>`
-    : '';
-
-  // "You can relax" is a verdict, and a page written while sources are still
-  // being read hasn't got one: nothing due YET isn't nothing due. It's also
-  // where the "new" marks are missing (they're only worked out once
-  // everything is in), so "nothing new" would be wrong for the same reason.
-  const emptyBanner = !reading.length && !burning.length && !later.length && !newMaterials.length
-    ? `  <div class="empty">${escapeHtml(t('emptyState'))}</div>`
-    : '';
-
-  // Dismissable per-VERSION, not per-session: dismissedVersion (see
-  // 26-update-check.js) only matches the exact version it was recorded
-  // against, so dismissing v1.3.0's banner today doesn't silently
-  // swallow v1.4.0's whenever that ships later — the comparison here is
-  // deliberately == the latest version, not "was dismissed at all".
-  const updateStatus = readUpdateStatus();
-  const updateBanner = (updateStatus && updateStatus.updateAvailable &&
-                         updateStatus.latestVersion !== updateStatus.dismissedVersion)
-    ? `  <div class="warn update-banner" id="update-banner">
-       <span>${escapeHtml(t('updateAvailable'))} <b>v${escapeHtml(updateStatus.latestVersion)}</b>
-       (${escapeHtml(t('updateCurrentlyRunning'))} v${escapeHtml(updateStatus.currentVersion)}).
-       <a href="${escapeHtml(updateStatus.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateViewRelease'))}</a></span>
-       <button type="button" class="update-dismiss" data-version="${escapeHtml(updateStatus.latestVersion)}"
-               onclick="dismissUpdateBanner(this)"
-               title="${escapeHtml(t('updateDismiss'))}">&times;</button>
-     </div>`
-    : '';
-
+/** The banners at the very top of the page: setup not finished, signed out. */
+function setupAndSignInBanners() {
   // Not dismissable, unlike updateBanner above — an unset email isn't an
   // FYI, it's the reason 05-playwright-draft.js can't correctly build
   // Classroom links yet (see AUTHUSER there), so this keeps showing every
@@ -2693,6 +2264,31 @@ function writePage(data, outputPath) {
      </div>`
     : '';
 
+  return setupBanner + signInBanner;
+}
+
+/** The banners under them: a setting waiting for a check, schedule heads-ups, an update. */
+function pendingScheduleAndUpdateBanners(now) {
+  const setupSettings = readSettings();
+  // Dismissable per-VERSION, not per-session: dismissedVersion (see
+  // 26-update-check.js) only matches the exact version it was recorded
+  // against, so dismissing v1.3.0's banner today doesn't silently
+  // swallow v1.4.0's whenever that ships later — the comparison here is
+  // deliberately == the latest version, not "was dismissed at all".
+  const updateStatus = readUpdateStatus();
+  const updateBanner = (updateStatus && updateStatus.updateAvailable &&
+                         updateStatus.latestVersion !== updateStatus.dismissedVersion)
+    ? `  <div class="warn update-banner" id="update-banner">
+       <span>${escapeHtml(t('updateAvailable'))} <b>v${escapeHtml(updateStatus.latestVersion)}</b>
+       (${escapeHtml(t('updateCurrentlyRunning'))} v${escapeHtml(updateStatus.currentVersion)}).
+       <a href="${escapeHtml(updateStatus.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateViewRelease'))}</a></span>
+       <button type="button" class="update-dismiss" data-version="${escapeHtml(updateStatus.latestVersion)}"
+               onclick="dismissUpdateBanner(this)"
+               title="${escapeHtml(t('updateDismiss'))}">&times;</button>
+     </div>`
+    : '';
+
+
   // Saved settings that only a collection can apply (which classes are
   // read, the Canvas address) sit in settings.json until the next check
   // runs — see pendingFetchKeys in 19-settings.js. Nothing on the page
@@ -2719,14 +2315,87 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
                  title="${escapeHtml(t('updateDismiss'))}">&times;</button></div>`).join('\n')}
      </div>`
     : '';
-  // Which classes meet on the next school day, for the pill on their cards.
-  const nextView = schoolSchedule.scheduleView(now).next;
-  const tomorrowKey = schoolCalendar.dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
-  nextClasses = {
-    names: new Set(nextView.classes.map(c => c.class)),
-    label: nextView.date === tomorrowKey ? t('classTomorrow')
-      : t('classNextOn', new Date(nextView.date + 'T12:00:00').toLocaleDateString(locale(), { weekday: 'short' })),
+
+  return pendingBanner + scheduleBanner + updateBanner;
+}
+
+/** The page without its data: what the server sends, /api/dashboard filling it in. */
+function pageShell(html) {
+  return html.replace(/<!--dash-->[\s\S]*?<!--\/dash-->/g, '');
+}
+
+/** The renderer and the words it needs, as script for the page. */
+function dashRenderScript() {
+  const source = fs.readFileSync(path.join(__dirname, '55-dash-render.js'), 'utf8');
+  const keys = new Set(makeDashRender.EXTRA_WORDS);
+  for (const m of source.matchAll(/\bt\('([A-Za-z_]+)'/g)) keys.add(m[1]);
+  const dictionary = DICTIONARIES[currentLanguage()];
+  const words = [...keys].map((key) => {
+    const value = dictionary[key] !== undefined ? dictionary[key] : DICTIONARIES.ru[key];
+    return `${JSON.stringify(key)}: ${typeof value === 'function' ? value.toString() : JSON.stringify(value === undefined ? key : value)}`;
+  });
+  return `${source.replace("if (typeof module !== 'undefined') module.exports = makeDashRender;", '')}
+${pluralizeRu.toString()}
+var DASH_WORDS = {\n${words.join(',\n')}\n};`;
+}
+
+function writePage(data, outputPath) {
+  // Linked classes (Settings → Classes) take their linked name here, once,
+  // so everything below that groups by class groups by the linked name.
+  const links = classLinks.linkMap();
+  data = { ...data };
+  for (const key of ['burning', 'later', 'undated', 'deferred', 'overdue', 'gone', 'items', 'announcements']) {
+    if (data[key]) data[key] = classLinks.linkItems(data[key], links);
+  }
+  for (const key of ['broken', 'reading']) {
+    if (data[key]) data[key] = classLinks.linkedClassNames(data[key], links);
+  }
+  const { burning, later, broken, now } = data;
+  const reading = data.reading || [];
+
+  // Stamped into the page and published beside it once it's on disk, so an
+  // open copy can tell a newer one exists (see "Live updates" in the page
+  // script and 28-live-state.js).
+  const pageVersion = Date.now();
+
+  // Set only by a collection's in-progress writes: how many sources are
+  // done out of how many. Baked in so a page reloaded mid-run already shows
+  // the bar in the right place instead of flashing empty until the first
+  // poll; the page's own script keeps it moving from there.
+  const progress = data.progress || null;
+  const progressBarFor = (progress) => {
+  const progressPct = progress && progress.total
+    ? Math.round(progress.done / progress.total * 100) : 0;
+  const progressLabel = progress
+    ? (progress.total && progress.done >= progress.total
+        ? t('progressFinishing')
+        : `${t('progressChecking')} ${progress.done} ${t('settingsOf')} ${progress.total}`)
+    : '';
+  const progressFinishing = !!(progress && progress.total && progress.done >= progress.total);
+  return `  <div class="check-progress${progressFinishing ? ' finishing' : ''}" id="check-progress" role="progressbar"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressPct}"${progress ? '' : ' hidden'}>
+    <div class="check-progress-body">
+      <div class="check-progress-head"><span id="check-progress-label">${escapeHtml(progressLabel)}</span><span id="check-progress-pct">${progressPct}%</span></div>
+      <div class="check-progress-track"><div class="check-progress-fill" id="check-progress-fill" style="width: ${progressPct}%"><span class="loading-icon check-progress-runner" aria-hidden="true"></span></div></div>
+    </div>
+  </div>`;
   };
+
+  // The cards, as data, drawn from that the way the page will draw them: the
+  // trip through JSON is so they can't come out different.
+  const view = JSON.parse(JSON.stringify(dashboardView({ ...data, freshIds: data.freshIds || new Set(), updatedAt: now })));
+  const pieces = view.pieces;
+
+  const warning = broken.length
+    ? `  <div class="warn">${escapeHtml(t('couldNotRead'))} ${escapeHtml(broken.join(', '))}.
+       ${escapeHtml(t('fromMemoryNotice'))}</div>`
+    : '';
+
+  // "You can relax" is a verdict, and a page written while sources are still
+  // being read hasn't got one: nothing due YET isn't nothing due. It's also
+  // where the "new" marks are missing (they're only worked out once
+  // everything is in), so "nothing new" would be wrong for the same reason.
+  const emptyBanner = !reading.length && view.nothingDue ? dashRender.emptyNote() : '';
 
   const gradesCenter = gradesCenterPanel();
   // The cards edit mode can hide (DASH_CARDS), each in a wrapper with its
@@ -2734,11 +2403,11 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
   // draw (grades with no grades) gets no wrapper.
   const dashHidden = new Set(readSettings().dashHidden || []);
   const cardHtml = {
-    filters: filtersPanel(allItems, announcements, now, rawItems),
-    reminders: remindersSection(now),
-    grades: gradesSection(),
+    filters: filtersPanel(view),
+    reminders: remindersSection(view, now),
+    grades: pieces.grades ? livePiece('grades', pieces.grades, SKELETONS.grades) : '',
     calendar: calendarSection(now),
-    announcements: announcementsSection(announcements, freshAnnouncementIds),
+    announcements: announcementsSection(view, now),
     transcripts: `    <section>
       <h2>${escapeHtml(t('transcripts'))}</h2>
       <p class="hint">${escapeHtml(t('transcriptsCaption'))}</p>
@@ -2816,6 +2485,9 @@ ${cardHtml[id]}
     width: 100%; height: auto; justify-content: flex-start; gap: 10px;
     padding: 4px 8px; font-size: 15px; color: var(--text);
   }
+  /* No frame here for the raised-button shadow to fall from: it would land on the words themselves. */
+  .app-nav .reload.named, .app-nav .reload.named:hover, .app-nav .reload.named:active,
+  .app-nav .check-status, .app-nav .check-status:hover, .app-nav .check-status:active { filter: none; }
   .app-nav .reload:hover, .app-nav .check-status:hover { background: var(--line); }
   .app-nav .reload.spinning { color: var(--new); }
   .app-nav .check-status { display: flex; align-items: center; }
@@ -2895,6 +2567,23 @@ ${cardHtml[id]}
   body.dash-editing .dash-card.dash-off { outline-color: var(--line); }
   /* Edit mode: each card that can be hidden gets a dashed outline and a Hide. */
   .dash-card { position: relative; }
+  /* Holders for what the data fills in; they take no part in the layout. */
+  .dash-pieces:not([hidden]), .dash-rows:not([hidden]) { display: contents; }
+  .dash-rows[hidden] { display: none; }
+  /* Waiting for data. Not shown for the first 150ms, so a quick load never
+     flashes them, but holding their space all the while. */
+  .dash-skeleton { visibility: hidden; pointer-events: none; animation: dash-skeleton-show 0s linear .15s forwards; }
+  .dash-skeleton-section { margin-bottom: 24px; }
+  .dash-skeleton .item, .dash-skeleton .post { margin-bottom: 12px; }
+  .dash-skeleton .meta { display: flex; gap: 8px; margin-top: 8px; }
+  .dash-skeleton .text { -webkit-line-clamp: none; display: block; max-height: none; }
+  .bone { display: inline-block; height: 12px; max-width: 100%; background: var(--line); vertical-align: middle; animation: dash-bone 1.2s steps(1) infinite; }
+  .dash-skeleton .text .bone { display: block; margin-top: 8px; }
+  .dash-skeleton h2 .bone { height: 14px; }
+  .count:empty { visibility: hidden; }
+  @keyframes dash-skeleton-show { to { visibility: visible; } }
+  @keyframes dash-bone { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .bone { animation: none; } }
   .dash-hide { display: none; }
   /* Room at the top for Hide, so it covers nothing (the grades' Hide is up there). */
   body.dash-editing .dash-card { outline: 2px dashed var(--dim); outline-offset: 4px; margin-bottom: 16px; padding-top: 24px; }
@@ -4064,44 +3753,30 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
   <img alt="">
   <div class="photo-bar"><a id="photo-viewer-link" href="#" target="_blank" rel="noopener">${escapeHtml(t('photoOpenInDrive'))}</a><button type="button" onclick="closePhoto()">${escapeHtml(t('photoClose'))}</button></div>
 </div>
-${appNav(gradesCenter, `<button class="reload named${progress ? ' checking' : ''}"
-         id="quickcheck-button"
-         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="pixel-spinner" aria-hidden="true"></span><span class="reload-label">${escapeHtml(t(progress ? 'checkingLabel' : 'refreshLabel'))}</span></button>
-  <button class="reload named${progress ? ' running' : ''}"${readSettings().edpuzzleEnabled === false ? ' data-quick-only' : ''}
-         id="freshcheck-button"
-         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
-  ${checkStatusIndicator()}
-  <div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`)}
-${checkStatusPanel()}
+@@DASH_NAV@@
+${livePiece('statusPanel', pieces.statusPanel)}
 <div class="dash-edit-bar">
   <button type="button" class="dash-edit" id="dash-edit" onclick="toggleDashEdit()" aria-pressed="false" title="${escapeHtml(t('dashEditHint'))}" data-edit="${escapeHtml(t('dashEdit'))}" data-done="${escapeHtml(t('dashEditDone'))}"><span class="pixel-icon icon-edit" aria-hidden="true"></span><span class="dash-edit-label">${escapeHtml(t('dashEdit'))}</span></button>
 </div>
 <main>
 ${settingsPanel()}
-${progressBar}
-${setupBanner}
-${signInBanner}
+@@DASH_PROGRESS@@
+${livePiece('bannersTop', pieces.bannersTop)}
   <div class="warn link-bar" id="link-bar" hidden>
     <span><span id="link-bar-text"></span> <b id="link-bar-title"></b><span id="link-bar-hint"></span></span>
     <button type="button" class="mini-btn" onclick="cancelLink()">${escapeHtml(t('linkCancel'))}</button>
   </div>
-${pendingBanner}
-${scheduleBanner}
-${updateBanner}
+${livePiece('bannersBelow', pieces.bannersBelow)}
 ${warning}
 ${gradesCenter}
   <div class="workspace-panel" id="workspace-panel" hidden><iframe id="workspace-frame" title="${escapeHtml(t('wsTitle'))}"></iframe></div>
   <div class="columns">
   <div>
 ${dashCard('filters')}
-${emptyBanner}
+<div id="dash-empty">${liveData(emptyBanner)}</div>
 ${dashCard('reminders')}
-${overdueSection(overdue, now)}
-${section(t('dueSoon'), burning, now, freshIds, t('dueSoonCaption'))}
-${section(t('ahead'), later, now, freshIds)}
-${section(t('newMaterials'), newMaterials, now, freshIds, t('materialsCaption'))}
-${section(t('mutedSection'), deferred, now, freshIds, t('mutedCaption'))}
-${section(t('removed'), gone, now, freshIds, t('removedCaption'))}
+${SKELETONS.cards}
+${assignmentSections(view, now)}
   </div>
   <div>
 ${dashCard('grades')}
@@ -4112,15 +3787,7 @@ ${dashCard('transcripts')}
   </div>
   <footer>${escapeHtml(t(readSettings().aiProvider && readSettings().aiProvider !== 'none' ? 'footerNoteAi' : 'footerNote'))}</footer>
 </main>
-<script id="page-values">
-// What changes from one redraw to the next, apart from the main script below,
-// so that script stays the same and other devices can keep it (54-page-assets.js).
-var browserState = { ownBrave: ${ownBraveInstalled() ? 'true' : 'false'} };
-var savedFilterState = ${JSON.stringify(readSettings().filterUnchecked || {}).split('<').join('\\u003c')};
-var ASSIGNMENT_LINKS_SAME_CLASS = ${readSettings().assignmentLinksSameClass ? 'true' : 'false'};
-var showKeyHints = ${readSettings().showKeyHints !== false ? 'true' : 'false'};
-var PAGE_VERSION = ${pageVersion};
-</script>
+@@DASH_VALUES@@
 <script id="page-main">
 // A BROKEN SCRIPT HAS TO SAY SO OUT LOUD.
 //
@@ -4190,6 +3857,7 @@ const WORDS = ${JSON.stringify({
   confirmDelete: t('confirmDelete'),
   confirmDeleteHint: t('confirmDeleteHint'),
   showHidden: t('showHidden'),
+  reminderShowDone: t('reminderShowDone'),
   hideAgain: t('hideAgain'),
   showing: t('filterShowingCount'),
   checking: t('checking'),
@@ -4595,13 +4263,16 @@ function sendLinkViaBridge(e, link) {
 // The "expand" button is only shown for announcements that actually
 // didn't fit. That can only be known after rendering: compare the full
 // text height against the visible one.
-for (const post of document.querySelectorAll('.post')) {
-  const text = post.querySelector('.text');
-  const button = post.querySelector('.expand-btn');
-  if (text && button && text.scrollHeight > text.clientHeight + 2) {
-    button.hidden = false;
+function measurePosts() {
+  for (const post of document.querySelectorAll('.post')) {
+    const text = post.querySelector('.text');
+    const button = post.querySelector('.expand-btn');
+    if (text && button && text.classList.contains('collapsed') && text.scrollHeight > text.clientHeight + 2) {
+      button.hidden = false;
+    }
   }
 }
+measurePosts();
 
 // The whole photo, from the same file as the card's picture.
 function openPhoto(button) {
@@ -4754,7 +4425,7 @@ function toggleHiddenRows(button) {
 function virtualAction(e, action, id) {
   if (e) e.preventDefault();
   dispatchAction(action, id, function (res) {
-    if (res && res.ok) { location.reload(); return; }
+    if (res && res.ok) { reloadOrWaitForData(); return; }
     var result = document.getElementById('reminders-result');
     if (result) result.textContent = (res && res.why) || WORDS.checkFailed;
   });
@@ -4917,7 +4588,11 @@ function saveReminder() {
   var chunk = toBase64Url(JSON.stringify(payload));
   if (result) result.textContent = editingId ? WORDS.reminderSaving : WORDS.reminderAdding;
   dispatchAction(action, chunk, function (res) {
-    if (res && res.ok) { location.reload(); return; }
+    if (res && res.ok) {
+      if (DASH_LIVE) { cancelEditReminder(); titleField.value = ''; document.getElementById('reminder-class').value = ''; clearReminderDue(); if (result) result.textContent = ''; }
+      reloadOrWaitForData();
+      return;
+    }
     if (result) result.textContent = (res && res.why) || WORDS.checkFailed;
   });
 }
@@ -5007,7 +4682,8 @@ function recount() {
     total += visibleCount;
   }
   var result = document.getElementById('f-result');
-  if (result) result.textContent = WORDS.showing + ' ' + total;
+  // Nothing to say yet, on a page still waiting for its cards.
+  if (result) result.textContent = DASH_LIVE && !dashView ? '' : WORDS.showing + ' ' + total;
 }
 
 // What's checked within one checkbox group.
@@ -6265,7 +5941,7 @@ function scanPost(button) {
   });
 }
 
-(function openScanAfterReload() {
+function openScanAfterReload() {
   var id = calendarRemember('classdash-open-scan');
   if (!id) return;
   calendarRemember('classdash-open-scan', '');
@@ -6273,7 +5949,8 @@ function scanPost(button) {
   for (var i = 0; i < all.length; i++) {
     if (all[i].getAttribute('data-scan-for') === id) { all[i].open = true; all[i].scrollIntoView({ block: 'nearest' }); }
   }
-})();
+}
+openScanAfterReload();
 
 function calendarFeedAction(action, arg, button) {
   var original = button.textContent;
@@ -7581,7 +7258,8 @@ function afterLinkChange(res) {
     document.getElementById('link-bar-hint').textContent = ' — ' + WORDS.linkFailed + (res.why ? ': ' + res.why : '');
     return;
   }
-  location.reload();
+  cancelLink();
+  reloadOrWaitForData();
 }
 
 function linkHere(button) {
@@ -7643,9 +7321,14 @@ document.addEventListener('keydown', function (e) {
 // depends on the order they're listed in: a small key beside each filter, and
 // the shortcut in the tooltip of the header buttons. Can be switched off in
 // Settings → Display (showKeyHints); the shortcuts themselves stay on.
-(function () {
+var KEY_HINTS_ON_MAC = /Mac/.test(navigator.platform || '');
+function keyHintTip(el, keys) {
+  if (el) el.title = (el.title ? el.title + ' \u2014 ' : '') + keys;
+}
+function showFilterKeyHints() {
   if (!showKeyHints) return;
-  var mac = /Mac/.test(navigator.platform || '');
+  var old = document.querySelectorAll('.filters .key-hint, .announcement-filters .key-hint');
+  for (var o = 0; o < old.length; o++) old[o].remove();
   var hint = function (box, text) {
     if (!text) return;
     var key = document.createElement('span');
@@ -7668,17 +7351,22 @@ document.addEventListener('keydown', function (e) {
     return '';
   });
   each('.filters input[data-group="days"]', function (b) { return DUE_SHORTCUT_LABELS[b.value] || ''; });
-
-  var tip = function (el, keys) {
-    if (el) el.title = (el.title ? el.title + ' \u2014 ' : '') + keys;
-  };
+}
+function showStatusKeyHint() {
+  if (showKeyHints) keyHintTip(document.querySelector('.check-status'), KEY_HINTS_ON_MAC ? '\u2318S' : 'Ctrl+S');
+}
+(function () {
+  showFilterKeyHints();
+  showStatusKeyHint();
+  if (!showKeyHints) return;
+  var mac = KEY_HINTS_ON_MAC;
+  var tip = keyHintTip;
   var reloadKeyIsOurs = hasNativeBridge() || location.protocol !== 'https:';
   if (reloadKeyIsOurs) tip(document.getElementById('quickcheck-button'), mac ? '\u2318R' : 'Ctrl+R');
   // Same key either way: freshcheck-button IS the Stop button while a
   // check is running (see applyRunState and its own click handler), one
   // element, one shortcut \u2014 nothing separate to hint here.
   if (reloadKeyIsOurs) tip(document.getElementById('freshcheck-button'), mac ? '\u21E7\u2318R' : 'Ctrl+Shift+R');
-  tip(document.querySelector('.check-status'), mac ? '\u2318S' : 'Ctrl+S');
 })();
 
 // ── Live updates ──
@@ -7718,6 +7406,13 @@ var livePushed = false;
 var lastRun = null;
 var newestVersion = 0;
 var lastLiveReport = 0;
+var DASH_LIVE = location.protocol === 'https:';
+var dashView = null;
+var dashRev = null;
+var dashLatest = null;
+var dashShellLatest = null;
+var dashFetching = false;
+var dashDeferred = false;
 
 ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(function (name) {
   document.addEventListener(name, function () { lastInteraction = Date.now(); },
@@ -7880,6 +7575,7 @@ function reloadWhenQuiet() {
   var editing = document.getElementById('reminder-editing-id');
   if (editing && editing.value) return;
   reloadingForLive = true;
+  if (hasNativeBridge()) dispatchAction('liveDebug', JSON.stringify({ reloading: DASH_LIVE ? 'the page itself changed' : 'newer page on disk' }));
   location.reload();
 }
 
@@ -7899,7 +7595,10 @@ function onLiveState(run, version) {
   // and each of those is a half-read draft. The page stays as it is and the
   // bar shows progress; it reloads once, when the check has ended and the
   // finished page is the newest one.
-  if (newestVersion > PAGE_VERSION && !running) reloadWhenQuiet();
+  // A served page is only ever behind when the page itself changed: the data
+  // comes on its own (see "The data" below).
+  if (DASH_LIVE ? (dashShellLatest && dashShellLatest !== SHELL_HASH && !running) : (newestVersion > PAGE_VERSION && !running)) reloadWhenQuiet();
+  if (DASH_LIVE) { dashSyncEmpty(); if (dashDeferred) dashApplyNow(); }
   return running;
 }
 
@@ -8013,9 +7712,13 @@ function connectionLost() {
 
 function openConnection() {
   if (connectionStream) connectionStream.close();
-  var stream = new EventSource('/api/stream');
+  var stream = new EventSource('/api/stream?view=dashboard');
   connectionStream = stream;
   ['update', 'heartbeat', 'ping'].forEach(function (name) { stream.addEventListener(name, connectionAlive); });
+  stream.addEventListener('dash', function (e) {
+    connectionAlive();
+    dashHeard(JSON.parse(e.data));
+  });
   stream.onopen = connectionAlive;
   stream.onerror = function () {
     if (stream !== connectionStream) return;
@@ -8036,6 +7739,256 @@ function openConnection() {
   };
 }
 
+// ── The data ──
+//
+// A served page doesn't carry its cards: they come from /api/dashboard, drawn by
+// the same code that draws the copy on disk (55-dash-render.js). After that the
+// stream sends only what changed, and only the cards that changed are touched,
+// so an open fold-out, a half-typed reminder and the scroll position all stay.
+${dashRenderScript()}
+var Dash = makeDashRender({
+  t: function (key) {
+    var word = DASH_WORDS[key];
+    if (word === undefined) return key;
+    return typeof word === 'function' ? word.apply(null, [].slice.call(arguments, 1)) : word;
+  },
+  locale: function () { return DASH_WORDS.locale; },
+});
+var dashDay = new Date().toDateString();
+var dashRefreshTimer = null;
+
+// After changing something: a page on disk reloads, a served one gets the change
+// over the stream. The look after a moment is for a stream that's reconnecting.
+function reloadOrWaitForData() {
+  if (!DASH_LIVE) { location.reload(); return; }
+  clearTimeout(dashRefreshTimer);
+  var before = dashRev;
+  dashRefreshTimer = setTimeout(function () { if (dashRev === before) dashFetch(); }, 2500);
+}
+
+function syncReminderButtons() {
+  var groups = [['reminders-hidden', WORDS.showHidden], ['reminders-done', WORDS.reminderShowDone]];
+  for (var i = 0; i < groups.length; i++) {
+    var box = document.getElementById(groups[i][0]);
+    var button = document.getElementById(groups[i][0] + '-btn');
+    if (!box || !button) continue;
+    var count = box.querySelectorAll('.row').length;
+    button.hidden = count === 0;
+    button.textContent = groups[i][1] + ' (' + count + ')';
+  }
+}
+
+function syncAnnouncementsBox() {
+  // "No announcements" would be untrue while they're still on their way.
+  if (DASH_LIVE && !dashView) return;
+  var posts = document.querySelectorAll('.post').length;
+  var caption = document.getElementById('announcements-caption');
+  var empty = document.getElementById('announcements-empty');
+  if (caption) caption.hidden = !posts;
+  if (empty) empty.hidden = !!posts;
+}
+
+function dashSyncEmpty() {
+  var box = document.getElementById('dash-empty');
+  if (!box || !dashView) return;
+  // Nothing due YET isn't nothing due, while a check is still reading.
+  var show = dashView.nothingDue && !(lastRun && lastRun.running);
+  if (show !== !!box.firstElementChild) box.innerHTML = show ? Dash.emptyNote() : '';
+}
+
+function dashPatchRows(list, items, redrawAll) {
+  var box = document.querySelector('[data-rows="' + list + '"]');
+  if (!box) return;
+  var old = Object.create(null);
+  [].slice.call(box.children).forEach(function (el) { old[el.getAttribute('data-id')] = el; });
+  var now = new Date();
+  var previous = null;
+  items.forEach(function (item) {
+    var json = JSON.stringify(item);
+    var node = old[item.id];
+    if (!node || node.dashJson !== json || redrawAll) {
+      var holder = document.createElement('template');
+      holder.innerHTML = Dash.row(list, item, now, { aiOn: dashView.aiOn, photoBase: '/' });
+      var made = holder.content.firstElementChild;
+      made.dashJson = json;
+      if (node) {
+        var wasOpen = node.querySelectorAll('details');
+        var nowOpen = made.querySelectorAll('details');
+        for (var i = 0; i < wasOpen.length && i < nowOpen.length; i++) nowOpen[i].open = wasOpen[i].open;
+        box.replaceChild(made, node);
+      }
+      node = made;
+    }
+    delete old[item.id];
+    var wanted = previous ? previous.nextElementSibling : box.firstElementChild;
+    if (node !== wanted) box.insertBefore(node, wanted);
+    previous = node;
+  });
+  for (var id in old) old[id].remove();
+}
+
+// Redraws the checkboxes when the choices change, keeping what's ticked; a
+// choice that's new starts as the saved state says.
+function dashRedrawChoices() {
+  var box = document.getElementById('filter-choices');
+  var json = JSON.stringify(dashView.filters);
+  if (box && box.dashJson !== json) {
+    var first = box.dashJson === undefined;
+    var off = first ? (dashView.filterOff || {}) : {};
+    if (!first) {
+      var fields = box.querySelectorAll('input[data-group]');
+      for (var i = 0; i < fields.length; i++) {
+        if (fields[i].checked) continue;
+        var group = fields[i].getAttribute('data-group');
+        (off[group] = off[group] || []).push(fields[i].value);
+      }
+    }
+    box.innerHTML = Dash.filterChoices(dashView.filters, off);
+    box.dashJson = json;
+  }
+  var posts = document.getElementById('announcement-filter-box');
+  if (posts) {
+    var ticked = {};
+    var boxes = posts.querySelectorAll('input');
+    for (var j = 0; j < boxes.length; j++) if (boxes[j].checked) ticked[boxes[j].id || boxes[j].value] = true;
+    posts.innerHTML = Dash.announcementFilters(dashView.lists.announcements);
+    boxes = posts.querySelectorAll('input');
+    for (var k = 0; k < boxes.length; k++) boxes[k].checked = !!ticked[boxes[k].id || boxes[k].value];
+  }
+}
+
+function dashApplyPieces() {
+  var pieces = dashView.pieces || {};
+  for (var name in pieces) {
+    var box = document.querySelector('[data-piece="' + name + '"]');
+    if (!box || box.dashHtml === pieces[name]) continue;
+    // The status panel may be open: it stays open.
+    var panel = name === 'statusPanel' && document.getElementById('check-status-panel');
+    var open = panel && !panel.hidden;
+    box.innerHTML = pieces[name];
+    box.dashHtml = pieces[name];
+    if (open) document.getElementById('check-status-panel').hidden = false;
+    if (name === 'status') showStatusKeyHint();
+  }
+}
+
+function dashApplyNow(redrawAll) {
+  // Picking a card to link to marks the cards: not a moment to swap them.
+  if (document.body.classList.contains('linking')) { dashDeferred = true; return; }
+  dashDeferred = false;
+  var first = !document.body.classList.contains('dash-loaded');
+  if (first) {
+    var waiting = document.querySelectorAll('.dash-skeleton');
+    for (var w = 0; w < waiting.length; w++) waiting[w].remove();
+    savedFilterState = dashView.filterOff || {};
+    document.getElementById('f-hidden').checked = !!dashView.filterToggles.hidden;
+    document.getElementById('f-removed').checked = !!dashView.filterToggles.removed;
+  }
+  for (var list in dashView.lists) dashPatchRows(list, dashView.lists[list], redrawAll);
+  dashRedrawChoices();
+  showFilterKeyHints();
+  dashApplyPieces();
+  var count = document.getElementById('reminders-count');
+  if (count) count.textContent = dashView.lists.remindersActive.length;
+  var classes = document.getElementById('reminder-class-list');
+  if (classes) {
+    classes.textContent = '';
+    dashView.reminderClasses.forEach(function (name) {
+      var option = document.createElement('option');
+      option.value = name;
+      classes.appendChild(option);
+    });
+  }
+  reminderNextMeetings = dashView.nextMeetings || {};
+  dashSyncEmpty();
+  syncReminderButtons();
+  syncAnnouncementsBox();
+  // applyFilters() puts hidden rows back as the checkbox says; if they were
+  // shown with the section's own button, they stay shown.
+  var shownBy = document.querySelector('.row.hidden-row.shown') !== null && !document.getElementById('f-hidden').checked;
+  applyFilters();
+  if (shownBy) {
+    var rows = document.querySelectorAll('.row.hidden-row');
+    for (var i = 0; i < rows.length; i++) rows[i].classList.add('shown');
+    if (rows.length) refreshSection(rows[0].closest('section'));
+  }
+  filterAnnouncements();
+  measurePosts();
+  if (first) {
+    document.body.classList.add('dash-loaded');
+    openScanAfterReload();
+  }
+}
+
+function dashFetch() {
+  if (dashFetching) return;
+  dashFetching = true;
+  fetch('/api/dashboard', { credentials: 'same-origin' }).then(function (r) {
+    if (r.status === 401 && !hasNativeBridge()) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return null; }
+    if (!r.ok) throw new Error('status ' + r.status);
+    return r.json();
+  }).then(function (answer) {
+    dashFetching = false;
+    if (!answer) return;
+    dashView = answer.view;
+    dashRev = answer.rev;
+    dashShellLatest = answer.shell;
+    dashApplyNow();
+    onLiveState(null, 0);
+    // Something changed while this was on its way.
+    if (dashLatest && dashLatest !== dashRev) dashFetch();
+  }).catch(function () {
+    dashFetching = false;
+    setTimeout(dashFetch, 3000);
+  });
+}
+
+// What the stream says: where things are now, and how to get there from where
+// they were. Anything that doesn't start from what this page has means asking
+// for the whole thing (a dropped connection, a redraw while it was away).
+function dashHeard(message) {
+  dashLatest = message.rev;
+  if (message.shell) dashShellLatest = message.shell;
+  if (message.rev === dashRev) return;
+  if (dashFetching) return;
+  if (!dashView || !message.from || message.from !== dashRev) { dashFetch(); return; }
+  var lists = message.lists || {};
+  for (var name in lists) {
+    var known = Object.create(null);
+    (dashView.lists[name] || []).forEach(function (x) { known[x.id] = x; });
+    (lists[name].set || []).forEach(function (x) { known[x.id] = x; });
+    dashView.lists[name] = lists[name].order.map(function (id) { return known[id]; });
+  }
+  var values = message.values || {};
+  for (var key in values) {
+    if (key === 'pieces') { for (var p in values.pieces) dashView.pieces[p] = values.pieces[p]; }
+    else dashView[key] = values[key];
+  }
+  dashRev = message.rev;
+  dashApplyNow();
+}
+
+// For tracking down a pause in the app, which has no developer tools: says in
+// the notifier log when this page stopped responding, and for how long.
+if (hasNativeBridge()) {
+  var stallSeen = Date.now();
+  setInterval(function () {
+    var late = Date.now() - stallSeen - 200;
+    stallSeen = Date.now();
+    if (late > 400 && !document.hidden) dispatchAction('liveDebug', JSON.stringify({ pageStalledMs: late, cards: document.querySelectorAll('.row, .post').length }));
+  }, 200);
+}
+
+if (DASH_LIVE) {
+  dashFetch();
+  // "Tomorrow" stops being true at midnight with nothing having changed.
+  setInterval(function () {
+    var today = new Date().toDateString();
+    if (today !== dashDay && dashView) { dashDay = today; dashApplyNow(true); }
+  }, 60000);
+}
+
+
 if (location.protocol === 'https:' && window.EventSource) {
   openConnection();
   setInterval(function () {
@@ -8049,6 +8002,12 @@ if (location.protocol === 'https:' && window.EventSource) {
 
 // Filters are applied right away on load, not just counted: otherwise
 // removed items would show up until the first checkbox click.
+if (!DASH_LIVE) {
+  document.getElementById('f-hidden').checked = !!savedFilterToggles.hidden;
+  document.getElementById('f-removed').checked = !!savedFilterToggles.removed;
+}
+syncReminderButtons();
+syncAnnouncementsBox();
 applyFilters();
 applyRoute();
 </script>
@@ -8056,7 +8015,33 @@ applyRoute();
 </html>
 `;
 
-  writeWhole(outputPath, html);
+  // What every redraw changes apart from the data. The shell's copies are
+  // fixed, so its hash only moves when the page itself really changed.
+  const navFor = (progress) => appNav(gradesCenter, `<button class="reload named${progress ? ' checking' : ''}"
+         id="quickcheck-button"
+         title="${escapeHtml(t('refreshHint'))}"><span class="reload-icon pixel-icon icon-refresh"></span><span class="pixel-spinner" aria-hidden="true"></span><span class="reload-label">${escapeHtml(t(progress ? 'checkingLabel' : 'refreshLabel'))}</span></button>
+  <button class="reload named${progress ? ' running' : ''}"${readSettings().edpuzzleEnabled === false ? ' data-quick-only' : ''}
+         id="freshcheck-button"
+         title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
+  ${livePiece('status', pieces.status)}
+  ${livePiece('updated', pieces.updated, SKELETONS.status)}`);
+  const settingsNow = readSettings();
+  const valuesFor = ({ filterOff, toggles, version, shellHash }) => `<script id="page-values">
+// What changes from one redraw to the next, apart from the main script below,
+// so that script stays the same and other devices can keep it (54-page-assets.js).
+var browserState = { ownBrave: ${ownBraveInstalled() ? 'true' : 'false'} };
+var savedFilterState = ${JSON.stringify(filterOff).split('<').join('\\u003c')};
+var savedFilterToggles = ${JSON.stringify(toggles)};
+var ASSIGNMENT_LINKS_SAME_CLASS = ${settingsNow.assignmentLinksSameClass ? 'true' : 'false'};
+var showKeyHints = ${settingsNow.showKeyHints !== false ? 'true' : 'false'};
+var PAGE_VERSION = ${version};
+var SHELL_HASH = ${JSON.stringify(shellHash)};
+</script>`;
+  const fill = (text, nav, bar, values) => text.split('@@DASH_NAV@@').join(nav).split('@@DASH_PROGRESS@@').join(bar).split('@@DASH_VALUES@@').join(values);
+  const shellValues = hash => valuesFor({ filterOff: {}, toggles: { hidden: false, removed: false }, version: 0, shellHash: hash });
+  const shellHash = crypto.createHash('sha1').update(fill(pageShell(html), pageShell(navFor(null)), progressBarFor(null), shellValues(''))).digest('hex').slice(0, 16);
+  writeWhole(path.join(path.dirname(outputPath), PAGE_SHELL), fill(pageShell(html), pageShell(navFor(null)), progressBarFor(null), shellValues(shellHash)));
+  writeWhole(outputPath, fill(html, navFor(progress), progressBarFor(progress), valuesFor({ filterOff: view.filterOff, toggles: view.filterToggles, version: pageVersion, shellHash })).replace(/<!--skel-->[\s\S]*?<!--\/skel-->/g, ''));
   writeWhole(path.join(path.dirname(outputPath), CONNECTING_PAGE), connectingPage());
   publishPageVersion(path.dirname(outputPath), pageVersion);
   return outputPath;
@@ -8087,4 +8072,4 @@ function writeWhole(file, body) {
 // between this page and the API instead of reimplemented: the merged-
 // across-all-three-platforms class list should mean exactly one thing
 // everywhere it's used, not two that could quietly drift apart.
-module.exports = { writePage, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite, pixelSpinner, connectingPage, CONNECTING_PAGE };
+module.exports = { writePage, dashboardView, PAGE_SHELL, daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, headsUpText, checkStatusSummary, PIXEL_THEME, pixelSprite, pixelSpinner, connectingPage, CONNECTING_PAGE };

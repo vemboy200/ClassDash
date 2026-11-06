@@ -59,6 +59,7 @@ const requireFresh = (file) => {
     /path\.join\(__dirname, 'app-icon\.png'\)/,
     /path\.join\(__dirname, 'pdf-lib\.min\.js'\)/,
     /path\.join\(__dirname, '(05-playwright-draft|17-api|38-announcement-scan|40-grades)\.js'\)/,
+    /path\.join\(__dirname, '55-dash-render\.js'\)/,
     /cwd: __dirname/,
   ];
   const srcDir = path.join(T.REPO, 'src');

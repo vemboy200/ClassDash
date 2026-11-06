@@ -4,6 +4,8 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **The sidebar's Quick check and status text are crisp in light mode.** They had a button's shadow falling directly on the words, which made them look doubled.
+- **New assignments and changes appear without the page reloading**, in the app and in a browser: the page gets its cards from the server as data, and after that only what changed. What you have open or half typed stays as it is, and a check uses far less data on a phone or another device: a changed assignment is a couple of KB, not the whole page. On a slow connection, the shape of the cards shows until they arrive.
 - **Each page has its own address in a browser**, like Home Assistant: `/dashboard`, `/grades`, `/settings/api` and so on. You can bookmark one, Back and Forward work, a reload stays on the page you're on, and signing in takes you to the page you asked for.
 - **ClassDash loads faster on other devices after the first time**: its styling and code are now files a browser can keep, so reloading the page only fetches what changed.
 - **ClassDash uses much less data on other devices**, such as a phone or another computer on your network: the server now compresses what it sends them, so the page goes from about 1 MB to about 170 KB. The app and browsers on the same computer aren't affected.

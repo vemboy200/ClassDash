@@ -61,6 +61,7 @@
  */
 
 const https = require('https');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -76,7 +77,7 @@ const { t, currentLanguage } = require('./18-language.js');
 // panel's exclusions checklist uses — classRoster() below reuses it
 // rather than re-reading classes.json/canvas-classes.json/
 // edpuzzle-classes.json a second, possibly-inconsistent way.
-const { daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms } = require('./08-page.js');
+const { daysUntil, allKnownClasses, knownClassStatus, classTeachers, classPlatforms, dashboardView, PAGE_SHELL } = require('./08-page.js');
 const classLinks = require('./29-class-links.js');
 const schoolCalendar = require('./33-school-calendar.js');
 const schoolSchedule = require('./35-school-schedule.js');
@@ -105,9 +106,11 @@ const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
 const { readUpdateStatus } = require('./26-update-check.js');
 const discovery = require('./36-api-discovery.js');
+const { revOf, dashDiff } = require('./56-dash-diff.js');
 
 const STATE_FILE = path.join(PROJECT_ROOT, 'last-collection.json');
 const STREAM_FILE = path.join(PROJECT_ROOT, 'messages.json');
+const FRESH_FILE = path.join(PROJECT_ROOT, 'new.json');
 const CERT_FILE = path.join(PROJECT_ROOT, 'api-cert.pem');
 const KEY_FILE = path.join(PROJECT_ROOT, 'api-key.pem');
 const DIAGNOSTICS_LOG_FILE = path.join(PROJECT_ROOT, 'diagnostics-received.txt');
@@ -822,6 +825,53 @@ function snapshot() {
   return out;
 }
 
+// ── The dashboard's data ──
+//
+// What a served page draws its cards from: GET /api/dashboard for all of it, and
+// on a stream opened with ?view=dashboard, a `dash` event with only what changed.
+// That stream doesn't get `update` (the whole snapshot, again, for every change):
+// programs like Home Assistant keep that, and it's nothing to pay for on mobile.
+const PAGE_SHELL_FILE = path.join(PROJECT_ROOT, PAGE_SHELL);
+let lastDash = null;
+const DASH_PUSH_DELAY_MS = 80;
+
+/** The page's current shell hash, so an open page knows when to reload. */
+function shellHash() {
+  try {
+    const m = /var SHELL_HASH = "([0-9a-f]*)"/.exec(fs.readFileSync(PAGE_SHELL_FILE, 'utf8'));
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
+function currentDash() {
+  const d = gather();
+  const marks = (() => { try { return JSON.parse(fs.readFileSync(FRESH_FILE, 'utf8')); } catch { return {}; } })();
+  const settings = require('./19-settings.js').read();
+  const view = JSON.parse(JSON.stringify(dashboardView({
+    ...d,
+    // Announcements come from Classroom only, as on the page.
+    announcements: settings.classroomEnabled !== false ? d.announcements : [],
+    freshIds: new Set(marks.assignments || []),
+    freshAnnouncements: new Set(marks.announcements || []),
+    updatedAt: d.collectedAt || d.now,
+  })));
+  return { rev: revOf(view), shell: shellHash(), view };
+}
+
+/** Tells every open page what changed since last time, if anything did. */
+function syncDash() {
+  const now = currentDash();
+  const before = lastDash;
+  lastDash = now;
+  if (!before || (before.rev === now.rev && before.shell === now.shell)) return now;
+  const event = before.rev === now.rev
+    ? { rev: now.rev, shell: now.shell }
+    : { from: before.rev, rev: now.rev, shell: now.shell, ...dashDiff(before.view, now.view) };
+  const payload = `event: dash\ndata: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) if (client.dashboard) client.write(payload);
+  return now;
+}
+
 // ── Push, for /api/stream ──
 //
 // Watches the files that can actually change what a client sees, rather
@@ -858,7 +908,13 @@ function snapshot() {
 let sseClients = [];
 let lastBroadcast = null;
 
+function pushDash() {
+  if (!sseClients.some(c => c.dashboard)) return;
+  try { syncDash(); } catch (e) { console.error('dashboard failed, not sending it:', e.message); }
+}
+
 function broadcastIfChanged() {
+  if (!sseClients.some(c => !c.dashboard)) { lastBroadcast = null; return; }
   let data;
   try {
     data = snapshot();
@@ -885,14 +941,19 @@ function broadcastIfChanged() {
   if (comparable === lastBroadcast) return;
   lastBroadcast = comparable;
   const payload = JSON.stringify(data);
-  for (const client of sseClients) client.write(`event: update\ndata: ${payload}\n\n`);
+  for (const client of sseClients) if (!client.dashboard) client.write(`event: update\ndata: ${payload}\n\n`);
 }
 
 function watchForChanges() {
   let timer = null;
+  let dashTimer = null;
   const debounced = () => {
     clearTimeout(timer);
     timer = setTimeout(broadcastIfChanged, 400);
+    // A page is waiting on this right after a click, and is told only what
+    // changed, so it hears sooner than a program getting the whole snapshot.
+    clearTimeout(dashTimer);
+    dashTimer = setTimeout(pushDash, DASH_PUSH_DELAY_MS);
   };
   // Watching the files, not the directory: none of these are guaranteed
   // to exist yet on a fresh install (no collection has run, no virtual
@@ -903,6 +964,18 @@ function watchForChanges() {
   // replaced by renaming a temp file over it (see 28-live-state.js), which
   // ends a watch on the file. A change in the folder just wakes the same
   // debounced comparison as the others, and only a real difference pushes.
+  // The lists of hidden, muted and linked cards are watched too, so a change
+  // shows without waiting for the redraw that follows it. Through the folder:
+  // these only exist once something's been hidden, and that first time counts.
+  // (The Mac reports a Cyrillic name in another Unicode form, hence normalize.)
+  const CARD_FILES = new Set(['не-срочно.txt', 'скрытые.txt', 'deleted-assignments.txt', 'assignment-links.json'].map(name => name.normalize('NFC')));
+  try {
+    fs.watch(PROJECT_ROOT, (kind, name) => {
+      if (!name || CARD_FILES.has(String(name).normalize('NFC'))) debounced();
+    }).on('error', e => console.error('could not keep watching the project folder:', e.message));
+  } catch (e) {
+    console.error('could not watch the project folder:', e.message);
+  }
   for (const file of [STATE_FILE, STREAM_FILE, virtualAssignments.FILE, path.join(PROJECT_ROOT, 'live')]) {
     const tryWatch = () => {
       if (!fs.existsSync(file)) { setTimeout(tryWatch, 5000); return; }
@@ -955,7 +1028,8 @@ function sendPing() {
 }
 
 function sendHeartbeat() {
-  if (!sseClients.length) return; // no one listening — nothing to compute
+  // Pages have the 20-second ping, and get told what changed by `dash`.
+  if (!sseClients.some(c => !c.dashboard)) return; // no one listening — nothing to compute
   let status;
   try {
     status = HANDLERS['/api/status'](gather());
@@ -964,7 +1038,7 @@ function sendHeartbeat() {
     return;
   }
   const payload = JSON.stringify(status);
-  for (const client of sseClients) client.write(`event: heartbeat\ndata: ${payload}\n\n`);
+  for (const client of sseClients) if (!client.dashboard) client.write(`event: heartbeat\ndata: ${payload}\n\n`);
 }
 
 // ── The page itself ──
@@ -1031,11 +1105,13 @@ function sendPageFile(urlPath, req, res, kind) {
   const ws = workspaceFile(urlPath);
   const match = isPage ? { type: 'text/html; charset=utf-8' } : ws || PAGE_FILES.find(f => f.pattern.test(urlPath));
   if (!match) return false;
-  const file = isPage ? PAGE_FILE : ws ? ws.file : path.join(PROJECT_ROOT, urlPath);
+  // The page without its data, which comes from /api/dashboard. The whole one
+  // stands in until the first redraw has written this.
+  const file = isPage ? (fs.existsSync(PAGE_SHELL_FILE) ? PAGE_SHELL_FILE : PAGE_FILE) : ws ? ws.file : path.join(PROJECT_ROOT, urlPath);
   fs.readFile(file, (err, data) => {
-    // Never cached: the page and its live files change under the same
-    // address after every check.
-    res.setHeader('Cache-Control', 'no-store');
+    // Never kept: the live files change under the same address. The page is
+    // kept, but asked about every time: most of the time it hasn't changed.
+    res.setHeader('Cache-Control', isPage && !err ? 'no-cache' : 'no-store');
     if (err) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.writeHead(404).end('not found');
@@ -1050,6 +1126,11 @@ function sendPageFile(urlPath, req, res, kind) {
     if (isPage && kind === 'device') data = pageForDevice(data);
     if (isPage && !isThisComputer(req) && !/[?&]whole=1(&|$)/.test(req.url || '')) data = splitPage(data);
     if (match.type === 'application/pdf') return res.writeHead(200).end(data);
+    if (isPage) {
+      const tag = `"${crypto.createHash('sha1').update(data).digest('hex').slice(0, 20)}"`;
+      res.setHeader('ETag', tag);
+      if (req.headers['if-none-match'] === tag) return res.writeHead(304).end();
+    }
     sendBody(req, res, 200, data);
   });
   return true;
@@ -1439,8 +1520,19 @@ function start() {
     if (urlPath === '/api' || (urlPath === '/' && !wantsHtml(req))) return respond(200, index());
     if (sendPageFile(urlPath, req, res, clientKind(req))) return;
 
+    if (urlPath === '/api/dashboard') {
+      try {
+        const { rev, shell, view } = syncDash();
+        return respond(200, { rev, shell, view });
+      } catch (e) {
+        console.error(`error on ${urlPath}: ${e.message}`);
+        return respond(500, { error: e.message });
+      }
+    }
+
     if (urlPath === '/api/stream') {
       const client = streamWriter(req, res);
+      client.dashboard = /[?&]view=dashboard(&|$)/.test(req.url || '');
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -1450,7 +1542,12 @@ function start() {
       // a client that just connected shouldn't have to wait for the next
       // collection pass to find out anything at all.
       try {
-        client.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
+        if (client.dashboard) {
+          const { rev, shell } = syncDash();
+          client.write(`event: dash\ndata: ${JSON.stringify({ rev, shell })}\n\n`);
+        } else {
+          client.write(`event: update\ndata: ${JSON.stringify(snapshot())}\n\n`);
+        }
       } catch (e) {
         console.error('stream: could not build the first update:', e.message);
       }
@@ -1579,4 +1676,7 @@ function start() {
 }
 
 module.exports = { HANDLERS, WRITE_HANDLERS, gather, toPublic, snapshot, loginPage };
-if (require.main === module) start();
+if (require.main === module) {
+  notifierActions.setInServer(true);
+  start();
+}

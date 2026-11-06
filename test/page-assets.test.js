@@ -50,7 +50,7 @@ const lan = Object.values(os.networkInterfaces()).flat().find(a => a.family === 
   const page = await get(host, '/');
   const [css, js] = links(page.body);
   ok(css && js, 'another device gets the split page');
-  ok(/no-store/.test(page.headers['cache-control']), 'the page itself is never kept');
+  ok(/no-cache/.test(page.headers['cache-control']), 'the page itself is asked about every time');
   const cssFile = await get(host, css), jsFile = await get(host, js);
   ok(cssFile.status === 200 && /text\/css/.test(cssFile.headers['content-type']) && /immutable/.test(cssFile.headers['cache-control']), 'its styling can be kept');
   ok(jsFile.status === 200 && /javascript/.test(jsFile.headers['content-type']) && /immutable/.test(jsFile.headers['cache-control']), 'and so can its script');
