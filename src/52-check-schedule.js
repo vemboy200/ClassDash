@@ -87,8 +87,10 @@ function clampMinutes(n) {
  *   headless   started with --headless
  *   minutes    minutesSinceLastCollection(), null for never
  *   running    a check is running right now
+ *   heldBack   why sync says this computer shouldn't check, or null
  */
-function decide({ settings, host, headless, minutes, running }) {
+function decide({ settings, host, headless, minutes, running, heldBack }) {
+  if (heldBack) return { run: false, why: heldBack };
   if (!host && !headless) return { run: false, why: 'no app reporting' };
   const state = host || { asleep: false, onBattery: false };
   const interval = clampMinutes(state.asleep ? settings.freshCheckAsleepMinutes : settings.freshCheckAwakeMinutes);
@@ -119,6 +121,7 @@ function tick({ headless, start, log }) {
     headless,
     minutes: minutesSinceLastCollection(now),
     running: readCollection(PROJECT_ROOT, now).running,
+    heldBack: require('./58-sync.js').checksHeldBack(),
   });
   if (verdict.run) {
     log(`auto fresh check: ${verdict.why} — running one`);

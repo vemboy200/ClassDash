@@ -4,6 +4,9 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Sync between two of your computers** (Settings → Sync). Pair them with a code and choose which is the master. It does the checking, and the other copies everything it finds within a moment, keeps its own copy for when they can't reach each other, and shows how it's connected in the sidebar. What you do on the follower (hiding, reminders, starting a check) happens on the master; while cut off it happens locally and goes across on reconnecting. Each computer keeps its own sign-ins and keys, its data is set aside rather than deleted, and it can use a second address for away from home, such as a Cloudflare tunnel. The workspace's PDFs aren't synced yet.
+- **Wrong sign-ins from other devices are limited** to 10 a minute per address, so a server reachable from the internet can't have a waiting pairing code used up by strangers.
+- **Pages reached through a tunnel on the same computer** now get the same compressed, cacheable files as other devices.
 - **The sidebar's Quick check and status text are crisp in light mode.** They had a button's shadow falling directly on the words, which made them look doubled.
 - **New assignments and changes appear without the page reloading**, in the app and in a browser: the page gets its cards from the server as data, and after that only what changed. What you have open or half typed stays as it is, and a check uses far less data on a phone or another device: a changed assignment is a couple of KB, not the whole page. On a slow connection, the shape of the cards shows until they arrive.
 - **Each page has its own address in a browser**, like Home Assistant: `/dashboard`, `/grades`, `/settings/api` and so on. You can bookmark one, Back and Forward work, a reload stays on the page you're on, and signing in takes you to the page you asked for.

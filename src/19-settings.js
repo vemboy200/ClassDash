@@ -681,6 +681,15 @@ function markApplied(values) {
   fs.writeFileSync(APPLIED_FILE, JSON.stringify(out, null, 2));
 }
 
+/** One setting's record, for a follower copying data another computer collected
+ *  with this value (58-sync.js): whether a check is still needed is the master's
+ *  answer, not this computer's. */
+function markOneApplied(key, value) {
+  if (!FETCH_AFFECTING.includes(key)) return;
+  const own = readApplied() || {};
+  fs.writeFileSync(APPLIED_FILE, JSON.stringify({ ...own, [key]: recordable(key, value) }, null, 2));
+}
+
 // A project that has never recorded a collection has nothing to compare
 // against, and a page that treated "no record" as "everything pending"
 // would nag every existing install the day it updates. So the record is
@@ -819,7 +828,7 @@ function applyBatch(chunk) {
 }
 
 module.exports = { read, write, validate, writeExample, applyBatch,
-                   markApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
+                   markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
                    DEFAULTS, TYPES, FILE, DASH_CARDS };
 
 if (require.main === module) {

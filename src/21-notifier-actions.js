@@ -344,7 +344,274 @@ function refreshIcs(url) {
   });
 }
 
+/** Decodes a page's base64url-JSON argument, or null. */
+function decodeArg(arg) {
+  try { return JSON.parse(Buffer.from(String(arg), 'base64url').toString('utf8')); } catch { return null; }
+}
+
+/** An action on a computer following another (see 58-sync.js for the kinds). */
+function throughMaster(action, arg, sync) {
+  const connected = sync.isConnected();
+  if (sync.RUNS_ON_MASTER.has(action)) {
+    if (!connected) return act(action, arg);
+    return sync.forward(action, arg).catch(() => act(action, arg));
+  }
+  const alsoHere = (sent, sentArg) => {
+    const local = act(action, arg);
+    if (!connected) { sync.enqueue(sent, sentArg); return local; }
+    return Promise.resolve(local).then(answer => sync.forward(sent, sentArg)
+      .catch(() => sync.enqueue(sent, sentArg)).then(() => answer));
+  };
+  if (action === 'config') {
+    const shared = sync.sharedConfigChange(arg);
+    return shared ? alsoHere('config', shared) : act(action, arg);
+  }
+  if (sync.LOCAL_TOO.has(action)) return alsoHere(action, arg);
+  const hereThenQueue = () => {
+    const local = act(action, arg);
+    if (local && local.ok === false) return local;
+    // Its id goes along, so later changes to it still find it on the master.
+    if (action === 'virtualCreate' && local.entry) {
+      const payload = decodeArg(arg) || {};
+      sync.enqueue(action, Buffer.from(JSON.stringify({ ...payload, id: local.entry.id })).toString('base64url'));
+    } else {
+      sync.enqueue(action, arg);
+    }
+    return local;
+  };
+  if (!connected) return hereThenQueue();
+  return sync.forward(action, arg).catch(hereThenQueue);
+}
+
 function main(action, arg) {
+  const sync = require('./58-sync.js');
+  // What it reads would be replaced by the next copy from the master, and the
+  // file it reads is on this computer, so the master can't read it instead.
+  if (action === 'importCalendarPdf' && sync.isFollowing()) return { ok: false, action, why: require('./18-language.js').t('syncImportOnMaster') };
+  return sync.isThroughMaster(action) ? throughMaster(action, arg, sync) : act(action, arg);
+}
+
+/** Pairing with another computer: trades the code for a key, and answers the
+ *  facts for asking which computer should be the master. Nothing changes here
+ *  until that's answered. */
+async function syncPair(action, arg) {
+  const sync = require('./58-sync.js');
+  const security = require('./23-api-security.js');
+  const given = decodeArg(arg) || {};
+  if (sync.isFollowing()) return { ok: false, action, why: 'alreadyFollowing' };
+  if (security.listDevices().some(d => d.follower)) return { ok: false, action, why: 'hasFollowers' };
+  const url = sync.cleanUrl(given.url, require('./19-settings.js').read().apiPort);
+  if (!url) return { ok: false, action, why: 'badAddress' };
+  const me = sync.facts();
+  let paired;
+  try {
+    paired = await sync.redeem(url, given.code, me.name);
+  } catch (e) {
+    return { ok: false, action, why: e.why || 'unreachable' };
+  }
+  if (paired.fp === me.fingerprint) {
+    // It just made itself a key; that key has nothing to do.
+    await sync.leave({ fp: paired.fp, cert: paired.cert, key: paired.key, localUrl: url }).catch(() => {});
+    return { ok: false, action, why: 'sameComputer' };
+  }
+  const candidate = { fp: paired.fp, cert: paired.cert, key: paired.key, [paired.kind === 'local' ? 'localUrl' : 'remoteUrl']: url };
+  let theirs;
+  try {
+    theirs = await sync.requestJson({ url, kind: paired.kind }, candidate, '/api/sync/hello');
+  } catch {
+    return { ok: false, action, why: 'unreachable' };
+  }
+  candidate.name = theirs.name;
+  candidate.account = theirs.account;
+  sync.writeSync({ pending: candidate });
+  return pairingFacts(action, me, theirs);
+}
+
+function pairingFacts(action, mine, theirs) {
+  return {
+    ok: true, action, mine, theirs,
+    sameAccount: !mine.account || !theirs.account || mine.account === theirs.account,
+    newer: (theirs.lastCheck || 0) >= (mine.lastCheck || 0) ? 'theirs' : 'mine',
+  };
+}
+
+/** The computer the code was typed on asks the other to follow it. Needs this
+ *  computer to be reachable, and a code the other can use. */
+async function syncBeMaster(action) {
+  const sync = require('./58-sync.js');
+  const security = require('./23-api-security.js');
+  const settings = require('./19-settings.js').read();
+  const saved = sync.readSync();
+  if (!saved.pending) return { ok: false, action, why: 'nothingPaired' };
+  if (!settings.apiLan) return { ok: false, action, why: 'needLan' };
+  const { addressKey } = require('./36-api-discovery.js');
+  const urls = addressKey().split(',').filter(Boolean).map(a => `https://${a}:${settings.apiPort}`);
+  if (!urls.length) return { ok: false, action, why: 'unreachable' };
+  const { code } = security.makePairingCode();
+  const route = saved.pending.localUrl ? { url: saved.pending.localUrl, kind: 'local' } : { url: saved.pending.remoteUrl, kind: 'remote' };
+  try {
+    await sync.requestJson(route, saved.pending, '/api/sync/propose', { method: 'POST', body: { name: sync.facts().name, urls, code } });
+  } catch (e) {
+    security.cancelPairingCode();
+    return { ok: false, action, why: e.status === 409 ? 'masterFollows' : 'unreachable' };
+  }
+  sync.writeSync({ pending: { ...saved.pending, asked: true } });
+  return { ok: true, action };
+}
+
+/** Yes to being asked: pairs back with the computer that asked, and follows it. */
+async function syncAccept(action, arg) {
+  const sync = require('./58-sync.js');
+  const security = require('./23-api-security.js');
+  const proposal = sync.readProposal();
+  if (!proposal) return { ok: false, action, why: 'nothingPaired' };
+  if (sync.isFollowing()) return { ok: false, action, why: 'alreadyFollowing' };
+  if (security.listDevices().some(d => d.follower && d.id !== proposal.deviceId)) return { ok: false, action, why: 'hasFollowers' };
+  const me = sync.facts();
+  let paired = null, url = null;
+  for (const candidate of proposal.urls) {
+    try {
+      paired = await sync.redeem(candidate, proposal.code, me.name);
+      url = candidate;
+      break;
+    } catch (e) {
+      if (e.why && e.why !== 'unreachable') return { ok: false, action, why: e.why };
+    }
+  }
+  if (!paired) return { ok: false, action, why: 'unreachable' };
+  const candidate = { fp: paired.fp, cert: paired.cert, key: paired.key, localUrl: url };
+  let theirs;
+  try { theirs = await sync.requestJson({ url, kind: 'local' }, candidate, '/api/sync/hello'); } catch { return { ok: false, action, why: 'unreachable' }; }
+  const given = decodeArg(arg) || {};
+  if (me.account && theirs.account && me.account !== theirs.account && given.otherAccount !== true) {
+    await sync.leave(candidate).catch(() => {});
+    return { ok: false, action, why: 'otherAccount' };
+  }
+  sync.setAside();
+  sync.writeSync({ master: { ...candidate, name: theirs.name, account: theirs.account } });
+  security.revokeDevice(proposal.deviceId);
+  sync.clearProposal();
+  logAction(`  now following ${theirs.name}`);
+  return { ok: true, action };
+}
+
+/** What Settings → Sync shows. While waiting on the other computer's answer,
+ *  also finds out whether it said no, which took this computer's key away. */
+async function syncSummary(action) {
+  const sync = require('./58-sync.js');
+  const security = require('./23-api-security.js');
+  let saved = sync.readSync();
+  const followers = security.listDevices().filter(d => d.follower);
+  let declined = false;
+  if (saved.pending && saved.pending.asked) {
+    if (followers.length) {
+      sync.writeSync({});
+      saved = {};
+    } else {
+      const route = saved.pending.localUrl ? { url: saved.pending.localUrl, kind: 'local' } : { url: saved.pending.remoteUrl, kind: 'remote' };
+      try {
+        await sync.requestJson(route, saved.pending, '/api/sync/hello', { timeout: 4000 });
+      } catch (e) {
+        if (e.removed) {
+          security.cancelPairingCode();
+          sync.writeSync({});
+          saved = {};
+          declined = true;
+        }
+      }
+    }
+  }
+  const proposal = sync.readProposal();
+  return {
+    ok: true, action,
+    status: sync.readStatus(),
+    pending: saved.pending ? { name: saved.pending.name, asked: saved.pending.asked === true } : null,
+    declined,
+    proposal: proposal ? { name: proposal.name } : null,
+    followers,
+    localUrl: saved.master ? saved.master.localUrl || null : null,
+    remoteUrl: saved.master ? saved.master.remoteUrl || null : null,
+    setAside: require('fs').existsSync(sync.ASIDE_DIR),
+  };
+}
+
+function syncAct(action, arg) {
+  const sync = require('./58-sync.js');
+  const security = require('./23-api-security.js');
+  const saved = sync.readSync();
+  switch (action) {
+    case 'syncStatus':
+      return syncSummary(action);
+    // The facts again, for a page that reloaded while asking which is the master.
+    case 'syncFacts': {
+      const pending = saved.pending;
+      if (!pending) return { ok: false, action, why: 'nothingPaired' };
+      const route = pending.localUrl ? { url: pending.localUrl, kind: 'local' } : { url: pending.remoteUrl, kind: 'remote' };
+      return sync.requestJson(route, pending, '/api/sync/hello').then(theirs => pairingFacts(action, sync.facts(), theirs), () => ({ ok: false, action, why: 'unreachable' }));
+    }
+    case 'syncBeMaster':
+      return syncBeMaster(action);
+    case 'syncAccept':
+      return syncAccept(action, arg);
+    case 'syncDecline': {
+      const proposal = sync.readProposal();
+      if (proposal) security.revokeDevice(proposal.deviceId);
+      sync.clearProposal();
+      return { ok: true, action };
+    }
+    case 'syncNearby':
+      return require('./59-sync-follow.js').findNearby(security.certFingerprint()).then(servers => ({ ok: true, action, servers }));
+    case 'syncPair':
+      return syncPair(action, arg);
+    // The answer to "which should be the master?": the other computer. What's
+    // here is kept aside, then replaced by the next copy.
+    case 'syncFollow': {
+      if (!saved.pending) return { ok: false, action, why: 'nothingPaired' };
+      const given = decodeArg(arg) || {};
+      const mine = sync.accountKey();
+      if (mine && saved.pending.account && mine !== saved.pending.account && given.otherAccount !== true) return { ok: false, action, why: 'otherAccount' };
+      sync.setAside();
+      sync.writeSync({ master: saved.pending });
+      logAction(`  now following ${saved.pending.name}`);
+      return { ok: true, action };
+    }
+    case 'syncCancel':
+      if (!saved.pending) return { ok: true, action };
+      if (saved.pending.asked) security.cancelPairingCode();
+      return sync.leave(saved.pending).then(() => {
+        sync.writeSync({});
+        return { ok: true, action };
+      });
+    case 'syncStop': {
+      const m = saved.master;
+      if (!m) return { ok: false, action, why: 'notFollowing' };
+      const given = decodeArg(arg) || {};
+      return sync.leave(m).then(left => {
+        sync.writeSync({});
+        for (const file of [sync.STATUS_FILE, sync.QUEUE_FILE]) { try { require('fs').unlinkSync(file); } catch {} }
+        const restored = given.restore === true && sync.restoreAside();
+        logAction(`  stopped following ${m.name}`);
+        redrawCards();
+        return { ok: true, action, left, restored };
+      });
+    }
+    // The tunnel's address, kept beside the home one. Empty takes it away.
+    case 'syncSetRemote': {
+      if (!saved.master) return { ok: false, action, why: 'notFollowing' };
+      const given = decodeArg(arg) || {};
+      const url = given.url ? sync.cleanUrl(given.url) : null;
+      if (given.url && !url) return { ok: false, action, why: 'badAddress' };
+      if (url) saved.master.remoteUrl = url; else delete saved.master.remoteUrl;
+      sync.writeSync(saved);
+      return { ok: true, action, url };
+    }
+    default:
+      return { ok: false, action, why: 'unknown' };
+  }
+}
+
+function act(action, arg) {
+  if (action.startsWith('sync')) return syncAct(action, arg);
   // A settings save carries every setting, the Canvas access token and the
   // email included, so its payload is never logged — the "applied:" line
   // below says which settings took, by name, which is all a log needs.
@@ -837,7 +1104,7 @@ function main(action, arg) {
       } catch (e) {
         return { ok: false, action, why: 'could not parse: ' + e.message };
       }
-      const result = va.create({ title: payload.title, class: payload.class, due: payload.due });
+      const result = va.create({ title: payload.title, class: payload.class, due: payload.due, id: payload.id });
       if (!result.ok) return { ok: false, action, why: result.why };
       redrawCards();
       return { ok: true, action, entry: result.entry };
@@ -952,7 +1219,7 @@ function main(action, arg) {
 }
 
 module.exports = {
-  setInServer(yes) { inServer = yes; }, main, appendLine, removeLine, readLines, ensureApiServer };
+  setInServer(yes) { inServer = yes; }, main, redrawCards, appendLine, removeLine, readLines, ensureApiServer };
 
 if (require.main === module) {
   const [action, arg] = process.argv.slice(2);

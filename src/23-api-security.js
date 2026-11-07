@@ -217,9 +217,10 @@ function writeDevices(list) {
   writePrivate(DEVICES_FILE, JSON.stringify(list, null, 2) + '\n');
 }
 
-/** The paired devices, without their key hashes: what Settings shows. */
+/** The paired devices, without their key hashes: what Settings shows. A
+ *  follower is another ClassDash copying this one's data (58-sync.js). */
 function listDevices() {
-  return readDevices().map(({ id, name, created, lastUsed }) => ({ id, name, created, lastUsed: lastUsed || null }));
+  return readDevices().map(({ id, name, created, lastUsed, follower }) => ({ id, name, created, lastUsed: lastUsed || null, follower: follower === true }));
 }
 
 /** Upper case, and only the code's own letters: "abc-d2f" and "ABC D2F" are
@@ -266,7 +267,7 @@ function cleanName(name) {
 /** Trades a pairing code for a new device key. Returns {key, id, name}
  *  once, or {error: 'none' | 'expired' | 'wrong'}. A wrong guess uses up
  *  one of the code's tries, and the last one ends the code. */
-function redeemPairingCode(given, name) {
+function redeemPairingCode(given, name, { follower = false } = {}) {
   const pending = readJson(PAIRING_FILE, null);
   if (!pending || typeof pending.hash !== 'string') return { error: 'none' };
   if (!(pending.expires > Date.now())) { cancelPairingCode(); return { error: 'expired' }; }
@@ -284,6 +285,7 @@ function redeemPairingCode(given, name) {
     hash: hashKey(key),
     created: Date.now(),
     lastUsed: Date.now(),
+    ...(follower ? { follower: true } : {}),
   };
   writeDevices([...readDevices(), device]);
   return { key, id: device.id, name: device.name };

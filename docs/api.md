@@ -36,6 +36,40 @@ Rather than copying the long access key to every phone and laptop, each device c
 
 A program can pair too: `POST /api/pair` with `{"code": "K7M-4QX", "name": "My script"}`, no key needed, answers `{"key", "id", "name", "fingerprint"}`. Use the key as the bearer token from then on, and check that the fingerprint matches the certificate you were just shown before trusting it.
 
+A wrong code or key from another device counts toward a limit of 10 a minute per address, after which `/login` and `/api/pair` answer 429 with `Retry-After`.
+
+## Sync between two computers
+
+**Settings → Sync** pairs two ClassDash computers. One is the master, which does the checking; the other follows it, keeps its own copy, and still works when it can't reach the master. A computer can follow one master, a master can have several followers, and a follower can't be followed.
+
+To set it up, turn on **Allow LAN access** on the master, make a pairing code in its Settings → Sync, and enter it on the other computer. You're then asked which should be the master. Choosing the computer you typed the code on needs a yes on the other computer (and needs **Allow LAN access** on the first), since it's the other one's data that would be replaced.
+
+- **What's copied:** assignments, announcements and their photos, grades, the calendar and schedule, reminders, what's hidden or muted or linked, and a few shared settings like excluded classes and linked classes.
+- **What stays on each computer:** sign-ins, the Q password, API and AI keys, the access key, the language, the port, and anything about its window or browser. The workspace's PDFs and AI chats aren't copied yet.
+- **While connected,** what you do on the follower happens on the master: hiding, reminders, shared settings, starting or stopping a check. Automatic checks are the master's job.
+- **While cut off,** the follower uses its own copy, and its own automatic checks run if they're turned on. Changes wait and go across on reconnecting, oldest first; the master's data then replaces what's on the follower, so a change to the same thing on both ends up the master's. Importing a calendar PDF has to be done on the master.
+- **Your own data isn't lost.** What was on the follower is kept aside when it starts following, and **Stop following** can put it back.
+- **Different accounts:** the two compare a fingerprint of the school email and Canvas address (never the address itself). A difference is pointed out when pairing and needs a deliberate choice to continue. Copying stops if the master later changes accounts, and the follower won't check on its own under a different account than the master's. This compares what's set up in Settings, not what's actually signed in.
+
+### Away from home
+
+A follower can keep a second address, such as a [Cloudflare tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/). It tries the home address first, by the last one that worked or by what the network announces with the master's certificate fingerprint, and the second address 300 ms later. While using the second address it keeps looking for home.
+
+The tunnel can run anywhere that can reach the master, like a NAS. Point it at `https://<the master's address>:8734` with `noTLSVerify: true`, since the master's certificate is self-signed; on the home network the follower pins that certificate itself. Traffic through a tunnel is decrypted at Cloudflare, so Cloudflare could read your schoolwork and keys there.
+
+### The routes
+
+All need a key, except that a follower gets its key from `POST /api/pair` by adding `"follower": true`, which also answers the certificate (`cert`), and answers 409 from a computer that follows another.
+
+| Route | What it does |
+|---|---|
+| `GET /api/sync/hello` | `{name, fingerprint, lastCheck, assignments, announcements, following, account}` |
+| `GET /api/sync/manifest` | `{version, files: {name: {hash, size, mtimeMs}}, settings, collectedWith}` |
+| `GET /api/sync/file?name=` | One file from the manifest. Anything else is 404. |
+| `GET /api/sync/stream` | Server-sent events: `changed` with `{version}`, and a `ping` every 20 seconds |
+| `POST /api/sync/propose` | Asks this computer to follow the one asking: `{name, urls, code}` |
+| `POST /api/sync/leave` | Removes the caller's own device key |
+
 Almost everything works the same as in the app. What needs the app itself stays there: the workspace, picking files (like a calendar PDF), signing in to a service's browser window, and turning LAN access on or off.
 
 There's a Home Assistant integration that reads it: [ha-classdash](https://github.com/vemboy200/ha-classdash).

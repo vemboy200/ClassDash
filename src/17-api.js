@@ -91,7 +91,7 @@ const { isClassStale } = require('./22-class-activity.js');
 const {
   ensureCert, certFingerprint, ensureToken, currentToken, isAuthorized, ensureAppKey,
   isToken, COOKIE_NAME, clientKind, givenToken, deviceFor, revokeDevice,
-  looksLikePairingCode, redeemPairingCode,
+  looksLikePairingCode, redeemPairingCode, cleanName,
   writePid, clearPid,
 } = require('./23-api-security.js');
 // The exact same dispatcher 16-summary.swift's bridge calls for a click
@@ -101,6 +101,9 @@ const {
 // case (apiLan) that's deliberately NOT reachable this way.
 const notifierActions = require('./21-notifier-actions.js');
 const { sendBody, streamWriter, isThisComputer } = require('./53-compress.js');
+const signInLimit = require('./57-sign-in-limit.js');
+const sync = require('./58-sync.js');
+const syncFollow = require('./59-sync-follow.js');
 const { splitPage, pageAsset } = require('./54-page-assets.js');
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { checkStatus } = require('./25-check-status.js');
@@ -908,6 +911,23 @@ function syncDash() {
 let sseClients = [];
 let lastBroadcast = null;
 
+// ── Followers, for sync (58-sync.js) ──
+//
+// Another ClassDash copying this one's data listens here. It's told only that
+// something changed; it then asks what, and fetches just that.
+let syncClients = [];
+let lastSyncVersion = null;
+const SYNC_PUSH_DELAY_MS = 200;
+
+function tellFollowers() {
+  if (!syncClients.length) return;
+  let version;
+  try { version = sync.manifest().version; } catch (e) { return console.error('sync: could not list the files:', e.message); }
+  if (version === lastSyncVersion) return;
+  lastSyncVersion = version;
+  for (const follower of syncClients) follower.write(`event: changed\ndata: ${JSON.stringify({ version })}\n\n`);
+}
+
 function pushDash() {
   if (!sseClients.some(c => c.dashboard)) return;
   try { syncDash(); } catch (e) { console.error('dashboard failed, not sending it:', e.message); }
@@ -947,7 +967,17 @@ function broadcastIfChanged() {
 function watchForChanges() {
   let timer = null;
   let dashTimer = null;
+  let syncTimer = null;
+  const pushDashSoon = () => {
+    clearTimeout(dashTimer);
+    dashTimer = setTimeout(pushDash, DASH_PUSH_DELAY_MS);
+  };
+  const soonTellFollowers = () => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(tellFollowers, SYNC_PUSH_DELAY_MS);
+  };
   const debounced = () => {
+    soonTellFollowers();
     clearTimeout(timer);
     timer = setTimeout(broadcastIfChanged, 400);
     // A page is waiting on this right after a click, and is told only what
@@ -968,10 +998,15 @@ function watchForChanges() {
   // shows without waiting for the redraw that follows it. Through the folder:
   // these only exist once something's been hidden, and that first time counts.
   // (The Mac reports a Cyrillic name in another Unicode form, hence normalize.)
-  const CARD_FILES = new Set(['не-срочно.txt', 'скрытые.txt', 'deleted-assignments.txt', 'assignment-links.json'].map(name => name.normalize('NFC')));
+  // The collected data too, for the same reason: a follower's copy of a file
+  // arrives by rename, which would end a watch on the file itself.
+  const CARD_FILES = new Set(['не-срочно.txt', 'скрытые.txt', 'deleted-assignments.txt', 'assignment-links.json', 'last-collection.json', 'messages.json', 'virtual-assignments.json'].map(name => name.normalize('NFC')));
   try {
     fs.watch(PROJECT_ROOT, (kind, name) => {
       if (!name || CARD_FILES.has(String(name).normalize('NFC'))) debounced();
+      if (!name || sync.isWatched(name) || name === 'settings.json') soonTellFollowers();
+      // The sidebar's sync line and the offer on the dashboard are page pieces.
+      if (name === 'sync-status.json' || name === 'sync-proposal.json' || name === 'sync-queue.json') pushDashSoon();
     }).on('error', e => console.error('could not keep watching the project folder:', e.message));
   } catch (e) {
     console.error('could not watch the project folder:', e.message);
@@ -1025,6 +1060,7 @@ const HEARTBEAT_INTERVAL_MS = 60000; // 1 minute
 const PING_INTERVAL_MS = 20000;
 function sendPing() {
   for (const client of sseClients) client.write('event: ping\ndata: {}\n\n');
+  for (const follower of syncClients) follower.write('event: ping\ndata: {}\n\n');
 }
 
 function sendHeartbeat() {
@@ -1161,7 +1197,7 @@ const APP_ICON_B64 = (() => {
   try { return fs.readFileSync(path.join(__dirname, 'app-icon.png')).toString('base64'); } catch { return ''; }
 })();
 
-function loginPage(wrong, next) {
+function loginPage(wrong, next, wrongWord = 'loginWrong') {
   const { PIXEL_THEME, pixelSprite } = require('./08-page.js');
   const theme = (th, shadow, text) => `
     --bg: ${th.bg}; --card: ${th.card}; --text: ${text}; --dim: ${th.dim}; --hot: ${th.hot}; --new: ${th.new}; --shadow: ${shadow};
@@ -1225,7 +1261,7 @@ ${icon ? `<link rel="icon" type="image/png" href="${icon}">` : ''}
     <div><h1>ClassDash</h1><span>${t('loginButton')}</span></div>
   </div>
   <p>${t('loginExplain')}</p>
-  ${wrong ? `<p class="wrong">${t('loginWrong')}</p>` : ''}
+  ${wrong ? `<p class="wrong">${t(wrongWord)}</p>` : ''}
   <form method="post" action="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">
     <label for="token">${t('loginToken')}</label>
     <input class="frame" id="token" name="token" type="password" autocomplete="current-password" autofocus required>
@@ -1263,12 +1299,30 @@ function deviceNameFromAgent(agent) {
  *  one route that needs no key, since getting one is what it's for. The
  *  answer carries the certificate's fingerprint, so the client can check
  *  it against the certificate it was just shown and pin it. */
-function handlePair(req, respond) {
+function handlePair(req, res, respond) {
+  const wait = signInLimit.waitSeconds(req);
+  if (wait) {
+    res.setHeader('Retry-After', String(wait));
+    return respond(429, { error: 'too many wrong tries, wait a minute' });
+  }
   readJsonBody(req)
     .then((body) => {
-      const paired = redeemPairingCode(typeof body.code === 'string' ? body.code : '', typeof body.name === 'string' ? body.name : '');
-      if (!paired.key) return respond(paired.error === 'wrong' ? 401 : 410, { error: paired.error === 'wrong' ? 'wrong pairing code' : 'no pairing code is waiting, or it expired — make a new one in Settings → API' });
-      respond(200, { key: paired.key, id: paired.id, name: paired.name, fingerprint: certFingerprint() });
+      // A computer that follows another can't be followed itself: changes would
+      // have to pass through it, and stop whenever it's away.
+      if (body.follower === true && sync.isFollowing()) {
+        return respond(409, { error: 'this computer follows another one, so it can\'t be followed' });
+      }
+      const paired = redeemPairingCode(typeof body.code === 'string' ? body.code : '', typeof body.name === 'string' ? body.name : '', { follower: body.follower === true });
+      if (!paired.key) {
+        signInLimit.noteWrong(req);
+        return respond(paired.error === 'wrong' ? 401 : 410, { error: paired.error === 'wrong' ? 'wrong pairing code' : 'no pairing code is waiting, or it expired — make a new one in Settings → API' });
+      }
+      signInLimit.noteRight(req);
+      respond(200, {
+        key: paired.key, id: paired.id, name: paired.name, fingerprint: certFingerprint(),
+        // Another ClassDash saves this to recognize this server later (58-sync.js).
+        ...(body.follower === true ? { cert: fs.readFileSync(CERT_FILE, 'utf8') } : {}),
+      });
     })
     .catch((e) => respond(400, { error: e.message }));
 }
@@ -1304,6 +1358,15 @@ function loginNext(req) {
 }
 
 function handleLogin(req, res) {
+  // Refused before looking at what was typed, so the tries a pairing code has
+  // left aren't used up by someone who's already been told to wait.
+  const wait = signInLimit.waitSeconds(req);
+  if (wait) {
+    req.resume();
+    res.setHeader('Retry-After', String(wait));
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.writeHead(429).end(loginPage(true, loginNext(req), 'loginTooMany'));
+  }
   readLoginToken(req).then((token) => {
     token = token.trim();
     // A pairing code instead of the key: this browser becomes a paired
@@ -1313,9 +1376,11 @@ function handleLogin(req, res) {
       if (paired.key) token = paired.key;
     }
     if (!isToken(token) && !deviceFor(token)) {
+      signInLimit.noteWrong(req);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.writeHead(401).end(loginPage(true, loginNext(req)));
     }
+    signInLimit.noteRight(req);
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`);
     res.setHeader('Location', loginNext(req) || '/');
     res.writeHead(303).end();
@@ -1336,10 +1401,12 @@ function handleLogin(req, res) {
 //   - pairCode, pairCancel and revokeDevice give out and take away access:
 //     a browser or device with a key could otherwise make itself a key
 //     that outlives its own, or cut off the others.
+//   - the sync ones replace this computer's data with another's, and hand out
+//     where it goes.
 //   - importCalendarPdf and workspaceImport take a path to a file on this
 //     computer, which the app's own file picker chose. From a browser they'd
 //     read whatever path they were given.
-const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'pairCode', 'pairCancel', 'revokeDevice', 'importCalendarPdf', 'workspaceImport']);
+const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'pairCode', 'pairCancel', 'revokeDevice', 'importCalendarPdf', 'workspaceImport', 'syncPair', 'syncFollow', 'syncBeMaster', 'syncCancel', 'syncAccept', 'syncDecline', 'syncStop', 'syncSetRemote']);
 
 /** Whether a settings save (the page's base64url-JSON chunk) would change
  *  where the server listens. */
@@ -1461,7 +1528,7 @@ function start() {
     // Signing out (Settings → Sign out, in a browser): the cookie is cleared
     // and the browser goes back to signing in. POST only, so a link or a
     // prefetch can't do it.
-    if (urlPath === '/api/pair' && req.method === 'POST') return handlePair(req, respond);
+    if (urlPath === '/api/pair' && req.method === 'POST') return handlePair(req, res, respond);
     if (urlPath === '/logout' && req.method === 'POST') {
       // A paired browser signing out is done with its key, so the key goes
       // too, rather than staying in Settings → API with nothing using it.
@@ -1484,6 +1551,29 @@ function start() {
         return res.writeHead(303).end();
       }
       return respond(401, { error: 'missing or wrong bearer token' });
+    }
+
+    // A follower stopping, or choosing not to follow after all: its key goes,
+    // rather than staying in Settings → API with nothing using it.
+    if (urlPath === '/api/sync/leave' && req.method === 'POST') {
+      const device = deviceFor(givenToken(req));
+      if (!device) return respond(403, { error: 'only a paired computer can leave' });
+      revokeDevice(device.id);
+      return respond(200, { ok: true });
+    }
+
+    // The computer that was just paired asks this one to follow it instead. Only
+    // an offer: nothing happens until someone says yes here (58-sync.js).
+    if (urlPath === '/api/sync/propose' && req.method === 'POST') {
+      const device = deviceFor(givenToken(req));
+      if (!device) return respond(403, { error: 'only a paired computer can ask' });
+      return readJsonBody(req).then(body => {
+        const urls = (Array.isArray(body.urls) ? body.urls : []).map(u => sync.cleanUrl(u)).filter(Boolean).slice(0, 8);
+        if (!urls.length || typeof body.code !== 'string') return respond(400, { error: 'expected {urls, code}' });
+        if (sync.isFollowing()) return respond(409, { error: 'this computer already follows another one' });
+        sync.writeProposal({ name: cleanName(body.name), urls, code: body.code, deviceId: device.id, at: Date.now() });
+        respond(200, { ok: true });
+      }).catch(e => respond(400, { error: e.message }));
     }
 
     if (urlPath === '/api/action') {
@@ -1528,6 +1618,29 @@ function start() {
         console.error(`error on ${urlPath}: ${e.message}`);
         return respond(500, { error: e.message });
       }
+    }
+
+    if (urlPath === '/api/sync/hello') return respond(200, sync.facts());
+    if (urlPath === '/api/sync/manifest') {
+      try { return respond(200, sync.manifest()); } catch (e) { return respond(500, { error: e.message }); }
+    }
+    if (urlPath === '/api/sync/file') {
+      const name = new URL(req.url, 'https://classdash.invalid').searchParams.get('name') || '';
+      if (!sync.isCopied(name)) return respond(404, { error: 'not a copied file' });
+      return fs.readFile(path.join(PROJECT_ROOT, name), (err, data) => {
+        if (err) return respond(404, { error: 'not here' });
+        res.setHeader('Content-Type', 'application/octet-stream');
+        sendBody(req, res, 200, data);
+      });
+    }
+    if (urlPath === '/api/sync/stream') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      res.write('event: ping\ndata: {}\n\n');
+      syncClients.push(res);
+      const drop = () => { syncClients = syncClients.filter(c => c !== res); };
+      req.on('close', drop);
+      res.on('error', drop);
+      return;
     }
 
     if (urlPath === '/api/stream') {
@@ -1650,6 +1763,12 @@ function start() {
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
     setInterval(sendPing, PING_INTERVAL_MS).unref();
+    // Following another computer, if this one's been set to (58-sync.js).
+    syncFollow.startFollowing({
+      applied: () => { notifierActions.redrawCards(); pushDash(); broadcastIfChanged(); },
+      busy: () => sync.isCheckingHere(),
+      log: line => console.log(line),
+    });
     // The automatic fresh checks: the server's job, not the app's.
     require('./52-check-schedule.js').startSchedule({
       headless,

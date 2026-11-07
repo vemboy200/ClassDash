@@ -344,9 +344,38 @@ function serviceStatusLines() {
  * them would mean reloading the whole page. Each can become data of its own
  * later, one at a time.
  */
+/** The sidebar's line on a computer following another: which, how, and whether
+ *  it's connected. No times in it, so it only changes when the state does. */
+function syncIndicator() {
+  const status = require('./58-sync.js').readStatus();
+  if (!status) return '';
+  const fill = (key, value) => t(key).split(/\{\w+\}/).join(value);
+  const name = status.name;
+  const line = {
+    synced: fill(status.via === 'remote' ? 'syncNavRemote' : 'syncNavSynced', name),
+    syncing: t('syncNavSyncing'),
+    removed: fill('syncNavRemoved', name),
+    otherAccount: fill('syncNavOtherAccount', name),
+  }[status.state] || t('syncNavCutOff');
+  const connected = status.state === 'synced' || status.state === 'syncing';
+  const text = line + (status.waiting ? ` · ${fill('syncNavWaiting', status.waiting)}` : '');
+  return `<button type="button" class="check-status sync-status" id="sync-status" data-state="${escapeHtml(status.state)}" title="${escapeHtml(text)}" onclick="openSyncSettings()"><span class="nav-icon pixel-icon ${connected ? 'icon-line' : 'icon-line-broken'}" aria-hidden="true"></span><span class="reload-label">${escapeHtml(text)}</span></button>`;
+}
+
+/** The other computer asking this one to follow it. */
+function syncOfferBanner() {
+  const proposal = require('./58-sync.js').readProposal();
+  if (!proposal) return '';
+  return `  <div class="warn sync-offer-banner">
+       <span>${escapeHtml(t('syncOfferBanner').split('{name}').join(proposal.name))}</span>
+       <a href="#" onclick="openSyncSettings(); return false;">${escapeHtml(t('syncOfferOpen'))}</a>
+     </div>`;
+}
+
 function dashPieces(updatedAt, now) {
   const time = updatedAt.toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   return {
+    sync: syncIndicator(),
     status: checkStatusIndicator(),
     statusPanel: checkStatusPanel(),
     updated: `<div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`,
@@ -1560,6 +1589,10 @@ ${classLinksField(s.classLinks)}
         <button type="button" class="mini-btn" id="api-pair-cancel" onclick="cancelPairing()">${escapeHtml(t('settingsApiPairCancel'))}</button>
       </div>
       <ul class="api-device-list" id="api-device-list"></ul>` },
+    { id: 'sync', label: t('settingsSectionSync'), desc: t('settingsDescSync'), body: `
+      <p class="hint">${escapeHtml(t('syncIntro'))}</p>
+      <p class="hint" data-app-only-note hidden>${escapeHtml(t('settingsApiAppOnly'))}</p>
+      <div id="sync-body"></div>` },
     { id: 'fetching', label: t('settingsSectionFetching'), desc: t('settingsDescFetching'), body: `
       <label class="setting-row" data-native-only>
         <span class="field-name">${escapeHtml(t('settingsOpenAtLogin'))}</span>
@@ -1589,10 +1622,10 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
       </div>` },
   ];
 
-  const ORDER = ['services', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'api', 'advanced'];
+  const ORDER = ['services', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'sync', 'api', 'advanced'];
   sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
-  const ROW_ICONS = { services: 'icon-cloud-filled', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', api: 'icon-api', advanced: 'icon-settings' };
+  const ROW_ICONS = { services: 'icon-cloud-filled', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', sync: 'icon-server', api: 'icon-api', advanced: 'icon-settings' };
   const menuRows = sections.filter(sec => !sec.parent).map(sec =>
     `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
     `<span class="settings-row-icon${ROW_ICONS[sec.id] ? ' pixel-icon ' + ROW_ICONS[sec.id] : ''}" aria-hidden="true"></span>` +
@@ -2286,7 +2319,7 @@ function setupAndSignInBanners() {
      </div>`
     : '';
 
-  return setupBanner + signInBanner;
+  return setupBanner + signInBanner + syncOfferBanner();
 }
 
 /** The banners under them: a setting waiting for a check, schedule heads-ups, an update. */
@@ -2928,6 +2961,8 @@ ${cardHtml[id]}
   .connection-picture { display: flex; align-items: center; }
   .connection-picture .pixel-icon { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
   .icon-server { -webkit-mask-image: var(--icon-server); mask-image: var(--icon-server); }
+  .icon-line { -webkit-mask-image: var(--icon-line); mask-image: var(--icon-line); }
+  .icon-line-broken { -webkit-mask-image: var(--icon-line-broken); mask-image: var(--icon-line-broken); }
   /* The line is drawn 48x32 (one art pixel per CSS pixel, so not stretched),
      with 4px clear on each side. The server drawing already has 4px of
      empty space on its left and the monitor none, so only the line gets a
@@ -3291,6 +3326,19 @@ ${cardHtml[id]}
   }
   .mini-btn:hover { color: var(--text); border-color: var(--dim); }
   .api-status { margin-left: 6px; }
+  .app-nav .sync-status { text-align: left; }
+  .app-nav .sync-status .reload-label { min-width: 0; overflow-wrap: anywhere; }
+  .sync-status[data-state="cutOff"], .sync-status[data-state="removed"], .sync-status[data-state="otherAccount"] { color: var(--dim); }
+  #sync-body h3 { font-size: 16px; margin: 16px 0 6px; }
+  .sync-nearby { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+  .sync-nearby .mini-btn[aria-pressed="true"] { outline: 2px solid var(--text); }
+  .sync-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 8px 0; }
+  .sync-choice { border: 2px solid var(--line); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+  .sync-choice strong { font-size: 16px; }
+  .sync-choice .hint { margin: 0; }
+  .sync-choice .mini-btn { margin-top: 6px; }
+  .sync-error { color: var(--hot); margin: 6px 0; }
+  .sync-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
   .api-pair-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 10px; }
   .api-pair-value { font-size: 28px; letter-spacing: 4px; color: var(--accent, var(--text)); font-variant-numeric: tabular-nums; }
   .api-device-list { list-style: none; margin: 0 0 8px; padding: 0; }
@@ -3851,6 +3899,62 @@ window.onerror = function (message, source, line, column) {
 // with a line break inside confirm(). JSON.stringify escapes everything
 // itself, so it's safe regardless of language.
 const WORDS = ${JSON.stringify({
+  syncConnectHead: t('syncConnectHead'),
+  syncNearby: t('syncNearby'),
+  syncNoneNearby: t('syncNoneNearby'),
+  syncAddress: t('syncAddress'),
+  syncAddressHint: t('syncAddressHint'),
+  syncCode: t('syncCode'),
+  syncCodeHint: t('syncCodeHint'),
+  syncConnect: t('syncConnect'),
+  syncConnecting: t('syncConnecting'),
+  syncFromOtherHead: t('syncFromOtherHead'),
+  syncMakeCode: t('syncMakeCode'),
+  syncWhichHead: t('syncWhichHead'),
+  syncWhichHint: t('syncWhichHint'),
+  syncThisComputer: t('syncThisComputer'),
+  syncFactLastCheck: t('syncFactLastCheck'),
+  syncFactNever: t('syncFactNever'),
+  syncFactCounts: t('syncFactCounts'),
+  syncNewer: t('syncNewer'),
+  syncMakeMaster: t('syncMakeMaster'),
+  syncDataSetAside: t('syncDataSetAside'),
+  syncOtherAccount: t('syncOtherAccount'),
+  syncContinueAnyway: t('syncContinueAnyway'),
+  syncAsked: t('syncAsked'),
+  syncDeclined: t('syncDeclined'),
+  syncOfferHead: t('syncOfferHead'),
+  syncOfferHint: t('syncOfferHint'),
+  syncOfferYes: t('syncOfferYes'),
+  syncOfferNo: t('syncOfferNo'),
+  syncFollowingHead: t('syncFollowingHead'),
+  syncLastCopy: t('syncLastCopy'),
+  syncRemovedHint: t('syncRemovedHint'),
+  syncOtherAccountHint: t('syncOtherAccountHint'),
+  syncRemoteUrl: t('syncRemoteUrl'),
+  syncRemoteHint: t('syncRemoteHint'),
+  syncSave: t('syncSave'),
+  syncSaved: t('syncSaved'),
+  syncStopHead: t('syncStopHead'),
+  syncStopKeep: t('syncStopKeep'),
+  syncStopRestore: t('syncStopRestore'),
+  syncStopConfirm: t('syncStopConfirm'),
+  syncFollowersHead: t('syncFollowersHead'),
+  syncMasterNote: t('syncMasterNote'),
+  syncWhy_noCode: t('syncWhy_noCode'),
+  syncWhy_wrongCode: t('syncWhy_wrongCode'),
+  syncWhy_badAddress: t('syncWhy_badAddress'),
+  syncWhy_unreachable: t('syncWhy_unreachable'),
+  syncWhy_notClassDash: t('syncWhy_notClassDash'),
+  syncWhy_wrongCert: t('syncWhy_wrongCert'),
+  syncWhy_masterFollows: t('syncWhy_masterFollows'),
+  syncWhy_tooMany: t('syncWhy_tooMany'),
+  syncWhy_sameComputer: t('syncWhy_sameComputer'),
+  syncWhy_alreadyFollowing: t('syncWhy_alreadyFollowing'),
+  syncWhy_hasFollowers: t('syncWhy_hasFollowers'),
+  syncWhy_needLan: t('syncWhy_needLan'),
+  syncWhy_nothingPaired: t('syncWhy_nothingPaired'),
+  syncCancel: t('settingsApiPairCancel'),
   apiNoDevices: t('settingsApiNoDevices'),
   apiDevicePaired: t('settingsApiDevicePaired', '{when}'),
   apiDeviceUsed: t('settingsApiDeviceUsed', '{when}'),
@@ -5157,7 +5261,239 @@ function showSettingsSection(name) {
   window.scrollTo(0, 0);
   if (name === 'ai') refreshAiStates();
   if (name === 'api') watchDevices();
+  if (name === 'sync') watchSync();
   syncUrl();
+}
+
+// ── Sync (Settings → Sync, see 58-sync.js) ──
+//
+// Drawn from what the app answers, not baked into the page, and asked for again
+// while it's open: the other computer can connect or say yes at any moment. A form
+// being filled in isn't redrawn underneath the person typing.
+var syncFacts = null;     // the answer from pairing, for "which is the master?"
+var syncError = '';
+var syncNearbyList = null;
+var syncPickedUrl = '';
+var syncCodeShown = null;
+var syncWatch = null;
+var syncLastDrawn = '';
+
+function syncWhy(why) { return WORDS['syncWhy_' + why] || why || WORDS.syncWhy_unreachable; }
+function syncFill(word, values) {
+  var text = word;
+  for (var k in values) text = text.split('{' + k + '}').join(values[k]);
+  return text;
+}
+function syncEl(tag, className, text) {
+  var el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+function syncButton(text, onClick) {
+  var b = syncEl('button', 'mini-btn', text);
+  b.type = 'button';
+  b.setAttribute('data-app-only', '');
+  b.disabled = !hasNativeBridge();
+  b.onclick = onClick;
+  return b;
+}
+function syncDo(action, arg, then) {
+  syncError = '';
+  dispatchAction(action, arg ? toBase64Url(JSON.stringify(arg)) : '', function (res) {
+    if (res && res.ok === false) syncError = syncWhy(res.why);
+    if (then) then(res || {});
+    loadSync(true);
+  });
+}
+function syncWhen(ms) {
+  return new Date(ms).toLocaleString(WORDS.calendarLocale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function drawSyncChoice(body, facts) {
+  body.appendChild(syncEl('h3', '', WORDS.syncWhichHead));
+  body.appendChild(syncEl('p', 'hint', WORDS.syncWhichHint));
+  if (!facts.sameAccount) body.appendChild(syncEl('p', 'sync-error', WORDS.syncOtherAccount));
+  var row = syncEl('div', 'sync-choices');
+  [['theirs', facts.theirs, facts.theirs.name], ['mine', facts.mine, facts.mine.name + ' (' + WORDS.syncThisComputer + ')']].forEach(function (side) {
+    var card = syncEl('div', 'sync-choice');
+    card.appendChild(syncEl('strong', '', side[2]));
+    card.appendChild(syncEl('span', 'hint', side[1].lastCheck ? syncFill(WORDS.syncFactLastCheck, { when: syncWhen(side[1].lastCheck) }) : WORDS.syncFactNever));
+    card.appendChild(syncEl('span', 'hint', syncFill(WORDS.syncFactCounts, { assignments: side[1].assignments, announcements: side[1].announcements })));
+    if (facts.newer === side[0]) card.appendChild(syncEl('span', 'hint', WORDS.syncNewer));
+    var other = side[0] === 'theirs' ? facts.mine : facts.theirs;
+    card.appendChild(syncEl('span', 'hint', syncFill(WORDS.syncDataSetAside, { name: other.name })));
+    var word = facts.sameAccount ? WORDS.syncMakeMaster : WORDS.syncContinueAnyway;
+    card.appendChild(syncButton(syncFill(word, { name: side[1].name }), function () {
+      if (side[0] === 'theirs') syncDo('syncFollow', { otherAccount: !facts.sameAccount }, function (res) { if (res.ok) syncFacts = null; });
+      else syncDo('syncBeMaster', null, function (res) { if (res.ok) syncFacts = null; });
+    }));
+    row.appendChild(card);
+  });
+  body.appendChild(row);
+  body.appendChild(syncButton(WORDS.syncCancel, function () { syncFacts = null; syncDo('syncCancel'); }));
+}
+
+function drawSyncConnect(body) {
+  body.appendChild(syncEl('h3', '', WORDS.syncConnectHead));
+  body.appendChild(syncEl('p', 'hint', WORDS.syncNearby));
+  var nearby = syncEl('div', 'sync-nearby');
+  (syncNearbyList || []).forEach(function (server) {
+    var b = syncButton(server.name, function () {
+      syncPickedUrl = syncPickedUrl === server.url ? '' : server.url;
+      document.getElementById('sync-address').value = syncPickedUrl;
+      syncLastDrawn = '';
+      loadSync(true);
+    });
+    b.setAttribute('aria-pressed', String(syncPickedUrl === server.url));
+    nearby.appendChild(b);
+  });
+  body.appendChild(nearby);
+  if (syncNearbyList && !syncNearbyList.length) body.appendChild(syncEl('p', 'hint', WORDS.syncNoneNearby));
+  var form = syncEl('form');
+  form.innerHTML = '<label class="setting-row"><span class="field-name"></span><input type="text" id="sync-address" autocomplete="off" spellcheck="false"><span class="field-hint"></span></label>' +
+    '<label class="setting-row"><span class="field-name"></span><input type="text" id="sync-code" autocomplete="off" spellcheck="false" placeholder="ABC-D2F"><span class="field-hint"></span></label>';
+  var labels = form.querySelectorAll('label');
+  labels[0].children[0].textContent = WORDS.syncAddress;
+  labels[0].children[2].textContent = WORDS.syncAddressHint;
+  labels[1].children[0].textContent = WORDS.syncCode;
+  labels[1].children[2].textContent = WORDS.syncCodeHint;
+  form.querySelector('#sync-address').value = syncPickedUrl;
+  var go = syncButton(WORDS.syncConnect, null);
+  go.type = 'submit';
+  form.appendChild(go);
+  form.onsubmit = function (e) {
+    e.preventDefault();
+    if (!hasNativeBridge()) return;
+    go.textContent = WORDS.syncConnecting;
+    go.disabled = true;
+    var address = form.querySelector('#sync-address').value;
+    var code = form.querySelector('#sync-code').value;
+    syncLastDrawn = '';
+    syncDo('syncPair', { url: address, code: code }, function (res) { if (res.ok) syncFacts = res; });
+  };
+  body.appendChild(form);
+  body.appendChild(syncEl('h3', '', WORDS.syncFromOtherHead));
+  if (syncCodeShown) {
+    var box = syncEl('div', 'api-pair-code');
+    box.appendChild(syncEl('span', 'api-pair-value', syncCodeShown));
+    body.appendChild(box);
+  }
+  body.appendChild(syncButton(WORDS.syncMakeCode, function () {
+    dispatchAction('pairCode', '', function (res) { if (res && res.ok) { syncCodeShown = res.code; syncLastDrawn = ''; loadSync(true); } });
+  }));
+}
+
+function drawSyncFollowing(body, res) {
+  var status = res.status, name = status.name;
+  body.appendChild(syncEl('h3', '', syncFill(WORDS.syncFollowingHead, { name: name })));
+  var line = document.getElementById('sync-status');
+  if (line) body.appendChild(syncEl('p', 'hint', line.title));
+  if (status.lastSync) body.appendChild(syncEl('p', 'hint', syncFill(WORDS.syncLastCopy, { when: syncWhen(status.lastSync) })));
+  if (status.state === 'removed') body.appendChild(syncEl('p', 'sync-error', syncFill(WORDS.syncRemovedHint, { name: name })));
+  if (status.state === 'otherAccount') body.appendChild(syncEl('p', 'sync-error', syncFill(WORDS.syncOtherAccountHint, { name: name })));
+  var row = syncEl('label', 'setting-row');
+  row.appendChild(syncEl('span', 'field-name', WORDS.syncRemoteUrl));
+  var withValue = syncEl('span', 'field-with-value');
+  var input = syncEl('input');
+  input.type = 'text';
+  input.id = 'sync-remote';
+  input.spellcheck = false;
+  input.value = res.remoteUrl || '';
+  withValue.appendChild(input);
+  withValue.appendChild(syncButton(WORDS.syncSave, function () { syncLastDrawn = ''; syncDo('syncSetRemote', { url: input.value }); }));
+  row.appendChild(withValue);
+  row.appendChild(syncEl('span', 'field-hint', WORDS.syncRemoteHint));
+  body.appendChild(row);
+  body.appendChild(syncEl('h3', '', WORDS.syncStopHead));
+  var actions = syncEl('div', 'sync-actions');
+  var stop = function (restore) {
+    if (!confirm(syncFill(WORDS.syncStopConfirm, { name: name }))) return;
+    syncDo('syncStop', { restore: restore });
+  };
+  actions.appendChild(syncButton(WORDS.syncStopKeep, function () { stop(false); }));
+  if (res.setAside) actions.appendChild(syncButton(WORDS.syncStopRestore, function () { stop(true); }));
+  body.appendChild(actions);
+}
+
+function drawSync(res) {
+  var body = document.getElementById('sync-body');
+  if (!body) return;
+  // Unchanged, it's left alone, so what someone's typing isn't lost.
+  var drawing = JSON.stringify([res.status && [res.status.state, res.status.via, res.status.waiting, res.status.lastSync], res.pending, res.proposal, res.followers, res.remoteUrl, !!syncFacts, syncError, syncNearbyList]);
+  if (drawing === syncLastDrawn) return;
+  syncLastDrawn = drawing;
+  body.textContent = '';
+  if (syncError) body.appendChild(syncEl('p', 'sync-error', syncError));
+  if (res.declined) body.appendChild(syncEl('p', 'sync-error', WORDS.syncDeclined));
+  if (res.proposal) {
+    body.appendChild(syncEl('h3', '', syncFill(WORDS.syncOfferHead, { name: res.proposal.name })));
+    body.appendChild(syncEl('p', 'hint', syncFill(WORDS.syncOfferHint, { name: res.proposal.name })));
+    var answer = syncEl('div', 'sync-actions');
+    answer.appendChild(syncButton(syncFill(WORDS.syncOfferYes, { name: res.proposal.name }), function () { syncDo('syncAccept'); }));
+    answer.appendChild(syncButton(WORDS.syncOfferNo, function () { syncDo('syncDecline'); }));
+    body.appendChild(answer);
+  } else if (res.status) {
+    drawSyncFollowing(body, res);
+  } else if (res.pending && res.pending.asked) {
+    body.appendChild(syncEl('p', 'hint', syncFill(WORDS.syncAsked, { name: res.pending.name })));
+    body.appendChild(syncButton(WORDS.syncCancel, function () { syncDo('syncCancel'); }));
+  } else if (res.pending && syncFacts) {
+    drawSyncChoice(body, syncFacts);
+  } else if (res.pending) {
+    // Paired before the page last reloaded: the facts are asked for again.
+    dispatchAction('syncFacts', '', function (facts) {
+      if (facts && facts.ok) { syncFacts = facts; syncLastDrawn = ''; loadSync(true); }
+    });
+  } else if (res.followers.length) {
+    body.appendChild(syncEl('h3', '', WORDS.syncMasterNote));
+    body.appendChild(syncEl('p', 'hint', WORDS.syncFollowersHead));
+    var list = syncEl('ul', 'api-device-list');
+    res.followers.forEach(function (d) {
+      var item = syncEl('li');
+      var text = syncEl('span', 'api-device-text', d.name);
+      if (d.lastUsed) text.appendChild(syncEl('span', 'api-device-when', WORDS.apiDeviceUsed.replace('{when}', deviceWhen(d.lastUsed))));
+      item.appendChild(text);
+      item.appendChild(syncButton(WORDS.apiDeviceRemove, function () {
+        if (confirm(WORDS.apiConfirmRemove.replace('{name}', d.name))) dispatchAction('revokeDevice', d.id, function () { loadSync(true); });
+      }));
+      list.appendChild(item);
+    });
+    body.appendChild(list);
+  } else {
+    drawSyncConnect(body);
+  }
+}
+
+function loadSync() {
+  if (!canAct()) return;
+  dispatchAction('syncStatus', '', function (res) { if (res && res.ok) drawSync(res); });
+}
+
+function watchSync() {
+  loadSync();
+  if (hasNativeBridge() && syncNearbyList === null) {
+    dispatchAction('syncNearby', '', function (res) {
+      syncNearbyList = (res && res.servers) || [];
+      loadSync();
+    });
+  }
+  if (syncWatch) return;
+  syncWatch = setInterval(function () {
+    var section = document.querySelector('.settings-section[data-section="sync"]');
+    var panel = document.getElementById('settings-panel');
+    if (!section || section.hidden || (panel && panel.hidden)) {
+      clearInterval(syncWatch);
+      syncWatch = null;
+      return;
+    }
+    loadSync();
+  }, 3000);
+}
+
+function openSyncSettings() {
+  showPage('settings');
+  showSettingsSection('sync');
 }
 
 // ── Paired devices (Settings → API) ──
@@ -8045,6 +8381,7 @@ applyRoute();
   <button class="reload named${progress ? ' running' : ''}"${readSettings().edpuzzleEnabled === false ? ' data-quick-only' : ''}
          id="freshcheck-button"
          title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
+  ${livePiece('sync', pieces.sync)}
   ${livePiece('status', pieces.status)}
   ${livePiece('updated', pieces.updated, SKELETONS.status)}`);
   const settingsNow = readSettings();

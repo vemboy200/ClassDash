@@ -15,8 +15,13 @@ const CACHED_FROM = 64 * 1024;        // only big bodies are worth keeping
 const MOST_CACHED = 4;                // the page, and a paired device's copy of it
 const cache = [];
 
+/** A tunnel running on this computer (cloudflared) connects from this computer
+ *  too, on behalf of someone far away, and says so in these headers. Saying so
+ *  falsely only gets a client compressed answers, so they needn't be proven. */
 function isThisComputer(req) {
   const address = (req.socket && req.socket.remoteAddress) || '';
+  const headers = req.headers || {};
+  if (headers['cf-connecting-ip'] || headers['x-forwarded-for']) return false;
   return address === '::1' || /^(::ffff:)?127\./.test(address);
 }
 

@@ -168,7 +168,7 @@ const lit = d => Array.from(d.querySelectorAll('.nav-item[aria-current="page"]')
   d.getElementById('settings-button').click();
   ok('Settings opens on its menu, every section closed', !menu.hidden && shown() === '');
   ok('Sign out shows only in a browser signed in with the key, not here', d.getElementById('settings-signout').hidden === true);
-  ok('a row per section, in order, each with what it holds', [...d.querySelectorAll('.settings-row[data-open]')].map(r => r.getAttribute('data-open')).join() === 'services,ai,classes,schedule,calendar,grades,fetching,display,api,advanced' &&
+  ok('a row per section, in order, each with what it holds', [...d.querySelectorAll('.settings-row[data-open]')].map(r => r.getAttribute('data-open')).join() === 'services,ai,classes,schedule,calendar,grades,fetching,display,sync,api,advanced' &&
     [...d.querySelectorAll('.settings-row-desc')].every(x => x.textContent.trim()));
   d.querySelector('.settings-row[data-open="ai"]').click();
   ok('a row opens its section as a page, with its name and a back arrow', menu.hidden && shown() === 'ai' &&

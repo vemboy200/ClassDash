@@ -115,12 +115,13 @@ function validateTitleAndDue({ title, class: className, due }) {
  *  (38-announcement-scan.js): { announcement: id, link }, so the card can
  *  say where it came from and link to it. Not settable from the page or
  *  the API, which only ever pass title/class/due. */
-function create({ title, class: className, due, from }) {
+function create({ title, class: className, due, from, id }) {
   const v = validateTitleAndDue({ title, class: className, due });
   if (!v.ok) return v;
 
   const entry = {
-    id: 'v-' + crypto.randomBytes(8).toString('hex'),
+    // A reminder made while cut off from the master keeps the id it got there.
+    id: /^v-[0-9a-f]{16}$/.test(String(id)) ? id : 'v-' + crypto.randomBytes(8).toString('hex'),
     title: v.title,
     class: v.className,
     due: v.dueISO,
