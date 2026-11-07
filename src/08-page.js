@@ -3965,6 +3965,11 @@ const WORDS = ${JSON.stringify({
   syncRemoteHint: t('syncRemoteHint'),
   syncSave: t('syncSave'),
   syncSaved: t('syncSaved'),
+  syncTesting: t('syncTesting'),
+  syncRemoteWorks: t('syncRemoteWorks'),
+  syncWhy_otherComputer: t('syncWhy_otherComputer'),
+  syncWhy_remoteDown: t('syncWhy_remoteDown'),
+  syncWhy_remoteUnreachable: t('syncWhy_remoteUnreachable'),
   syncStopHead: t('syncStopHead'),
   syncStopKeep: t('syncStopKeep'),
   syncStopRestore: t('syncStopRestore'),
@@ -5320,6 +5325,8 @@ var syncPickedUrl = '';
 var syncCodeShown = null;
 var syncWatch = null;
 var syncLastDrawn = '';
+var syncRemoteTyped = null; // what didn't pass its test, left there to fix
+var syncRemoteWorked = false;
 
 function syncWhy(why) { return WORDS['syncWhy_' + why] || why || WORDS.syncWhy_unreachable; }
 function syncFill(word, values) {
@@ -5445,11 +5452,21 @@ function drawSyncFollowing(body, res) {
   input.type = 'text';
   input.id = 'sync-remote';
   input.spellcheck = false;
-  input.value = res.remoteUrl || '';
+  input.value = syncRemoteTyped !== null ? syncRemoteTyped : (res.remoteUrl || '');
   withValue.appendChild(input);
-  withValue.appendChild(syncButton(WORDS.syncSave, function () { syncLastDrawn = ''; syncDo('syncSetRemote', { url: input.value }); }));
+  var saveRemote = syncButton(WORDS.syncSave, function () {
+    saveRemote.disabled = true;
+    saveRemote.textContent = WORDS.syncTesting;
+    syncRemoteWorked = false;
+    syncDo('syncSetRemote', { url: input.value }, function (answer) {
+      syncLastDrawn = '';
+      syncRemoteTyped = answer.ok === false ? input.value : null;
+      syncRemoteWorked = !!(answer.ok && answer.url);
+    });
+  });
+  withValue.appendChild(saveRemote);
   row.appendChild(withValue);
-  row.appendChild(syncEl('span', 'field-hint', WORDS.syncRemoteHint));
+  row.appendChild(syncEl('span', 'field-hint', syncRemoteWorked ? WORDS.syncRemoteWorks : WORDS.syncRemoteHint));
   body.appendChild(row);
   body.appendChild(syncEl('h3', '', WORDS.syncStopHead));
   var actions = syncEl('div', 'sync-actions');

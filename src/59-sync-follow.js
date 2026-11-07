@@ -91,7 +91,7 @@ function findNearby(ownFingerprint, ms = 1500, Bonjour) {
  *  there; at home the certificate has already been checked by the time it answers. */
 async function tryRoute(route, m) {
   const hello = await sync.requestJson(route, m, '/api/sync/hello', { timeout: 8000 });
-  if (hello.fingerprint !== m.fp) throw new Error('a different ClassDash answers there');
+  if (hello.fingerprint !== m.fp) { const e = new Error('a different ClassDash answers there'); e.otherMaster = true; throw e; }
   return { ...route, hello };
 }
 
@@ -320,4 +320,4 @@ function startFollowing({ applied = () => {}, busy = () => false, log = () => {}
   };
 }
 
-module.exports = { startFollowing, findNearby, findRoute };
+module.exports = { startFollowing, findNearby, findRoute, tryRoute };

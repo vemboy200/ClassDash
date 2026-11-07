@@ -409,7 +409,7 @@ async function requestJson(route, m, urlPath, options) {
   const r = await request(route, m, urlPath, options);
   if (r.status === 401) { const e = new Error('removed by the master'); e.removed = true; throw e; }
   let parsed;
-  try { parsed = JSON.parse(r.body.toString('utf8')); } catch { throw new Error(`no ClassDash at that address (${r.status})`); }
+  try { parsed = JSON.parse(r.body.toString('utf8')); } catch { const e = new Error(`no ClassDash at that address (${r.status})`); e.notJson = r.status; throw e; }
   if (r.status >= 400) { const e = new Error(parsed.error || `answered ${r.status}`); e.status = r.status; e.answer = parsed; throw e; }
   return parsed;
 }

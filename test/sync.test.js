@@ -133,6 +133,38 @@ async function until(what, test, ms = 12000) {
   ok(took !== null, `the master's assignments arrive (${took} ms)`);
   ok(await until('synced', () => (inProject(followerDir, 'syncStatus').status || {}).state === 'synced') !== null, 'the status says synced');
   ok(inProject(followerDir, 'syncStatus').status.via === 'local', '...by the home address');
+
+  // ---- the address away from home is tested before it's kept ----
+  // A tunnel has a public certificate; these test servers can't, so past the
+  // first check, certificates are switched off for the action only.
+  const trusting = (name, arg) => JSON.parse(cp.spawnSync('node', ['21-notifier-actions.js', name, arg], { cwd: followerDir, encoding: 'utf8', env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_NO_WARNINGS: '1' } }).stdout.trim().split('\n').pop());
+  const kept = () => JSON.parse(read(followerDir, 'sync.json')).master.remoteUrl;
+  const pretending = (port, status) => cp.spawn('node', ['-e', `require('https').createServer({ key: require('fs').readFileSync('api-key.pem'), cert: require('fs').readFileSync('api-cert.pem') }, (q, a) => { a.writeHead(${status}, { 'Content-Type': 'text/html' }); a.end('<html>not this</html>'); }).listen(${port}, '127.0.0.1');`], { cwd: masterDir, stdio: 'ignore' });
+  const badGateway = pretending(base + 10, 502), someSite = pretending(base + 11, 200);
+  process.on('exit', () => { badGateway.kill('SIGKILL'); someSite.kill('SIGKILL'); });
+  await sleep(500);
+  const home = `https://127.0.0.1:${masterPort}`;
+  r = inProject(followerDir, 'syncSetRemote', chunk({ url: home }));
+  ok(!r.ok && r.why === 'wrongCert', 'a certificate the system does not trust is refused', JSON.stringify(r));
+  ok(kept() === undefined, '...and not kept');
+  r = inProject(followerDir, 'syncSetRemote', chunk({ url: 'http://nonsense' }));
+  ok(!r.ok && r.why === 'badAddress', 'not an address, it says so', JSON.stringify(r));
+  r = trusting('syncSetRemote', chunk({ url: `https://127.0.0.1:${base + 12}` }));
+  ok(!r.ok && r.why === 'remoteUnreachable', 'nothing there says so', JSON.stringify(r));
+  r = trusting('syncSetRemote', chunk({ url: `https://127.0.0.1:${base + 10}` }));
+  ok(!r.ok && r.why === 'remoteDown', 'a tunnel with nothing behind it says so', JSON.stringify(r));
+  r = trusting('syncSetRemote', chunk({ url: `https://127.0.0.1:${base + 11}` }));
+  ok(!r.ok && r.why === 'notClassDash', 'a site that is not ClassDash says so', JSON.stringify(r));
+  r = trusting('syncSetRemote', chunk({ url: `https://127.0.0.1:${followerPort}` }));
+  ok(!r.ok && r.why === 'otherComputer', 'another ClassDash says so', JSON.stringify(r));
+  ok(kept() === undefined, 'none of them were kept');
+  r = trusting('syncSetRemote', chunk({ url: home }));
+  ok(r.ok && r.url === home && kept() === home, 'the real master passes and is kept', JSON.stringify(r));
+  r = trusting('syncSetRemote', chunk({ url: `https://127.0.0.1:${base + 12}` }));
+  ok(!r.ok && kept() === home, 'a bad new address leaves the working one', JSON.stringify(r));
+  r = inProject(followerDir, 'syncSetRemote', chunk({ url: '' }));
+  ok(r.ok && kept() === undefined, 'empty takes it away without testing anything', JSON.stringify(r));
+  badGateway.kill('SIGKILL'); someSite.kill('SIGKILL');
   const sidebar = JSON.parse((await call(followerPort, '/api/dashboard', { Authorization: 'Bearer ' + followerToken })).body).view.pieces.sync;
   ok(/reload-label">Синхронизировано</.test(sidebar), 'the sidebar says just that', String(sidebar).slice(0, 300));
   ok(/title="Синхронизировано с /.test(sidebar), '...and its tooltip says with which computer', String(sidebar).slice(0, 300));

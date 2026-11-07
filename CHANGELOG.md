@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Settings → Sync tests an away-from-home address before saving it**, and says what's wrong if it doesn't reach the computer you're following, so a typo or a broken tunnel doesn't wait until you're away to show up.
 - **Opening any address in a browser while signed out now goes to the sign-in page**, instead of showing a raw "missing or wrong bearer token" error. Addresses under `/api` and programs asking the API still get that error.
 - **Security: a `napominalka://` link can no longer run any action on the Mac.** A website could offer a link that, after the browser's "Open ClassDash?" prompt, changed settings, rolled the access key or removed devices. Links can now only hide, unhide, mute, unmute or restart the server. Everything else needs the app's own window. A saved copy of the page opened in a plain browser can no longer change settings or start a check.
 - **A check with no internet says so instead of sitting on "starting".** It tests the connection before opening a browser, stops within seconds if there's none, and shows a banner until a check works. A bad connection also can't hold up the start of a check for as long.

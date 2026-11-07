@@ -535,6 +535,15 @@ async function syncSummary(action) {
   };
 }
 
+/** What a remote address failing its test means, for the person typing it. */
+function remoteProblem(e) {
+  if (e.removed || e.otherMaster) return 'otherComputer';
+  if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY/.test(e.code || '')) return 'wrongCert';
+  if (e.notJson >= 500) return 'remoteDown';
+  if (e.notJson || e.status) return 'notClassDash';
+  return 'remoteUnreachable';
+}
+
 function syncAct(action, arg) {
   const sync = require('./58-sync.js');
   const security = require('./23-api-security.js');
@@ -600,9 +609,20 @@ function syncAct(action, arg) {
       const given = decodeArg(arg) || {};
       const url = given.url ? sync.cleanUrl(given.url) : null;
       if (given.url && !url) return { ok: false, action, why: 'badAddress' };
-      if (url) saved.master.remoteUrl = url; else delete saved.master.remoteUrl;
-      sync.writeSync(saved);
-      return { ok: true, action, url };
+      if (!url) {
+        delete saved.master.remoteUrl;
+        sync.writeSync(saved);
+        return { ok: true, action, url };
+      }
+      // Only kept once it has been seen to reach this master. Otherwise a typo
+      // or a broken tunnel would only show up away from home.
+      return require('./59-sync-follow.js').tryRoute({ url, kind: 'remote' }, saved.master).then(() => {
+        const now = sync.readSync();
+        if (!now.master || now.master.fp !== saved.master.fp) return { ok: false, action, why: 'notFollowing' };
+        now.master.remoteUrl = url;
+        sync.writeSync(now);
+        return { ok: true, action, url };
+      }, e => ({ ok: false, action, why: remoteProblem(e) }));
     }
     default:
       return { ok: false, action, why: 'unknown' };
