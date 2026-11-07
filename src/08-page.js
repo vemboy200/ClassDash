@@ -363,7 +363,7 @@ function syncIndicator() {
   }[status.state] || say(t('syncNavCutOff'), t('syncNavCutOffShort'));
   const connected = status.state === 'synced' || status.state === 'syncing';
   const title = line.long + (status.waiting ? ` · ${fill('syncNavWaiting', status.waiting)}` : '');
-  const text = line.short + (status.waiting ? ` · ${fill('syncNavWaitingShort', status.waiting)}` : '');
+  const text = line.short + (status.waiting ? ` (${status.waiting})` : '');
   return `<button type="button" class="check-status sync-status" id="sync-status" data-state="${escapeHtml(status.state)}" title="${escapeHtml(title)}" onclick="openSyncSettings()"><span class="nav-icon pixel-icon ${connected ? 'icon-line' : 'icon-line-broken'}" aria-hidden="true"></span><span class="reload-label">${escapeHtml(text)}</span></button>`;
 }
 

@@ -249,6 +249,9 @@ async function until(what, test, ms = 12000) {
   inProject(followerDir, 'virtualDone', offlineId);
   ok(readList(followerDir, 'sync-queue.json').length === 3, 'and these wait', read(followerDir, 'sync-queue.json'));
   ok(inProject(followerDir, 'syncStatus').status.waiting === 3, 'the status counts them');
+  const cutOffLine = JSON.parse((await call(followerPort, '/api/dashboard', { Authorization: 'Bearer ' + followerToken })).body).view.pieces.sync;
+  ok(/reload-label">Нет связи \(3\)</.test(cutOffLine), 'the sidebar says so briefly', String(cutOffLine).slice(0, 300));
+  ok(/title="[^"]*Ждут отправки: 3/.test(cutOffLine), '...and its tooltip in full', String(cutOffLine).slice(0, 300));
 
   // ---- an impostor at the master's address gets nothing ----
   const impostor = T.makeProject({ 'settings.json': { language: 'en' } });
