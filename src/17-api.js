@@ -919,6 +919,26 @@ let syncClients = [];
 let lastSyncVersion = null;
 const SYNC_PUSH_DELAY_MS = 200;
 
+// ── Who's connected ──
+//
+// Everything holding a stream open: other ClassDash computers following this one,
+// pages open in a browser, and programs like Home Assistant. Not the app's own
+// window: it's what's showing the number. A device that vanished without saying
+// goodbye stays counted until a ping to it fails.
+function clientCounts() {
+  return {
+    followers: syncClients.length,
+    browsers: sseClients.filter(c => c.dashboard && !c.isApp).length,
+    programs: sseClients.filter(c => !c.dashboard).length,
+  };
+}
+
+/** Tells every open page the new numbers. */
+function clientsChanged() {
+  const payload = `event: clients\ndata: ${JSON.stringify(clientCounts())}\n\n`;
+  for (const client of sseClients) if (client.dashboard) client.write(payload);
+}
+
 function tellFollowers() {
   if (!syncClients.length) return;
   let version;
@@ -1623,6 +1643,7 @@ function start() {
       }
     }
 
+    if (urlPath === '/api/clients') return respond(200, clientCounts());
     if (urlPath === '/api/sync/hello') return respond(200, sync.facts());
     if (urlPath === '/api/sync/manifest') {
       try { return respond(200, sync.manifest()); } catch (e) { return respond(500, { error: e.message }); }
@@ -1640,7 +1661,12 @@ function start() {
       res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       res.write('event: ping\ndata: {}\n\n');
       syncClients.push(res);
-      const drop = () => { syncClients = syncClients.filter(c => c !== res); };
+      clientsChanged();
+      const drop = () => {
+        if (!syncClients.includes(res)) return;
+        syncClients = syncClients.filter(c => c !== res);
+        clientsChanged();
+      };
       req.on('close', drop);
       res.on('error', drop);
       return;
@@ -1649,6 +1675,7 @@ function start() {
     if (urlPath === '/api/stream') {
       const client = streamWriter(req, res);
       client.dashboard = /[?&]view=dashboard(&|$)/.test(req.url || '');
+      client.isApp = clientKind(req) === 'app';
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -1668,9 +1695,12 @@ function start() {
         console.error('stream: could not build the first update:', e.message);
       }
       sseClients.push(client);
+      clientsChanged();
       const drop = () => {
+        if (!sseClients.includes(client)) return;
         sseClients = sseClients.filter(c => c !== client);
         client.close();
+        clientsChanged();
       };
       req.on('close', drop);
       res.on('error', drop);

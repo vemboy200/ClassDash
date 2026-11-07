@@ -351,15 +351,19 @@ function syncIndicator() {
   if (!status) return '';
   const fill = (key, value) => t(key).split(/\{\w+\}/).join(value);
   const name = status.name;
+  // Short in the sidebar, in full in its tooltip and in Settings → Sync.
+  const say = (long, short) => ({ long, short: short || long });
+  const remote = status.via === 'remote';
   const line = {
-    synced: fill(status.via === 'remote' ? 'syncNavRemote' : 'syncNavSynced', name),
-    syncing: t('syncNavSyncing'),
-    removed: fill('syncNavRemoved', name),
-    otherAccount: fill('syncNavOtherAccount', name),
-  }[status.state] || t('syncNavCutOff');
+    synced: say(fill(remote ? 'syncNavRemote' : 'syncNavSynced', name), t(remote ? 'syncNavRemoteShort' : 'syncNavSyncedShort')),
+    syncing: say(t('syncNavSyncing')),
+    removed: say(fill('syncNavRemoved', name)),
+    otherAccount: say(fill('syncNavOtherAccount', name)),
+  }[status.state] || say(t('syncNavCutOff'), t('syncNavCutOffShort'));
   const connected = status.state === 'synced' || status.state === 'syncing';
-  const text = line + (status.waiting ? ` · ${fill('syncNavWaiting', status.waiting)}` : '');
-  return `<button type="button" class="check-status sync-status" id="sync-status" data-state="${escapeHtml(status.state)}" title="${escapeHtml(text)}" onclick="openSyncSettings()"><span class="nav-icon pixel-icon ${connected ? 'icon-line' : 'icon-line-broken'}" aria-hidden="true"></span><span class="reload-label">${escapeHtml(text)}</span></button>`;
+  const title = line.long + (status.waiting ? ` · ${fill('syncNavWaiting', status.waiting)}` : '');
+  const text = line.short + (status.waiting ? ` · ${fill('syncNavWaitingShort', status.waiting)}` : '');
+  return `<button type="button" class="check-status sync-status" id="sync-status" data-state="${escapeHtml(status.state)}" title="${escapeHtml(title)}" onclick="openSyncSettings()"><span class="nav-icon pixel-icon ${connected ? 'icon-line' : 'icon-line-broken'}" aria-hidden="true"></span><span class="reload-label">${escapeHtml(text)}</span></button>`;
 }
 
 /** The other computer asking this one to follow it. */
@@ -1890,7 +1894,7 @@ function checkStatusSummary(status) {
 /** The clickable cloud itself, at the bottom of the sidebar. */
 function checkStatusIndicator() {
   const sum = checkStatusSummary(checkStatus());
-  return `<button type="button" class="check-status" onclick="toggleCheckStatusDetail()"
+  return `<button type="button" class="check-status" id="check-status-button" onclick="toggleCheckStatusDetail()"
        title="${escapeHtml(`${t('checkStatusTitle')}: ${sum.text}`)}"><span class="status-cloud pixel-icon status-${sum.status}"></span><span class="reload-label check-summary">${escapeHtml(sum.text)}</span></button>`;
 }
 
@@ -3326,8 +3330,11 @@ ${cardHtml[id]}
   }
   .mini-btn:hover { color: var(--text); border-color: var(--dim); }
   .api-status { margin-left: 6px; }
+  .app-nav .client-count[hidden] { display: none; }
+  .app-nav .client-count .reload-label { min-width: 0; flex: 1 1 auto; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .app-nav .sync-status { text-align: left; }
-  .app-nav .sync-status .reload-label { min-width: 0; overflow-wrap: anywhere; }
+  /* One line whatever the computer's called, so the sidebar never changes height; the tooltip has it all. */
+  .app-nav .sync-status .reload-label { min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sync-status[data-state="cutOff"], .sync-status[data-state="removed"], .sync-status[data-state="otherAccount"] { color: var(--dim); }
   #sync-body h3 { font-size: 16px; margin: 16px 0 6px; }
   .sync-nearby { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
@@ -3955,6 +3962,9 @@ const WORDS = ${JSON.stringify({
   syncWhy_needLan: t('syncWhy_needLan'),
   syncWhy_nothingPaired: t('syncWhy_nothingPaired'),
   syncCancel: t('settingsApiPairCancel'),
+  clientsOne: t('clientsOne'),
+  clientsMany: t('clientsMany'),
+  clientsDetail: t('clientsDetail'),
   syncRoleMaster: t('syncRoleMaster'),
   syncRoleFollower: t('syncRoleFollower'),
   apiNoDevices: t('settingsApiNoDevices'),
@@ -5427,6 +5437,8 @@ function drawSync(res) {
   // Unchanged, it's left alone, so what someone's typing isn't lost.
   var drawing = JSON.stringify([res.status && [res.status.state, res.status.via, res.status.waiting, res.status.lastSync], res.pending, res.proposal, res.followers, res.remoteUrl, !!syncFacts, syncError, syncNearbyList]);
   if (drawing === syncLastDrawn) return;
+  // "Last copied" moves every few seconds during a check.
+  if (body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
   syncLastDrawn = drawing;
   body.textContent = '';
   if (syncError) body.appendChild(syncEl('p', 'sync-error', syncError));
@@ -7716,7 +7728,7 @@ function showFilterKeyHints() {
   each('.filters input[data-group="days"]', function (b) { return DUE_SHORTCUT_LABELS[b.value] || ''; });
 }
 function showStatusKeyHint() {
-  if (showKeyHints) keyHintTip(document.querySelector('.check-status'), KEY_HINTS_ON_MAC ? '\u2318S' : 'Ctrl+S');
+  if (showKeyHints) keyHintTip(document.getElementById('check-status-button'), KEY_HINTS_ON_MAC ? '\u2318S' : 'Ctrl+S');
 }
 (function () {
   showFilterKeyHints();
@@ -8073,6 +8085,18 @@ function connectionLost() {
   }
 }
 
+// How many other things are connected to this server, in the sidebar. Hidden at
+// none, and in the saved copy of the page, which has no server to ask.
+function showClientCount(counts) {
+  var el = document.getElementById('client-count');
+  if (!el) return;
+  var total = counts ? counts.followers + counts.browsers + counts.programs : 0;
+  el.hidden = !total;
+  if (!total) return;
+  el.querySelector('.reload-label').textContent = (total === 1 ? WORDS.clientsOne : WORDS.clientsMany).replace('{count}', total);
+  el.title = WORDS.clientsDetail.replace('{followers}', counts.followers).replace('{browsers}', counts.browsers).replace('{programs}', counts.programs);
+}
+
 function openConnection() {
   if (connectionStream) connectionStream.close();
   var stream = new EventSource('/api/stream?view=dashboard');
@@ -8082,8 +8106,14 @@ function openConnection() {
     connectionAlive();
     dashHeard(JSON.parse(e.data));
   });
+  stream.addEventListener('clients', function (e) {
+    connectionAlive();
+    showClientCount(JSON.parse(e.data));
+  });
   stream.onopen = connectionAlive;
   stream.onerror = function () {
+    // Not connected, so it can't know any more.
+    showClientCount(null);
     if (stream !== connectionStream) return;
     // The browser retries a dropped stream by itself; one it gave up on
     // (an answer that wasn't the stream, like 401) needs a look first.
@@ -8386,6 +8416,7 @@ applyRoute();
   <button class="reload named${progress ? ' running' : ''}"${readSettings().edpuzzleEnabled === false ? ' data-quick-only' : ''}
          id="freshcheck-button"
          title="${escapeHtml(t(progress ? 'stopCheckHint' : 'freshCheckHint'))}"><span class="reload-icon pixel-icon icon-freshcheck"></span><span class="reload-icon pixel-icon icon-stop"></span><span class="reload-label">${escapeHtml(t(progress ? 'stopLabel' : 'freshCheckLabel'))}</span></button>
+  <button type="button" class="check-status client-count" id="client-count" hidden onclick="showPage('settings'); showSettingsSection('api')"><span class="nav-icon pixel-icon icon-api" aria-hidden="true"></span><span class="reload-label"></span></button>
   ${livePiece('sync', pieces.sync)}
   ${livePiece('status', pieces.status)}
   ${livePiece('updated', pieces.updated, SKELETONS.status)}`);

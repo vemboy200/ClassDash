@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **The sidebar shows how many clients are connected**: other computers following this one, pages open in a browser, and programs like Home Assistant. Hover for the breakdown. It doesn't count the app's own window, and it's hidden when there are none.
 - **Sync between two of your computers** (Settings → Sync). Pair them with a code and choose which is the master. It does the checking, and the other copies everything it finds within a moment, keeps its own copy for when they can't reach each other, and shows how it's connected in the sidebar. What you do on the follower (hiding, reminders, starting a check) happens on the master; while cut off it happens locally and goes across on reconnecting. Each computer keeps its own sign-ins and keys, its data is set aside rather than deleted, and it can use a second address for away from home, such as a Cloudflare tunnel. Each computer announces its role on the network, so the list of nearby computers shows which are masters and which can't be followed. The workspace's PDFs aren't synced yet.
 - **Wrong sign-ins from other devices are limited** to 10 a minute per address, so a server reachable from the internet can't have a waiting pairing code used up by strangers.
 - **Pages reached through a tunnel on the same computer** now get the same compressed, cacheable files as other devices.

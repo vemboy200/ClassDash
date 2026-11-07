@@ -77,7 +77,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   const dueBox = v => d.querySelector('.filters input[data-group="days"][value="' + v + '"]');
   const DUE = [['1', 'KeyT', 'T', 'today and tomorrow'], ['7', 'KeyW', 'W', 'this week'], ['31', 'KeyH', 'H', 'this month'], ['past', 'KeyO', 'O', 'overdue'], ['none', 'KeyN', 'N', 'no due date']];
   for (const [v, , key, label] of DUE) ok(dueBox(v) && dueBox(v).nextElementSibling.textContent === key, 'the ' + label + ' row shows ' + key);
-  ok(/Ctrl\+R/.test(d.getElementById('quickcheck-button').title) && /Ctrl\+Shift\+R/.test(d.getElementById('freshcheck-button').title) && /Ctrl\+S/.test(d.querySelector('.check-status').title), 'header tooltips carry the shortcuts (Windows style)');
+  ok(/Ctrl\+R/.test(d.getElementById('quickcheck-button').title) && /Ctrl\+Shift\+R/.test(d.getElementById('freshcheck-button').title) && /Ctrl\+S/.test(d.getElementById('check-status-button').title), 'header tooltips carry the shortcuts (Windows style)');
 
   // ── class filter: every slot, digit row and numpad ──
   const slotCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal'];
@@ -215,7 +215,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   // ── macOS: Cmd is the command key, Ctrl is not ──
   s = await open({ mac: true });
   ({ w, d, press } = s);
-  ok(/⌘R/.test(d.getElementById('quickcheck-button').title) && /⇧⌘R/.test(d.getElementById('freshcheck-button').title) && /⌘S/.test(d.querySelector('.check-status').title), 'tooltips use the Mac symbols');
+  ok(/⌘R/.test(d.getElementById('quickcheck-button').title) && /⇧⌘R/.test(d.getElementById('freshcheck-button').title) && /⌘S/.test(d.getElementById('check-status-button').title), 'tooltips use the Mac symbols');
   const macQuicks = () => s.sent.filter(m => m.action === 'quickCheck').length;
   press('KeyR', { metaKey: true }); ok(macQuicks() === 1, 'Cmd+R = Quick check');
   { const q = d.getElementById('quickcheck-button'); q.classList.remove('checking'); q.disabled = false; w.quickSpinUntil = 0; }
@@ -234,7 +234,7 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
     cp.spawnSync('node', ['05-playwright-draft.js', '--redraw'], { cwd: PROJ });
     const off = await open();
     ok(off.d.querySelectorAll('.key-hint').length === 0, 'hints off: no key badges on the filters');
-    ok(!/Ctrl\+R|Ctrl\+S/.test(off.d.getElementById('quickcheck-button').title + off.d.querySelector('.check-status').title), 'hints off: no shortcut in the tooltips either');
+    ok(!/Ctrl\+R|Ctrl\+S/.test(off.d.getElementById('quickcheck-button').title + off.d.getElementById('check-status-button').title), 'hints off: no shortcut in the tooltips either');
     ok(!off.d.querySelector('[data-bool-key="showKeyHints"]').checked, 'the toggle shows as off');
     const b = clsBoxes(off.d)[0], before = b.checked;
     off.press('Digit1');

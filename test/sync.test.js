@@ -133,6 +133,9 @@ async function until(what, test, ms = 12000) {
   ok(took !== null, `the master's assignments arrive (${took} ms)`);
   ok(await until('synced', () => (inProject(followerDir, 'syncStatus').status || {}).state === 'synced') !== null, 'the status says synced');
   ok(inProject(followerDir, 'syncStatus').status.via === 'local', '...by the home address');
+  const sidebar = JSON.parse((await call(followerPort, '/api/dashboard', { Authorization: 'Bearer ' + followerToken })).body).view.pieces.sync;
+  ok(/reload-label">Синхронизировано</.test(sidebar), 'the sidebar says just that', String(sidebar).slice(0, 300));
+  ok(/title="Синхронизировано с /.test(sidebar), '...and its tooltip says with which computer', String(sidebar).slice(0, 300));
   ok(read(followerDir, 'скрытые.txt') === 'from-master-2\n', 'what is hidden comes too');
   ok(read(followerDir, PHOTO) === 'made-up picture', 'and announcement photos');
   ok(Math.abs(fs.statSync(path.join(followerDir, 'last-collection.json')).mtimeMs - longAgo.getTime()) < 2000, 'the last check keeps its real time');
@@ -182,6 +185,14 @@ async function until(what, test, ms = 12000) {
   ok(took !== null, `a check running on the master shows here (${took} ms)`);
   const stillCopies = () => { fs.appendFileSync(path.join(masterDir, 'не-срочно.txt'), 'while-checking\n'); return until('copied', () => (read(followerDir, 'не-срочно.txt') || '').includes('while-checking'), 5000); };
   ok(await stillCopies() !== null, "and that doesn't stop copying, which would never let it end");
+  // Every routine copy used to flip this, which made the sidebar jump.
+  const states = new Set();
+  for (let i = 0; i < 25; i++) {
+    fs.writeFileSync(path.join(masterDir, 'live', 'check-run.json'), JSON.stringify({ ...running, updatedAt: Date.now() + i }));
+    states.add(JSON.parse(read(followerDir, 'sync-status.json')).state);
+    await sleep(100);
+  }
+  ok(states.size === 1 && states.has('synced'), 'and the status stays synced while it does', [...states].join());
   fs.writeFileSync(path.join(masterDir, 'live', 'check-run.json'), JSON.stringify({ ...running, running: false, percent: 100 }));
   ok(await until('over', () => JSON.parse(read(followerDir, 'live/check-run.json') || '{}').running === false, 5000) !== null, 'and its end does too');
 

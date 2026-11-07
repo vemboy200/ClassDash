@@ -183,7 +183,9 @@ function startFollowing({ applied = () => {}, busy = () => false, log = () => {}
         do {
           again = false;
           if (busy()) { await sleep(5000); again = true; continue; }
-          setStatus({ state: 'syncing' });
+          // Not marked as syncing: during a check on the master this runs every few
+          // seconds, and the sidebar would flicker. Connecting says it, until the
+          // first copy is done.
           await sync.replayQueue(route, m, log);
           const theirs = await sync.requestJson(route, m, '/api/sync/manifest');
           const changed = await sync.applyManifest(theirs, async name => {
