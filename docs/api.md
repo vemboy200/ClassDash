@@ -63,7 +63,7 @@ All need a key except `GET /api/sync/role`. A follower gets its key from `POST /
 
 | Route | What it does |
 |---|---|
-| `GET /api/clients` | `{followers, browsers, programs}`: what's holding a stream open, not counting the app's own window. A page's stream gets the same as a `clients` event whenever it changes. |
+| `GET /api/clients` | `{followers, browsers, programs, list: [{kind, name, since}]}`: what's holding a stream open, not counting the app's own window. `name` is what it paired as or says it is, or `null`. A page's stream gets the same as a `clients` event whenever it changes. |
 | `GET /api/sync/role` | `{role}`: `master`, `follower` or `standalone`, the same as the network announcement says, for when that can't be seen. No key needed, and it says nothing else. |
 | `GET /api/sync/hello` | `{name, fingerprint, lastCheck, assignments, announcements, following, role, account}` |
 | `GET /api/sync/manifest` | `{version, files: {name: {hash, size, mtimeMs}}, settings, collectedWith}` |

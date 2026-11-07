@@ -229,6 +229,15 @@ async function until(what, test, ms = 12000) {
   r = inProject(followerDir, 'syncPair', chunk({ url: masterUrl, code: 'AAA-AAA' }));
   ok(!r.ok && r.why === 'alreadyFollowing', 'nor follow a second one', JSON.stringify(r));
 
+  // ---- a connection that hangs, as Wi-Fi going away often leaves it ----
+  if (process.platform !== 'win32') { // no way to freeze a process there
+    servers.get(masterDir).kill('SIGSTOP');
+    took = await until('hung', () => inProject(followerDir, 'syncStatus').status.state === 'cutOff', 25000);
+    ok(took !== null && took < 20000, `a master that goes silent is noticed in seconds (${took} ms)`);
+    servers.get(masterDir).kill('SIGCONT');
+    ok(await until('back', () => inProject(followerDir, 'syncStatus').status.state === 'synced', 20000) !== null, 'and when it answers again, it reconnects');
+  }
+
   // ---- cut off ----
   await stop(masterDir);
   ok(await until('cut off', () => inProject(followerDir, 'syncStatus').status.state === 'cutOff', 5000) !== null, 'the master going away is noticed');

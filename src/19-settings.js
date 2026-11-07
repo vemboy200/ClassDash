@@ -112,6 +112,10 @@ const DEFAULTS = {
   // hints: the shortcuts themselves work either way.
   showKeyHints: true,
 
+  // The number of connected clients in the sidebar. Off unless asked for: it's a
+  // detail most people have no use for, and Settings → API lists them anyway.
+  showClientCount: false,
+
   // Start the app when this person signs in to the computer (the app sets
   // its own login item from this, see electron/main.js and
   // 16-summary.swift). Off unless they turn it on: an app opening itself
@@ -361,7 +365,7 @@ const TYPES = {
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean', classroomEnabled: 'boolean',
-  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean', openAtLogin: 'boolean',
+  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean', showClientCount: 'boolean', openAtLogin: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',

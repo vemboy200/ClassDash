@@ -882,7 +882,7 @@ async function readInstructions(page, items, previous, now = Date.now()) {
  */
 async function getClasses(page) {
   await page.goto(`https://classroom.google.com/u/${U}/h`,
-                  { waitUntil: 'domcontentloaded', timeout: TIMEOUT });
+                  { waitUntil: 'domcontentloaded', timeout: Math.min(TIMEOUT, 30000) });
 
   if (page.url().includes('accounts.google.com')) {
     throw new Error('cookies expired, need to sign in again: node 05-playwright-draft.js --login');
@@ -1089,8 +1089,9 @@ async function measureNetwork(page) {
   try {
     const ms = await page.evaluate(async () => {
       const t = performance.now();
+      // With a limit: on a bad connection this can otherwise wait for minutes.
       await fetch('https://classroom.google.com/favicon.ico',
-                  { cache: 'no-store', mode: 'no-cors' });
+                  { cache: 'no-store', mode: 'no-cors', signal: AbortSignal.timeout(10000) });
       return Math.round(performance.now() - t);
     });
 
@@ -1274,7 +1275,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // with it off there is no page to open for them.
   if (CLASSROOM_ENABLED) try {
     const probePage = await ctx.newPage();
-    await probePage.goto('https://classroom.google.com/', { waitUntil: 'domcontentloaded' })
+    await probePage.goto('https://classroom.google.com/', { waitUntil: 'domcontentloaded', timeout: 15000 })
       .catch(() => {});
     multiplier = await measureNetwork(probePage);
 
@@ -2355,6 +2356,25 @@ if (require.main !== module) return;
     process.exit(1);
   }, PASS_LIMIT);
   watchdog.unref();
+
+  // Nothing to reach, so no browser and nothing read: what's here stays as it is,
+  // and the page says why (see 60-network-check.js).
+  const networkCheck = require('./60-network-check.js');
+  const places = [
+    ...(CLASSROOM_ENABLED ? ['https://classroom.google.com/'] : []),
+    ...(CANVAS_ENABLED ? [CANVAS_SITE + '/'] : []),
+    ...(EDPUZZLE_ENABLED && process.argv.includes('--full') ? ['https://edpuzzle.com/'] : []),
+  ];
+  if (places.length && !await networkCheck.online(places)) {
+    console.error(`Check not run: ${networkCheck.NO_INTERNET}`);
+    if (CLASSROOM_ENABLED) recordCheckStatus('classroom', false, networkCheck.NO_INTERNET);
+    if (CANVAS_ENABLED) recordCheckStatus('canvas', false, networkCheck.NO_INTERNET);
+    if (EDPUZZLE_ENABLED && process.argv.includes('--full')) recordCheckStatus('edpuzzle', false, networkCheck.NO_INTERNET);
+    live.endRun();
+    redrawPage();
+    process.exitCode = 1;
+    return;
+  }
 
   const now = new Date();
 

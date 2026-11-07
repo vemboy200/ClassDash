@@ -4,7 +4,10 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
-- **The sidebar shows how many clients are connected**: other computers following this one, pages open in a browser, and programs like Home Assistant. Hover for the breakdown. It doesn't count the app's own window, and it's hidden when there are none.
+- **A check with no internet says so instead of sitting on "starting".** It tests the connection before opening a browser, stops within seconds if there's none, and shows a banner until a check works. A bad connection also can't hold up the start of a check for as long.
+- **Sync notices a lost connection faster:** within seconds of the laptop's network changing, or about 15 seconds if a connection just goes quiet.
+- **Settings → API lists what's connected right now**: other computers following this one, pages open in a browser, and programs like Home Assistant. A switch there also shows the count in the sidebar; it's off unless you turn it on.
+- **Settings → API no longer shows a stray Cancel button** when no pairing code is waiting.
 - **Sync between two of your computers** (Settings → Sync). Pair them with a code and choose which is the master. It does the checking, and the other copies everything it finds within a moment, keeps its own copy for when they can't reach each other, and shows how it's connected in the sidebar. What you do on the follower (hiding, reminders, starting a check) happens on the master; while cut off it happens locally and goes across on reconnecting. Each computer keeps its own sign-ins and keys, its data is set aside rather than deleted, and it can use a second address for away from home, such as a Cloudflare tunnel. Each computer announces its role on the network, so the list of nearby computers shows which are masters and which can't be followed. The workspace's PDFs aren't synced yet.
 - **Wrong sign-ins from other devices are limited** to 10 a minute per address, so a server reachable from the internet can't have a waiting pairing code used up by strangers.
 - **Pages reached through a tunnel on the same computer** now get the same compressed, cacheable files as other devices.

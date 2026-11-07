@@ -14,17 +14,20 @@
  *
  * ── Noticing it's gone ──
  *
- * The master says something on the stream at least every 20 seconds, so a
- * connection that hangs instead of dropping (a laptop changing networks) is
- * noticed after STREAM_QUIET_MS, not whenever the system gets around to it.
+ * The master says something on the stream at least every 5 seconds, so a
+ * connection that hangs instead of dropping (Wi-Fi going away often doesn't close
+ * it) is noticed after STREAM_QUIET_MS, not whenever the system gets around to it.
+ * This computer's own addresses changing ends the connection at once and looks
+ * again, in either direction: gone, or back with a network to try.
  */
 const https = require('https');
 const { URL } = require('url');
 const sync = require('./58-sync.js');
-const { SERVICE_TYPE, reachable } = require('./36-api-discovery.js');
+const { SERVICE_TYPE, reachable, addressKey } = require('./36-api-discovery.js');
 
 const LOCAL_HEAD_START_MS = 300;
-const STREAM_QUIET_MS = 50 * 1000;
+const STREAM_QUIET_MS = 15 * 1000;
+const ADDRESS_CHECK_MS = 2 * 1000;
 const RETRY_FIRST_MS = 3 * 1000;
 const RETRY_MOST_MS = 60 * 1000;
 const NOT_FOLLOWING_MS = 3 * 1000;
@@ -297,10 +300,23 @@ function startFollowing({ applied = () => {}, busy = () => false, log = () => {}
   };
   run().catch(e => log(`sync: stopped unexpectedly: ${e.stack || e.message}`));
 
+  let addresses = addressKey();
+  const addressTimer = setInterval(() => {
+    const now = addressKey();
+    if (now === addresses) return;
+    addresses = now;
+    if (!sync.master()) return;
+    log('sync: network changed, looking again');
+    if (control.stop) control.stop('network changed');
+    if (wake.wake) wake.wake();
+    if (network) network.look();
+  }, ADDRESS_CHECK_MS);
+  addressTimer.unref();
+
   return {
     /** Something changed about the connection: look again now. */
     wake() { if (wake.wake) wake.wake(); },
-    stop() { stopped = true; if (control.stop) control.stop('stopping'); if (wake.wake) wake.wake(); stopNetwork(); },
+    stop() { stopped = true; clearInterval(addressTimer); if (control.stop) control.stop('stopping'); if (wake.wake) wake.wake(); stopNetwork(); },
   };
 }
 

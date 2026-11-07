@@ -26,6 +26,7 @@ const { currentToken, certFingerprint, isServerRunning } = require('./23-api-sec
 const virtualAssignments = require('./24-virtual-assignments.js');
 const { isClassStale, classLastActivity } = require('./22-class-activity.js');
 const { checkStatus } = require('./25-check-status.js');
+const { isNetworkProblem } = require('./60-network-check.js');
 const { publishPageVersion } = require('./28-live-state.js');
 const { readUpdateStatus } = require('./26-update-check.js');
 const classLinks = require('./29-class-links.js');
@@ -1592,7 +1593,18 @@ ${classLinksField(s.classLinks)}
         <span class="hint" id="api-pair-note"></span>
         <button type="button" class="mini-btn" id="api-pair-cancel" onclick="cancelPairing()">${escapeHtml(t('settingsApiPairCancel'))}</button>
       </div>
-      <ul class="api-device-list" id="api-device-list"></ul>` },
+      <ul class="api-device-list" id="api-device-list"></ul>
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsClientCount'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="showClientCount" onchange="showClientCount(lastClientCounts)"${s.showClientCount ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsClientCountHint'))}</span>
+      </label>
+      <div class="setting-row api-devices">
+        <span class="field-name">${escapeHtml(t('settingsApiConnected'))}</span>
+        <span class="field-with-value"></span>
+        <span class="field-hint">${escapeHtml(t('settingsApiConnectedHint'))}</span>
+      </div>
+      <ul class="api-device-list" id="api-connected"></ul>` },
     { id: 'sync', label: t('settingsSectionSync'), desc: t('settingsDescSync'), body: `
       <p class="hint">${escapeHtml(t('syncIntro'))}</p>
       <p class="hint" data-app-only-note hidden>${escapeHtml(t('settingsApiAppOnly'))}</p>
@@ -2323,7 +2335,17 @@ function setupAndSignInBanners() {
      </div>`
     : '';
 
-  return setupBanner + signInBanner + syncOfferBanner();
+  const noInternet = Object.values(liveStatus).some(s => s.status === 'problem' && isNetworkProblem(s.detail));
+  let lastCopy = '';
+  if (noInternet) {
+    try {
+      const at = fs.statSync(path.join(PROJECT_ROOT, 'last-collection.json')).mtime;
+      lastCopy = at.toLocaleString(locale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { /* never checked: nothing to call a last copy */ }
+  }
+  const noInternetBanner = !noInternet ? '' : `  <div class="warn no-internet-banner"><span>${escapeHtml(lastCopy ? t('noInternet').split('{when}').join(lastCopy) : t('noInternetNoCopy'))}</span></div>`;
+
+  return noInternetBanner + setupBanner + signInBanner + syncOfferBanner();
 }
 
 /** The banners under them: a setting waiting for a check, schedule heads-ups, an update. */
@@ -3346,6 +3368,7 @@ ${cardHtml[id]}
   .sync-choice .mini-btn { margin-top: 6px; }
   .sync-error { color: var(--hot); margin: 6px 0; }
   .sync-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+  .api-pair-code[hidden] { display: none; }
   .api-pair-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 10px; }
   .api-pair-value { font-size: 28px; letter-spacing: 4px; color: var(--accent, var(--text)); font-variant-numeric: tabular-nums; }
   .api-device-list { list-style: none; margin: 0 0 8px; padding: 0; }
@@ -3965,6 +3988,14 @@ const WORDS = ${JSON.stringify({
   clientsOne: t('clientsOne'),
   clientsMany: t('clientsMany'),
   clientsDetail: t('clientsDetail'),
+  clientFollower: t('clientFollower'),
+  clientProgram: t('clientProgram'),
+  clientNone: t('clientNone'),
+  clientUnknown: t('clientUnknown'),
+  clientKindFollower: t('clientKindFollower'),
+  clientKindBrowser: t('clientKindBrowser'),
+  clientKindProgram: t('clientKindProgram'),
+  clientSince: t('clientSince'),
   syncRoleMaster: t('syncRoleMaster'),
   syncRoleFollower: t('syncRoleFollower'),
   apiNoDevices: t('settingsApiNoDevices'),
@@ -8085,16 +8116,55 @@ function connectionLost() {
   }
 }
 
-// How many other things are connected to this server, in the sidebar. Hidden at
-// none, and in the saved copy of the page, which has no server to ask.
+// What's connected to this server: listed in Settings → API, and if that's been
+// asked for, counted in the sidebar. Neither in the saved copy of the page, which
+// has no server to ask.
+var lastClientCounts = null;
 function showClientCount(counts) {
+  lastClientCounts = counts;
+  renderConnected(counts);
   var el = document.getElementById('client-count');
   if (!el) return;
+  var wanted = document.querySelector('[data-bool-key="showClientCount"]');
   var total = counts ? counts.followers + counts.browsers + counts.programs : 0;
-  el.hidden = !total;
-  if (!total) return;
+  el.hidden = !total || !(wanted && wanted.checked);
+  if (el.hidden) return;
   el.querySelector('.reload-label').textContent = (total === 1 ? WORDS.clientsOne : WORDS.clientsMany).replace('{count}', total);
   el.title = WORDS.clientsDetail.replace('{followers}', counts.followers).replace('{browsers}', counts.browsers).replace('{programs}', counts.programs);
+}
+
+// One row per name and kind, since two tabs in one browser are the same thing twice.
+function renderConnected(counts) {
+  var list = document.getElementById('api-connected');
+  if (!list) return;
+  list.textContent = '';
+  var rows = [];
+  ((counts && counts.list) || []).forEach(function (c) {
+    var name = c.name || (c.kind === 'follower' ? WORDS.clientFollower : WORDS.clientProgram);
+    var same = rows.filter(function (r) { return r.kind === c.kind && r.name === name; })[0];
+    if (same) { same.times++; same.since = Math.min(same.since, c.since); }
+    else rows.push({ kind: c.kind, name: name, since: c.since, times: 1 });
+  });
+  if (!rows.length) {
+    var none = document.createElement('li');
+    none.className = 'api-device-none';
+    none.textContent = counts ? WORDS.clientNone : WORDS.clientUnknown;
+    list.appendChild(none);
+    return;
+  }
+  rows.forEach(function (r) {
+    var item = document.createElement('li');
+    var text = document.createElement('span');
+    text.className = 'api-device-text';
+    text.textContent = r.name + (r.times > 1 ? ' \u00d7' + r.times : '');
+    var when = document.createElement('span');
+    when.className = 'api-device-when';
+    var kind = { follower: WORDS.clientKindFollower, browser: WORDS.clientKindBrowser, program: WORDS.clientKindProgram }[r.kind];
+    when.textContent = kind + ' \u00b7 ' + WORDS.clientSince.replace('{when}', new Date(r.since).toLocaleString(WORDS.calendarLocale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
+    text.appendChild(when);
+    item.appendChild(text);
+    list.appendChild(item);
+  });
 }
 
 function openConnection() {

@@ -697,7 +697,7 @@ function act(action, arg) {
 
       // Ticking a filter or folding the sidebar saves on every click, and those
       // are already showing on the page that did it.
-      const PAGE_MEMORY = ['filterUnchecked', 'filterShowHidden', 'filterShowRemoved', 'navCollapsed', 'dashHidden'];
+      const PAGE_MEMORY = ['filterUnchecked', 'filterShowHidden', 'filterShowRemoved', 'navCollapsed', 'dashHidden', 'showClientCount'];
       if (result.changed.length && result.changed.every(key => PAGE_MEMORY.includes(key))) redrawCards();
       else redraw();
       const pending = require('./19-settings.js').pendingFetchKeys();

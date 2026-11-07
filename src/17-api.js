@@ -926,11 +926,31 @@ const SYNC_PUSH_DELAY_MS = 200;
 // window: it's what's showing the number. A device that vanished without saying
 // goodbye stays counted until a ping to it fails.
 function clientCounts() {
+  const browsers = sseClients.filter(c => c.dashboard && !c.isApp);
+  const programs = sseClients.filter(c => !c.dashboard);
   return {
     followers: syncClients.length,
-    browsers: sseClients.filter(c => c.dashboard && !c.isApp).length,
-    programs: sseClients.filter(c => !c.dashboard).length,
+    browsers: browsers.length,
+    programs: programs.length,
+    list: [
+      ...syncClients.map(c => ({ kind: 'follower', ...c.clientInfo })),
+      ...browsers.map(c => ({ kind: 'browser', ...c.clientInfo })),
+      ...programs.map(c => ({ kind: 'program', ...c.clientInfo })),
+    ],
   };
+}
+
+/** What to call whoever's opening a stream: the name it paired under, or what it
+ *  says it is. Null for a program that doesn't say, which the page calls a program.
+ *  Home Assistant says so in its User-Agent. */
+function clientInfo(req, browser) {
+  const device = deviceFor(givenToken(req));
+  const agent = String(req.headers['user-agent'] || '');
+  const name = device ? device.name
+    : /HomeAssistant/i.test(agent) ? 'Home Assistant'
+    : browser ? deviceNameFromAgent(agent)
+    : null;
+  return { name, since: Date.now() };
 }
 
 /** Tells every open page the new numbers. */
@@ -1020,7 +1040,7 @@ function watchForChanges() {
   // (The Mac reports a Cyrillic name in another Unicode form, hence normalize.)
   // The collected data too, for the same reason: a follower's copy of a file
   // arrives by rename, which would end a watch on the file itself.
-  const CARD_FILES = new Set(['не-срочно.txt', 'скрытые.txt', 'deleted-assignments.txt', 'assignment-links.json', 'last-collection.json', 'messages.json', 'virtual-assignments.json'].map(name => name.normalize('NFC')));
+  const CARD_FILES = new Set(['не-срочно.txt', 'скрытые.txt', 'deleted-assignments.txt', 'assignment-links.json', 'last-collection.json', 'messages.json', 'virtual-assignments.json', 'check-status.json'].map(name => name.normalize('NFC')));
   try {
     fs.watch(PROJECT_ROOT, (kind, name) => {
       if (!name || CARD_FILES.has(String(name).normalize('NFC'))) debounced();
@@ -1080,6 +1100,12 @@ const HEARTBEAT_INTERVAL_MS = 60000; // 1 minute
 const PING_INTERVAL_MS = 20000;
 function sendPing() {
   for (const client of sseClients) client.write('event: ping\ndata: {}\n\n');
+}
+
+// Oftener for a follower, so it notices quickly when this computer is gone: it
+// decides what's the master's job and what's its own by that.
+const SYNC_PING_INTERVAL_MS = 5000;
+function sendSyncPing() {
   for (const follower of syncClients) follower.write('event: ping\ndata: {}\n\n');
 }
 
@@ -1660,6 +1686,7 @@ function start() {
     if (urlPath === '/api/sync/stream') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       res.write('event: ping\ndata: {}\n\n');
+      res.clientInfo = clientInfo(req, false);
       syncClients.push(res);
       clientsChanged();
       const drop = () => {
@@ -1676,6 +1703,7 @@ function start() {
       const client = streamWriter(req, res);
       client.dashboard = /[?&]view=dashboard(&|$)/.test(req.url || '');
       client.isApp = clientKind(req) === 'app';
+      client.clientInfo = clientInfo(req, client.dashboard);
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -1796,6 +1824,7 @@ function start() {
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
     setInterval(sendPing, PING_INTERVAL_MS).unref();
+    setInterval(sendSyncPing, SYNC_PING_INTERVAL_MS).unref();
     // Following another computer, if this one's been set to (58-sync.js).
     syncFollow.startFollowing({
       applied: () => { notifierActions.redrawCards(); pushDash(); broadcastIfChanged(); },
