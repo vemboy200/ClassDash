@@ -1594,9 +1594,10 @@ function start() {
 
     if (!isAuthorized(req)) {
       // A browser asking for the page goes to sign in instead of getting
-      // JSON it can't do anything with.
-      if (req.method === 'GET' && (urlPath === '/' || isPageRoute(urlPath)) && wantsHtml(req)) {
-        res.setHeader('Location', urlPath === '/' ? '/login' : `/login?next=${encodeURIComponent(urlPath)}`);
+      // JSON it can't do anything with, whatever address it opened. Only a
+      // real page is remembered for afterwards, and /api stays an API's answer.
+      if (req.method === 'GET' && !/^\/api(\/|$)/.test(urlPath) && wantsHtml(req)) {
+        res.setHeader('Location', isPageRoute(urlPath) ? `/login?next=${encodeURIComponent(urlPath)}` : '/login');
         return res.writeHead(303).end();
       }
       return respond(401, { error: 'missing or wrong bearer token' });

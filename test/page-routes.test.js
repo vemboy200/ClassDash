@@ -103,6 +103,14 @@ const pushes = w => { let n = 0; const real = w.history.pushState.bind(w.history
   ok((await request('GET', '/settings/api', { Authorization: 'Bearer ' + token })).status === 404, 'a program asking is not sent the page');
   const out = await request('GET', '/settings/api', { Accept: 'text/html' });
   ok(out.status === 303 && out.headers.location === '/login?next=%2Fsettings%2Fapi', 'signed out, it goes to sign in and remembers where');
+  const lost = await request('GET', '/auth/login', { Accept: 'text/html' });
+  ok(lost.status === 303 && lost.headers.location === '/login', 'signed out, an address that is not a page also goes to sign in, without remembering it');
+  ok((await request('GET', '/', { Accept: 'text/html' })).headers.location === '/login', '/ goes to sign in too');
+  ok((await request('GET', '/auth/login')).status === 401, 'a program asking there still gets a 401');
+  ok((await request('GET', '/auth/login', { Accept: 'text/html', Authorization: 'Bearer wrong' })).status === 401, 'as does one with a wrong key, even asking for html');
+  ok((await request('GET', '/api/clients', { Accept: 'text/html' })).status === 401, 'and /api addresses stay an API answer in a browser');
+  ok((await request('GET', '/api', { Accept: 'text/html' })).status === 401, 'including /api itself');
+  ok((await request('POST', '/auth/login', { Accept: 'text/html' })).status === 401, 'only opening a page is sent to sign in, not a POST');
   const signIn = await request('GET', out.headers.location);
   ok(/action="\/login\?next=%2Fsettings%2Fapi"/.test(signIn.text), 'the sign-in form keeps it');
   const form = { 'Content-Type': 'application/x-www-form-urlencoded' };
