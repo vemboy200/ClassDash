@@ -87,6 +87,12 @@ function writeSync(value) {
 function master() { return readSync().master || null; }
 function isFollowing() { return !!master(); }
 
+/** What this computer is to others, for its network announcement. */
+function role() {
+  if (isFollowing()) return 'follower';
+  return security.listDevices().some(d => d.follower) ? 'master' : 'standalone';
+}
+
 // ── Status: what the follower's loop last knew ──
 
 function readStatus(now = Date.now()) {
@@ -113,19 +119,30 @@ function checksHeldBack() {
   const m = master();
   if (!m) return null;
   if (isConnected()) return 'the master checks while connected';
-  if (m.account && accountKey() && m.account !== accountKey()) return 'set up for a different account than the master';
+  if (!sameAccount(m.account, accountKey())) return 'set up for a different account than the master';
   return null;
 }
 
 // ── Whose data this is ──
 
-/** A fingerprint of the account set up here, never the address itself, so two
- *  computers can compare without either saying who it is. '' when not set up. */
+/** Fingerprints of the account set up here, never the addresses themselves, so
+ *  two computers can compare without either saying who it is. Empty when not set.
+ *  Separate, since a computer can have one set up and not the other. */
 function accountKey(settings = require('./19-settings.js').read()) {
+  const hash = (kind, value) => (value ? crypto.createHash('sha256').update(`classdash-account\n${kind}\n${value}`).digest('hex').slice(0, 32) : '');
   const email = String(settings.email || '').trim().toLowerCase();
-  const canvas = String(settings.canvas || '').trim().toLowerCase();
-  if (!email && !canvas) return '';
-  return crypto.createHash('sha256').update(`classdash-account\n${email}\n${canvas}`).digest('hex').slice(0, 32);
+  const canvas = String(settings.canvas || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  return { email: hash('email', email === 'your.school@email.example' ? '' : email), canvas: hash('canvas', canvas) };
+}
+
+/** Whether two computers could be the same person's. The email decides when both
+ *  have one, since a person has one school email and Canvas can be reached by more
+ *  than one address. Only something set on both can differ: missing isn't different. */
+function sameAccount(a, b) {
+  if (!a || !b) return true;
+  if (a.email && b.email) return a.email === b.email;
+  if (a.canvas && b.canvas) return a.canvas === b.canvas;
+  return true;
 }
 
 /** The facts each computer shows when asking which should be the master. */
@@ -146,6 +163,8 @@ function facts() {
     assignments,
     announcements: Array.isArray(announcements) ? announcements.length : 0,
     following: isFollowing(),
+    // Also in the network announcement, but that can be blocked or not reach here.
+    role: role(),
     account: accountKey(),
   };
 }
@@ -554,8 +573,8 @@ function sharedConfigChange(chunk) {
 
 module.exports = {
   SYNC_FILE, STATUS_FILE, QUEUE_FILE, PROPOSAL_FILE, ASIDE_DIR, COPIED_FILES, SHARED_SETTINGS, STATUS_EVERY_MS,
-  readSync, writeSync, master, isFollowing, readStatus, writeStatus, isConnected, checksHeldBack,
-  accountKey, facts, manifest, isCopied, isWatched, applyManifest, setAside, restoreAside,
+  readSync, writeSync, master, isFollowing, role, readStatus, writeStatus, isConnected, checksHeldBack,
+  accountKey, sameAccount, facts, manifest, isCopied, isWatched, applyManifest, setAside, restoreAside,
   fingerprintOf, cleanUrl, tlsOptions, request, requestJson, redeem, leave,
   isCheckingHere, readProposal, writeProposal, clearProposal,
   RUNS_ON_MASTER, LOCAL_TOO, FORWARDED, isThroughMaster, queue, enqueue, forward, replayQueue, sharedConfigChange,

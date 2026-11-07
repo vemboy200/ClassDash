@@ -3955,6 +3955,8 @@ const WORDS = ${JSON.stringify({
   syncWhy_needLan: t('syncWhy_needLan'),
   syncWhy_nothingPaired: t('syncWhy_nothingPaired'),
   syncCancel: t('settingsApiPairCancel'),
+  syncRoleMaster: t('syncRoleMaster'),
+  syncRoleFollower: t('syncRoleFollower'),
   apiNoDevices: t('settingsApiNoDevices'),
   apiDevicePaired: t('settingsApiDevicePaired', '{when}'),
   apiDeviceUsed: t('settingsApiDeviceUsed', '{when}'),
@@ -5339,13 +5341,16 @@ function drawSyncConnect(body) {
   body.appendChild(syncEl('p', 'hint', WORDS.syncNearby));
   var nearby = syncEl('div', 'sync-nearby');
   (syncNearbyList || []).forEach(function (server) {
-    var b = syncButton(server.name, function () {
+    var label = server.name + (server.role === 'master' ? ' · ' + WORDS.syncRoleMaster : server.role === 'follower' ? ' · ' + WORDS.syncRoleFollower : '');
+    var b = syncButton(label, function () {
       syncPickedUrl = syncPickedUrl === server.url ? '' : server.url;
       document.getElementById('sync-address').value = syncPickedUrl;
       syncLastDrawn = '';
       loadSync(true);
     });
     b.setAttribute('aria-pressed', String(syncPickedUrl === server.url));
+    // It would only say no: a computer that follows another can't be followed.
+    if (server.role === 'follower') b.disabled = true;
     nearby.appendChild(b);
   });
   body.appendChild(nearby);

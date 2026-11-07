@@ -58,7 +58,7 @@ async function until(what, test, ms = 12000) {
   // (A real announcement would show up in Home Assistant as a new discovery.)
   const { findNearby } = require(path.join(masterDir, '59-sync-follow.js'));
   const announced = [
-    { name: 'ClassDash on Made-up-Mac', port: 8734, addresses: ['fe80::1', '100.70.0.1', '192.168.1.20'], txt: { fp: 'AA:BB' } },
+    { name: 'ClassDash on Made-up-Mac', port: 8734, addresses: ['fe80::1', '100.70.0.1', '192.168.1.20'], txt: { fp: 'AA:BB', role: 'master' } },
     { name: 'ClassDash on Made-up-Self', port: 8734, addresses: ['192.168.1.21'], txt: { fp: 'OWN' } },
     { name: 'ClassDash on Only-VPN', port: 8734, addresses: ['100.70.0.2'], txt: { fp: 'CC:DD' } },
     { name: 'ClassDash, too old to say', port: 8734, addresses: ['192.168.1.22'], txt: {} },
@@ -69,6 +69,18 @@ async function until(what, test, ms = 12000) {
   }
   const nearby = await findNearby('OWN', 20, FakeBonjour);
   ok(nearby.length === 1 && nearby[0].url === 'https://192.168.1.20:8734' && nearby[0].name === 'Made-up-Mac', 'it lists others, by a reachable address, not itself', JSON.stringify(nearby));
+  ok(nearby[0].role === 'master', 'with the role each one announces');
+
+  // ---- what counts as the same account ----
+  const { accountKey, sameAccount } = require(path.join(masterDir, '58-sync.js'));
+  const acct = (email, canvas) => accountKey({ email, canvas });
+  ok(sameAccount(acct('a@school.test', 'https://school.test/'), acct('A@School.test ', 'school.test')), 'case, spaces, https and a final slash make no difference');
+  ok(sameAccount(acct('a@school.test', 'school.test'), acct('a@school.test', '')), 'Canvas missing on one is not a different account');
+  ok(sameAccount(acct('a@school.test', 'school.test'), acct('a@school.test', 'other.test')), 'the same email decides, whatever Canvas address each uses');
+  ok(sameAccount(acct('a@school.test', ''), acct('', 'school.test')), 'nothing to compare is not a difference');
+  ok(sameAccount(acct('a@school.test', ''), acct('your.school@email.example', '')), 'the placeholder email counts as none');
+  ok(!sameAccount(acct('a@school.test', 'school.test'), acct('b@school.test', 'school.test')), 'a different email is a different account');
+  ok(!sameAccount(acct('', 'school.test'), acct('', 'other.test')), 'with no emails, a different Canvas is');
 
   const base = 20900 + Math.floor(Math.random() * 300);
   const masterPort = base, followerPort = base + 1;
@@ -101,6 +113,8 @@ async function until(what, test, ms = 12000) {
   ok(readList(followerDir, 'last-collection.json')[0].id === 'from-laptop', '...and nothing was copied');
   const device = inProject(masterDir, 'devices').devices.find(d => d.follower);
   ok(!!device, 'the master knows it as a follower');
+  const roleIn = dir => cp.spawnSync('node', ['-e', "console.log(require('./58-sync.js').role())"], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+  ok(roleIn(masterDir) === 'master' && roleIn(followerDir) === 'standalone', 'so it now counts as a master, and the other nothing yet');
   if (process.platform !== 'win32') ok((fs.statSync(path.join(followerDir, 'sync.json')).mode & 0o777) === 0o600, 'the file with the key in it is private');
 
   // A browser with the key can't do this to a computer.
@@ -114,6 +128,7 @@ async function until(what, test, ms = 12000) {
   // ---- following: the data comes down ----
   r = inProject(followerDir, 'syncFollow');
   ok(r.ok, 'it follows', JSON.stringify(r));
+  ok(roleIn(followerDir) === 'follower', 'and now it counts as a follower');
   let took = await until('copied', () => readList(followerDir, 'last-collection.json').some(i => i.id === 'from-master-1'));
   ok(took !== null, `the master's assignments arrive (${took} ms)`);
   ok(await until('synced', () => (inProject(followerDir, 'syncStatus').status || {}).state === 'synced') !== null, 'the status says synced');
@@ -142,6 +157,12 @@ async function until(what, test, ms = 12000) {
   for (const name of ['settings.json', 'api-token.txt', 'grades-secret.json', 'device-keys.json', 'sync.json', '../settings.json', 'announcement-photos/../settings.json', 'browser-profile/Cookies']) {
     ok((await call(masterPort, '/api/sync/file?name=' + encodeURIComponent(name), bearer)).status === 404, `${name} is not given out`);
   }
+  const asked = JSON.parse((await call(masterPort, '/api/sync/hello', bearer)).body);
+  ok(asked.role === 'master', 'a server can be asked its role, with no announcement involved', JSON.stringify(asked.role));
+  ok((await call(masterPort, '/api/sync/hello')).status === 401, 'the rest of that answer needs a key');
+  const openRole = await call(masterPort, '/api/sync/role');
+  ok(openRole.status === 200 && JSON.stringify(JSON.parse(openRole.body)) === '{"role":"master"}', 'just the role needs none, and says nothing else', openRole.body);
+  ok(JSON.parse((await call(followerPort, '/api/sync/role')).body).role === 'follower', 'and a follower says so');
   const manifest = JSON.parse((await call(masterPort, '/api/sync/manifest', bearer)).body);
   ok(!JSON.stringify(manifest).includes('made-up-master-canvas-token'), 'the list has no token in it');
   ok(!Object.keys(manifest.settings).some(k => /token|key|password|email|canvas$/i.test(k)), 'and no sign-in setting at all', Object.keys(manifest.settings).join());

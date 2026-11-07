@@ -6,7 +6,7 @@ The server runs as long as ClassDash does, including with its window closed: Cla
 
 Most of it is read-only — the same data this window shows, grades included: each class in `/api/classes` carries the grade it goes by, so Home Assistant can show and graph it, and `/api/grades` has every place's. A few handles change something instead: hiding or un-hiding an assignment, marking one not urgent and back, changing a display setting, starting a check (a quick one or a full one), or stopping one that's running. Every one of those needs `POST` instead of a plain request, and does exactly what the matching button on this page does — nothing a client with the access key couldn't already do by hand from here. The full list of handles, and what to send each one, is in [CONTRIBUTING.md](../CONTRIBUTING.md#api--technical-detail).
 
-With **Allow LAN access** on, ClassDash also announces itself on your home network (mDNS, the same thing printers and AirPlay speakers use), as "ClassDash on" your computer's name. Home Assistant can find it that way without you typing an address, and follow it when your computer's address changes. You still check the fingerprint and paste the access key yourself. The announcement holds the port and the certificate fingerprint, never the access key. It reaches Home Assistant when Home Assistant is on the same network (Home Assistant OS, or Docker with host networking); otherwise, type the address as before. A VPN on the computer running ClassDash, like Cloudflare WARP, can keep the announcement from reaching the network while it's on.
+With **Allow LAN access** on, ClassDash also announces itself on your home network (mDNS, the same thing printers and AirPlay speakers use), as "ClassDash on" your computer's name. Home Assistant can find it that way without you typing an address, and follow it when your computer's address changes. You still check the fingerprint and paste the access key yourself. The announcement holds the port, the certificate fingerprint and whether this computer is a sync master, a follower or neither, never the access key. It reaches Home Assistant when Home Assistant is on the same network (Home Assistant OS, or Docker with host networking); otherwise, type the address as before. A VPN on the computer running ClassDash, like Cloudflare WARP, can keep the announcement from reaching the network while it's on.
 
 ## ClassDash in a browser
 
@@ -59,11 +59,12 @@ The tunnel can run anywhere that can reach the master, like a NAS. Point it at `
 
 ### The routes
 
-All need a key, except that a follower gets its key from `POST /api/pair` by adding `"follower": true`, which also answers the certificate (`cert`), and answers 409 from a computer that follows another.
+All need a key except `GET /api/sync/role`. A follower gets its key from `POST /api/pair` by adding `"follower": true`, which also answers the certificate (`cert`), and answers 409 from a computer that follows another.
 
 | Route | What it does |
 |---|---|
-| `GET /api/sync/hello` | `{name, fingerprint, lastCheck, assignments, announcements, following, account}` |
+| `GET /api/sync/role` | `{role}`: `master`, `follower` or `standalone`, the same as the network announcement says, for when that can't be seen. No key needed, and it says nothing else. |
+| `GET /api/sync/hello` | `{name, fingerprint, lastCheck, assignments, announcements, following, role, account}` |
 | `GET /api/sync/manifest` | `{version, files: {name: {hash, size, mtimeMs}}, settings, collectedWith}` |
 | `GET /api/sync/file?name=` | One file from the manifest. Anything else is 404. |
 | `GET /api/sync/stream` | Server-sent events: `changed` with `{version}`, and a `ping` every 20 seconds |

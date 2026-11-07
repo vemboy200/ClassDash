@@ -11,8 +11,9 @@
  * What goes out: the service `_classdash._tcp` named "ClassDash on <this
  * computer's name>", its port, the addresses, and in the TXT record the
  * certificate fingerprint (`fp`, the same value a client pins; not a
- * secret, any client is shown it on connecting) and `api` (1). Never the
- * token, and nothing about the student: the computer's name is already
+ * secret, any client is shown it on connecting), `api` (1), and `role`:
+ * `master` (another ClassDash follows this one), `follower` (this one follows
+ * another, so it can't be followed) or `standalone`. Never the token, and nothing about the student: the computer's name is already
  * announced by the system itself.
  *
  * Only addresses another device could reach (see reachable()): a VPN's
@@ -68,7 +69,7 @@ function addressKey() {
  * announcement before calling back. `log` gets one line per event.
  * `deps.Bonjour` is for tests.
  */
-function advertise({ port, fingerprint, log = () => {} }, deps = {}) {
+function advertise({ port, fingerprint, role = () => 'standalone', log = () => {} }, deps = {}) {
   let Bonjour = deps.Bonjour;
   if (!Bonjour) {
     try {
@@ -83,15 +84,17 @@ function advertise({ port, fingerprint, log = () => {} }, deps = {}) {
   const host = hostFor();
   let bonjour = null;
   let lastAddresses = null;
+  let lastRole = null;
   let stopped = false;
 
   const publish = () => {
     lastAddresses = addressKey();
+    lastRole = role();
     try {
       bonjour = new Bonjour({}, (e) => log(`network announcement error: ${e.message}`));
       const service = bonjour.publish({
         name, host, port, type: SERVICE_TYPE, protocol: 'tcp', disableIPv6: true, probe: true,
-        txt: { api: '1', ...(fingerprint ? { fp: fingerprint } : {}) },
+        txt: { api: '1', role: lastRole, ...(fingerprint ? { fp: fingerprint } : {}) },
       });
       // The library announces every address the computer has; keep only the
       // reachable ones. Swapped in before the first announcement, which waits
@@ -119,8 +122,8 @@ function advertise({ port, fingerprint, log = () => {} }, deps = {}) {
 
   publish();
   const timer = setInterval(() => {
-    if (stopped || addressKey() === lastAddresses) return;
-    log('network addresses changed, announcing again');
+    if (stopped || (addressKey() === lastAddresses && role() === lastRole)) return;
+    log(addressKey() === lastAddresses ? `role is now ${role()}, announcing again` : 'network addresses changed, announcing again');
     unpublish(() => { if (!stopped) publish(); });
   }, deps.addressCheckMs || ADDRESS_CHECK_MS);
   timer.unref();

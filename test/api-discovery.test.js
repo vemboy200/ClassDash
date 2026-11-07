@@ -31,6 +31,19 @@ class FakeBonjour {
 const published = () => events.filter(e => e.publish).map(e => e.publish);
 
 (async () => {
+  // ── the role ──
+  {
+    let now = 'standalone';
+    const before = published().length;
+    const running = discovery.advertise({ port: 1, fingerprint: 'AA', role: () => now }, { Bonjour: FakeBonjour, addressCheckMs: 10 });
+    await new Promise(r => setTimeout(r, 30));
+    ok('the role goes in the announcement', published()[before].txt.role === 'standalone', JSON.stringify(published()[before]));
+    now = 'follower';
+    await new Promise(r => setTimeout(r, 40));
+    ok('a new role is announced again', published().at(-1).txt.role === 'follower', JSON.stringify(published().at(-1)));
+    await new Promise(r => running.stop(r));
+    events.length = 0;
+  }
   // ── names ──
   ok('the computer\'s name, short', discovery.computerName() === os.hostname().replace(/\.local\.?$/i, '').split('.')[0]);
   ok('addresses under its own .local name', discovery.hostFor('Some PC_2') === 'classdash-some-pc-2.local', discovery.hostFor('Some PC_2'));
@@ -45,7 +58,7 @@ const published = () => events.filter(e => e.publish).map(e => e.publish);
   const first = published()[0];
   ok('announced as _classdash._tcp on the port', first && first.type === 'classdash' && first.protocol === 'tcp' && first.port === 18995, JSON.stringify(first));
   ok('named for the computer', first && first.name === 'ClassDash on ' + discovery.computerName());
-  ok('the TXT record has the fingerprint and api 1, nothing else', first && JSON.stringify(first.txt) === JSON.stringify({ api: '1', fp: 'AA:BB' }), JSON.stringify(first && first.txt));
+  ok('the TXT record has the fingerprint, api 1 and the role, nothing else', first && JSON.stringify(first.txt) === JSON.stringify({ api: '1', role: 'standalone', fp: 'AA:BB' }), JSON.stringify(first && first.txt));
   ok('IPv4 only', first && first.disableIPv6 === true);
 
   // ── the address changes ──
@@ -85,7 +98,7 @@ const published = () => events.filter(e => e.publish).map(e => e.publish);
   // ── stuck goodbye, broken library ──
   class Silent extends FakeBonjour { unpublishAll() {} }
   const s = discovery.advertise({ port: 1, fingerprint: null }, { Bonjour: Silent });
-  ok('no fingerprint yet: just api', JSON.stringify(published().pop().txt) === JSON.stringify({ api: '1' }));
+  ok('no fingerprint yet: no fp', JSON.stringify(published().pop().txt) === JSON.stringify({ api: '1', role: 'standalone' }));
   const t0 = Date.now(); let late = false;
   s.stop(() => { late = true; });
   await sleep(1200);

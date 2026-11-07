@@ -76,7 +76,7 @@ function findNearby(ownFingerprint, ms = 1500, Bonjour) {
         const fp = service.txt && service.txt.fp;
         const address = (service.addresses || []).find(a => /^\d+\.\d+\.\d+\.\d+$/.test(a) && reachable(a));
         if (!fp || fp === ownFingerprint || !address || !service.port) return;
-        found.set(fp, { name: String(service.name || '').replace(/^ClassDash on /, ''), url: `https://${address}:${service.port}`, fp });
+        found.set(fp, { name: String(service.name || '').replace(/^ClassDash on /, ''), url: `https://${address}:${service.port}`, fp, role: service.txt.role || null });
       });
     } catch { return finish(); }
     setTimeout(finish, ms);
@@ -244,7 +244,7 @@ function startFollowing({ applied = () => {}, busy = () => false, log = () => {}
         continue;
       }
       retry = RETRY_FIRST_MS;
-      if (route.hello.account && m.account && route.hello.account !== m.account) {
+      if (!sync.sameAccount(route.hello.account, m.account)) {
         // The master signed into someone else since pairing: nothing more is copied.
         setStatus({ state: 'otherAccount', via: null, url: null });
         await sleep(RETRY_MOST_MS, wake);

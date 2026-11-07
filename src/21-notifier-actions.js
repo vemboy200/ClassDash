@@ -430,7 +430,7 @@ async function syncPair(action, arg) {
 function pairingFacts(action, mine, theirs) {
   return {
     ok: true, action, mine, theirs,
-    sameAccount: !mine.account || !theirs.account || mine.account === theirs.account,
+    sameAccount: require('./58-sync.js').sameAccount(mine.account, theirs.account),
     newer: (theirs.lastCheck || 0) >= (mine.lastCheck || 0) ? 'theirs' : 'mine',
   };
 }
@@ -483,7 +483,7 @@ async function syncAccept(action, arg) {
   let theirs;
   try { theirs = await sync.requestJson({ url, kind: 'local' }, candidate, '/api/sync/hello'); } catch { return { ok: false, action, why: 'unreachable' }; }
   const given = decodeArg(arg) || {};
-  if (me.account && theirs.account && me.account !== theirs.account && given.otherAccount !== true) {
+  if (!sync.sameAccount(me.account, theirs.account) && given.otherAccount !== true) {
     await sync.leave(candidate).catch(() => {});
     return { ok: false, action, why: 'otherAccount' };
   }
@@ -568,8 +568,7 @@ function syncAct(action, arg) {
     case 'syncFollow': {
       if (!saved.pending) return { ok: false, action, why: 'nothingPaired' };
       const given = decodeArg(arg) || {};
-      const mine = sync.accountKey();
-      if (mine && saved.pending.account && mine !== saved.pending.account && given.otherAccount !== true) return { ok: false, action, why: 'otherAccount' };
+      if (!sync.sameAccount(sync.accountKey(), saved.pending.account) && given.otherAccount !== true) return { ok: false, action, why: 'otherAccount' };
       sync.setAside();
       sync.writeSync({ master: saved.pending });
       logAction(`  now following ${saved.pending.name}`);

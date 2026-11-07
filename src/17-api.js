@@ -1529,6 +1529,9 @@ function start() {
     // and the browser goes back to signing in. POST only, so a link or a
     // prefetch can't do it.
     if (urlPath === '/api/pair' && req.method === 'POST') return handlePair(req, res, respond);
+    // What the network announcement says anyway, for when that can't be seen.
+    // No key, so it's only this: a client can ask before it has paired.
+    if (urlPath === '/api/sync/role' && req.method === 'GET') return respond(200, { role: sync.role() });
     if (urlPath === '/logout' && req.method === 'POST') {
       // A paired browser signing out is done with its key, so the key goes
       // too, rather than staying in Settings → API with nothing using it.
@@ -1752,7 +1755,7 @@ function start() {
       console.log(`VISIBLE TO THE WHOLE NETWORK. Addresses: ${addresses.join(', ') || 'none found'}`);
       console.log('Encrypted and token-gated, but still only open this to a network you trust.');
       // So Home Assistant finds it on its own (see 36-api-discovery.js).
-      announcement = discovery.advertise({ port, fingerprint: certFingerprint(), log: line => console.log(line) });
+      announcement = discovery.advertise({ port, fingerprint: certFingerprint(), role: sync.role, log: line => console.log(line) });
     } else {
       console.log('This computer only. For the home network: --network');
     }
