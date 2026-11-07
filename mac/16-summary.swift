@@ -1122,6 +1122,14 @@ extension WebPanes: WKDownloadDelegate {
 }
 // END Web panes
 
+// What a napominalka:// link may run. Any website can offer one of these links, and
+// all it takes is a click on the browser's "Open ClassDash?", so they get only what
+// does no harm and is easily undone. Everything else needs the window's own bridge:
+// a link must never be able to change settings, hand out or take away access, or
+// sync this computer to someone else's. restartApi only makes the server start again.
+let LINK_ACTIONS: Set<String> = ["hide", "unhide", "quiet", "unquiet", "restartApi"]
+func linkMayRun(_ action: String) -> Bool { LINK_ACTIONS.contains(action) }
+
 class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var web: WKWebView!
@@ -1272,6 +1280,11 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
             return
         }
 
+        guard linkMayRun(action) else {
+            // The argument isn't logged: it's whatever the link said.
+            logWindow("napominalka:// refused: \(action) can't be run from a link")
+            return
+        }
         logWindow("napominalka:// (browser-tab fallback): \(action) \(arg)")
         runAction(action, arg) { resultJSON in
             logWindow("  fallback dispatch result: \(resultJSON)")
