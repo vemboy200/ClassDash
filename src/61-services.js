@@ -92,9 +92,20 @@ function list(dir = SERVICES_DIR) {
   return found.sort((a, b) => rank(a.domain) - rank(b.domain) || a.domain.localeCompare(b.domain));
 }
 
+/**
+ * A service's code: its services/<domain>/index.js, which is the only file of
+ * a service the check calls. null when it has none yet (not every built-in
+ * service goes through the bridge yet) or no valid manifest.
+ */
+function load(domain, dir = SERVICES_DIR) {
+  if (!list(dir).some(m => m.domain === domain)) return null;
+  const entry = path.join(dir, domain, 'index.js');
+  return fs.existsSync(entry) ? require(entry) : null;
+}
+
 /** A service's name in the page's language, falling back to English. */
 function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };
+module.exports = { list, load, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };

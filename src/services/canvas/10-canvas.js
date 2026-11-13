@@ -539,4 +539,4 @@ async function readCanvas(ask) {
   return { items, courses, pending };
 }
 
-module.exports = { collectCanvas, collectCanvasPlanned, lockOf, SITE };
+module.exports = { collectCanvas, collectCanvasPlanned, lockOf, normalizeCanvasSite, SITE };

@@ -743,14 +743,7 @@ function write(key, raw) {
  * file as it is now, or what the last collection actually used.
  */
 function canvasPlan(settings = read()) {
-  const address = !!String(settings.canvas || '').trim();
-  const apiOn = settings.canvasApiEnabled !== false;
-  const sso = settings.canvasSsoEnabled !== false;
-  const api = apiOn && !!String(settings.canvasToken || '').trim();
-  // Off is off all the way down, so no caller has to remember to check
-  // `enabled` before trusting the other two.
-  if (!address || !(apiOn || sso)) return { enabled: false, api: false, sso: false };
-  return { enabled: true, api, sso };
+  return require('./services/canvas/index.js').plan(settings);
 }
 
 /** Example for the repository: same keys, nothing personal. */

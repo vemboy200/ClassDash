@@ -66,3 +66,20 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   const fewer = [...fs.readFileSync(path.join(proj, 'summary.html'), 'utf8').matchAll(/class="svc-card" data-svc-card="([^"]+)"/g)].map(m => m[1]);
   ok(!fewer.includes('edpuzzle') && fewer.length === 4, 'a service without a manifest has no card, and the page still draws');
 }
+
+// The bridge's load(): a service's index.js, the only file of it the check calls.
+{
+  const canvas = bridge.load('canvas');
+  ok(canvas && typeof canvas.read === 'function' && typeof canvas.enabled === 'function', 'Canvas loads through the bridge');
+  ok(bridge.load('edpuzzle') === null && bridge.load('nothing-like-this') === null, 'a service without an index.js yet, or none at all, is null');
+  const b = settings => ({ settings });
+  const site = 'https://school.example.test';
+  ok(!canvas.enabled(b({ canvas: '' })) && canvas.addresses(b({ canvas: '' })).length === 0, 'no address: off, and nowhere to reach');
+  ok(canvas.enabled(b({ canvas: site, canvasToken: 'T' })) && !canvas.browserNeeded(b({ canvas: site, canvasToken: 'T' })), 'a token: no browser needed');
+  ok(canvas.signInNeeded(b({ canvas: site, canvasToken: 'T' })), '...but the sign-in fallback still has to be signed into');
+  ok(canvas.browserNeeded(b({ canvas: site })), 'no token: the sign-in way needs the browser');
+  ok(!canvas.enabled(b({ canvas: site, canvasApiEnabled: false, canvasSsoEnabled: false })), 'both ways off: off');
+  ok(canvas.addresses(b({ canvas: 'school.example.test' }))[0] === site + '/', 'its address gets https:// added');
+  const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
+  ok(!/require\([^)]*10-canvas\.js/.test(collector), 'the check never reaches into 10-canvas.js itself');
+}

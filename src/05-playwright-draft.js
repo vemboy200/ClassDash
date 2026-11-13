@@ -185,7 +185,9 @@ const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
 // restoring them.
 const DELETED_FILE = path.join(PROJECT_ROOT, 'deleted-assignments.txt');
 const { writePage, daysUntil, headsUpText } = require('./08-page.js');
-const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./services/canvas/10-canvas.js');
+// Canvas goes through the services bridge (61-services.js): its index.js is
+// the only file of it this calls, with CANVAS_BRIDGE (see below).
+const CANVAS = require('./61-services.js').load('canvas');
 const { collectEdpuzzle } = require('./services/edpuzzle/11-edpuzzle.js');
 const { collectFeed, setFeedEmail } = require('./services/classroom/12-feed.js');
 const { t, locale } = require('./18-language.js');
@@ -300,14 +302,15 @@ const AUTHUSER = SETTINGS.email;
 // A declaration inside collect() didn't reach the second place — caught
 // by running it.
 //
-// CANVAS_PLAN says HOW (see canvasPlan() in 19-settings.js): `api` — the
-// access token is on and filled in, so Canvas is read through the official
-// API with no browser tab and no sign-in; `sso` — the browser profile's
-// signed-in session is allowed, as the way when there's no token in use
-// and as the FALLBACK when there is (a token that has expired falls back
-// to it, and the status says so — see collectCanvasPlanned in 10-canvas.js).
-const CANVAS_PLAN = require('./19-settings.js').canvasPlan(SETTINGS);
-const CANVAS_ENABLED = CANVAS_PLAN.enabled;
+// HOW it's read (the access token, the browser sign-in, or the token with
+// the sign-in as its fallback) is Canvas's own business: see plan() in
+// services/canvas/index.js. This only asks it the questions the check needs
+// answered (on? needs the browser? where is it?) through the bridge object,
+// which read() also gets, with a way to open a browser tab added.
+const CANVAS_BRIDGE = { domain: 'canvas', settings: SETTINGS };
+const CANVAS_ENABLED = !!CANVAS && CANVAS.enabled(CANVAS_BRIDGE);
+// The sign-in way is the plan (not just a fallback): the check needs a browser for it.
+const CANVAS_NEEDS_BROWSER = CANVAS_ENABLED && CANVAS.browserNeeded(CANVAS_BRIDGE);
 
 // Google Classroom can be turned off (see classroomEnabled in
 // 19-settings.js), which — with Edpuzzle off and Canvas on a token — leaves
@@ -330,14 +333,14 @@ const CLASSROOM_ENABLED = SETTINGS.classroomEnabled !== false;
  */
 function browserNeeded(withEdpuzzle) {
   return CLASSROOM_ENABLED || withEdpuzzle ||
-         (CANVAS_ENABLED && CANVAS_PLAN.sso && !CANVAS_PLAN.api);
+         CANVAS_NEEDS_BROWSER;
 }
 
 /** Is there anything to sign into through the browser? Broader than
  *  browserNeeded(): a fallback session has to be signed in too, even while
  *  a working token means it isn't used. */
 function signInNeeded() {
-  return CLASSROOM_ENABLED || EDPUZZLE_ENABLED || (CANVAS_ENABLED && CANVAS_PLAN.sso);
+  return CLASSROOM_ENABLED || EDPUZZLE_ENABLED || (CANVAS_ENABLED && CANVAS.signInNeeded(CANVAS_BRIDGE));
 }
 
 // Same module-level reasoning as CANVAS_ENABLED above: needed both when
@@ -456,10 +459,10 @@ async function login() {
   // Not when the browser way is switched off: the access token has no
   // session to sign into. (With the token AND the browser way on, the
   // session is the fallback, and it has to be signed in to be one.)
-  const CANVAS_TAB = CANVAS_ENABLED && CANVAS_PLAN.sso;
+  const CANVAS_TAB = CANVAS_ENABLED && CANVAS.signInNeeded(CANVAS_BRIDGE);
   if (CANVAS_TAB) {
     const canvasPage = await ctx.newPage();
-    await canvasPage.goto(CANVAS_SITE + '/');
+    await canvasPage.goto(CANVAS.addresses(CANVAS_BRIDGE)[0]);
   }
 
   console.log(`\n${CANVAS_TAB ? 'Three' : 'Two'} tabs opened: sign into your school Google account,`);
@@ -1191,12 +1194,12 @@ async function launchForCollection(withEdpuzzle, options) {
   } catch (e) {
     const reason = String(e.message).split('\n')[0];
     const message = `couldn't start a browser (${reason}) — set one up in Settings → ` +
-      'Account → Setup (Choose Browser…)' + (CANVAS_ENABLED && CANVAS_PLAN.sso && !CANVAS_PLAN.api
+      'Account → Setup (Choose Browser…)' + (CANVAS_NEEDS_BROWSER
         ? ', or give Canvas an access token, which needs no browser' : '');
     console.error(message);
     if (CLASSROOM_ENABLED) recordCheckStatus('classroom', false, message);
     if (withEdpuzzle) recordCheckStatus('edpuzzle', false, message);
-    if (CANVAS_ENABLED && CANVAS_PLAN.sso && !CANVAS_PLAN.api) recordCheckStatus('canvas', false, message);
+    if (CANVAS_NEEDS_BROWSER) recordCheckStatus('canvas', false, message);
     throw new Error(message);
   }
 }
@@ -1365,14 +1368,14 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 
   const canvasTask = !CANVAS_ENABLED ? null : (async () => {
     console.log('Reading: Canvas');
-    // The tab is opened INSIDE the try block (by collectCanvasPlanned, only
+    // The tab is opened INSIDE the try block (by Canvas's read(), only
     // when the browser way is used): if opening it fails outside, the whole
     // Promise.all crashes, taking the browser close with it. With an
     // access token there's no tab at all: the API is asked directly.
     let result;
     try {
-      const { items, courses, pending, note, detail, fallback } = await collectCanvasPlanned(
-        CANVAS_PLAN, async () => (await canvasBrowser()).newPage());
+      const { items, courses, pending, note, detail, fallback } = await CANVAS.read(
+        { ...CANVAS_BRIDGE, openPage: async () => (await canvasBrowser()).newPage() });
       console.log(`  Canvas: courses ${courses.length}, items ${items.length}` +
                   (pending.length ? `, waiting to publish: ${pending.join(', ')}` : ''));
       result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true, note, detail, fallback: !!fallback };
@@ -2375,7 +2378,7 @@ if (require.main !== module) return;
   const networkCheck = require('./60-network-check.js');
   const places = [
     ...(CLASSROOM_ENABLED ? ['https://classroom.google.com/'] : []),
-    ...(CANVAS_ENABLED ? [CANVAS_SITE + '/'] : []),
+    ...(CANVAS_ENABLED ? CANVAS.addresses(CANVAS_BRIDGE) : []),
     ...(EDPUZZLE_ENABLED && process.argv.includes('--full') ? ['https://edpuzzle.com/'] : []),
   ];
   if (places.length && !await networkCheck.online(places)) {
