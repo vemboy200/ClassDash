@@ -1242,14 +1242,27 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     // stays Russian.
     extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
   };
-  const ctx = !useBrowser ? null : await launchForCollection(withEdpuzzle, launchOptions);
+  // A browser that won't start fails only what needed it. It used to end the
+  // whole check, so for two days in November nothing updated at all: Canvas
+  // on its token and Q's grades included, neither of which needs a browser.
+  // Now each source that needed one fails with the reason (launchForCollection
+  // has already recorded it) and keeps what it had, and everything else is read.
+  let ctx = null, launchFailed = null;
+  if (useBrowser) {
+    try { ctx = await launchForCollection(withEdpuzzle, launchOptions); } catch (e) { launchFailed = e; }
+  }
+  const newPage = async () => { if (!ctx) throw launchFailed; return ctx.newPage(); };
 
   // A browser launched only when Canvas's FALLBACK needs one and none is
   // open: a working access token never gets here, so a Canvas-only school on
   // a token still runs with no browser most of the time. If a browser is
-  // already open for something else it's simply reused.
+  // already open for something else it's simply reused, and one that just
+  // failed to start isn't tried twice.
   let lateCtx = null;
-  const canvasBrowser = async () => ctx || (lateCtx = lateCtx || await launchForCollection(false, launchOptions));
+  const canvasBrowser = async () => {
+    if (launchFailed) throw launchFailed;
+    return ctx || (lateCtx = lateCtx || await launchForCollection(false, launchOptions));
+  };
 
   // Every class is read AT THE SAME TIME, each in its own tab.
   //
@@ -1273,7 +1286,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     : classesFromMemory().filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
   // Measuring the network and listing the classes are both Classroom's:
   // with it off there is no page to open for them.
-  if (CLASSROOM_ENABLED) try {
+  if (CLASSROOM_ENABLED && ctx) try {
     const probePage = await ctx.newPage();
     await probePage.goto('https://classroom.google.com/', { waitUntil: 'domcontentloaded', timeout: 15000 })
       .catch(() => {});
@@ -1376,7 +1389,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     let page = null;
     let result;
     try {
-      page = await ctx.newPage();
+      page = await newPage();
       const { items, classrooms } = await collectEdpuzzle(page);
       console.log(`  Edpuzzle: classes ${classrooms.length}, assignments ${items.length}`);
       result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items, ok: true };
@@ -1419,7 +1432,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     let page = null;
     let result;
     try {
-      page = await ctx.newPage();
+      page = await newPage();
       let items = await scrapeClassChecked(page, cls, timeoutMs, previousItems);
       // Still on the class's Classwork: its instructions, before the feed.
       try {
@@ -1460,7 +1473,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
       console.error(`  error on ${cls.name}: ${e.message}`);
       // ok: false is NOT "the class is empty", it's "the class didn't
       // load". The difference matters — see diffWithPrevious.
-      result = { cls, items: [], ok: false, error: e.message };
+      result = { cls, items: [], ok: false, error: e.message, noBrowser: e === launchFailed };
     } finally {
       if (page) { try { await page.close(); } catch {} }
     }
@@ -2520,7 +2533,8 @@ if (require.main !== module) return;
   const classroomResults = taskResults.filter(r => r.cls.id !== 'canvas' && r.cls.id !== 'edpuzzle');
   if (classroomResults.length) {
     const failed = classroomResults.find(r => !r.ok);
-    recordCheckStatus('classroom', !failed, failed ? `${failed.cls.name}: ${failed.error}` : null);
+    // No browser is the whole of Classroom's problem, not one class's.
+    recordCheckStatus('classroom', !failed, !failed ? null : failed.noBrowser ? failed.error : `${failed.cls.name}: ${failed.error}`);
   }
   const canvasResult = taskResults.find(r => r.cls.id === 'canvas');
   // Canvas says which way it was read. When the access token failed and the

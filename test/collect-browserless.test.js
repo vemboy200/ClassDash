@@ -73,12 +73,22 @@ const read = f => { try { return JSON.parse(fs.readFileSync(path.join(E2E, f), '
 
   // 3. the gate discriminates: Classroom ON needs a browser -> tries to launch the (nonexistent) one
   write('settings.json', { ...base, classroomEnabled: true });
+  write('classes.json', [{ id: 'cr-9', name: 'Kept Class' }]);
+  write('last-collection.json', [{ class: 'Kept Class', id: 'cr-9a', type: 'Assignment', title: 'Kept classroom work', due: null, due_iso: due }]);
+  write('check-status.json', {});
+  hits.length = 0;
   r = await run([]);
   ok(/executable|Failed to launch|doesn't exist|ENOENT/i.test(r.out), 'with Classroom on a browser IS launched (and the fake path fails): ' + r.out.slice(-250));
   {
     const st3 = read('check-status.json') || {};
-    ok(st3.classroom && st3.classroom.status === 'problem' && /couldn't start a browser/.test(st3.classroom.detail || ''), 'Classroom dot goes red with the reason: ' + JSON.stringify(st3.classroom));
+    ok(st3.classroom && st3.classroom.status === 'problem' && /^couldn't start a browser/.test(st3.classroom.detail || ''), 'Classroom dot goes red with the reason: ' + JSON.stringify(st3.classroom));
     ok(!(st3.classroom.detail || '').includes('access token'), 'no token hint for a school that has a token');
+    // One source that can't be read doesn't hold the rest.
+    ok(r.code === 0, 'the check still finishes: code ' + r.code + '\n' + r.out.slice(-400));
+    ok(st3.canvas && st3.canvas.status === 'ok' && hits.length > 0, 'Canvas is still read through its token: ' + JSON.stringify(st3.canvas));
+    const mem3 = read('last-collection.json') || [];
+    ok(mem3.some(x => x.id === 'canvas-7') && mem3.some(x => x.id === 'cr-9a'), 'memory has Canvas fresh and Classroom kept, not wiped: ' + mem3.map(x => x.id));
+    ok(fs.readFileSync(path.join(E2E, 'summary.html'), 'utf8').includes('Kept classroom work'), 'and the page still shows the Classroom work');
   }
 
   // 4. Canvas on the browser way (no token) also needs one
