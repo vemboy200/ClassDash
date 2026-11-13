@@ -91,3 +91,19 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   ok(r.status.ok === true && r.status.detail === 'Method: API' && r.status.fallback === false, 'and the status defaults to a green dot');
   ok(bridge.result({ items: 'nope', status: { ok: false } }).items.length === 0 && bridge.result().status.ok, 'something that isn\'t a list is treated as empty');
 }
+
+// The calendar feed through the bridge.
+(async () => {
+  const feed = bridge.load('calendar');
+  const at = h => new Date(Date.UTC(2026, 10, 13, h)).toISOString();
+  const now = new Date(Date.UTC(2026, 10, 14, 12));
+  ok(feed && !feed.enabled({ saved: {} }) && !feed.due({ saved: {} }, now), 'no saved link: off, and never due');
+  ok(feed.due({ saved: { url: 'https://example.test/a.ics' } }, now), 'a link never read is due');
+  ok(!feed.due({ saved: { url: 'x', fetchedAt: at(20) } }, now) && feed.due({ saved: { url: 'x', fetchedAt: at(10) } }, now), 'then once a day or so after the last read');
+  ok(!feed.due({ saved: { url: 'x', fetchedAt: at(1), failedAt: at(20) } }, now), 'a failed try counts as a try, so it isn\'t retried every check');
+  ok(feed.addresses({ saved: { url: 'webcal://example.test/a.ics' } })[0] === 'https://example.test/a.ics', 'webcal:// becomes https://');
+  let why = null;
+  try { await feed.read({ saved: { url: 'ftp://example.test/a.ics' } }); } catch (e) { why = e.message; }
+  ok(/has to start with https/.test(why || ''), 'a read that can\'t work throws why: ' + why);
+  ok(JSON.stringify(bridge.savedFor('nothing-like-this')) === '{}', 'a service with nothing saved gets an empty object');
+})();

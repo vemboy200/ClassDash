@@ -2551,7 +2551,8 @@ if (require.main !== module) return;
 
   // The school calendar's feed, once a day, so a new event (a snow day, a
   // changed minimum day) shows up without anyone saving the link again.
-  if (schoolCalendar.icsStale(now)) {
+  const CALENDAR = SERVICES.load('calendar');
+  if (CALENDAR && CALENDAR.due({ domain: 'calendar', settings: SETTINGS, saved: SERVICES.savedFor('calendar') }, now)) {
     const feed = await schoolCalendar.refreshFeed();
     console.log(feed.ok ? `Calendar feed: ${feed.events} events` : `Calendar feed not read: ${feed.why}`);
   }

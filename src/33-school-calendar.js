@@ -270,12 +270,22 @@ function saveIcsError(url, why, now = new Date()) {
   return cal;
 }
 
-/** Fetches the feed again and saves what came back: { ok, events } or { ok: false, why }. */
+/**
+ * Reads the feed again, through its service (services/calendar/), and saves
+ * what came back: { ok, events } or { ok: false, why }.
+ */
 async function refreshFeed(url = (readCalendar().ics || {}).url) {
-  const result = await require('./services/calendar/34-calendar-ics.js').fetchIcs(url);
-  if (result.ok) saveIcs(url, result.events);
-  else saveIcsError(url, result.why);
-  return result.ok ? { ok: true, events: result.events.length } : { ok: false, why: result.why };
+  const services = require('./61-services.js');
+  const feed = services.load('calendar');
+  if (!feed) return { ok: false, why: 'the calendar feed service is missing' };
+  try {
+    const { events } = services.result(await feed.read({ domain: 'calendar', saved: { url } }));
+    saveIcs(url, events);
+    return { ok: true, events: events.length };
+  } catch (e) {
+    saveIcsError(url, e.message);
+    return { ok: false, why: e.message };
+  }
 }
 
 /** Forgets the feed. */
@@ -286,11 +296,11 @@ function clearIcs() {
   return { ok: true };
 }
 
-/** Whether the feed is due for its once-a-day refresh. */
+/** Whether the feed is due for its once-a-day refresh (its service decides). */
 function icsStale(now = new Date(), cal = readCalendar()) {
-  if (!cal.ics || !cal.ics.url) return false;
-  const last = Date.parse(cal.ics.failedAt && (!cal.ics.fetchedAt || cal.ics.failedAt > cal.ics.fetchedAt) ? cal.ics.failedAt : cal.ics.fetchedAt || 0);
-  return !last || now - last > 20 * 3600e3;
+  const feed = require('./61-services.js').load('calendar');
+  const ics = cal.ics || {};
+  return !!feed && feed.due({ domain: 'calendar', saved: { url: ics.url, fetchedAt: ics.fetchedAt, failedAt: ics.failedAt } }, now);
 }
 
 // The feed's events by day, built once per read of the file.

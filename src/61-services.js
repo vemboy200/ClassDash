@@ -130,9 +130,24 @@ function result(raw = {}) {
   };
 }
 
+/**
+ * What ClassDash kept from a service's last read, handed to it as
+ * bridge.saved. The calendar feed's is in school-calendar.json, where it was
+ * from before services went through the bridge, so it's read from there.
+ */
+const SAVED_ELSEWHERE = {
+  calendar: () => {
+    const ics = require('./33-school-calendar.js').readCalendar().ics || {};
+    return { url: ics.url, fetchedAt: ics.fetchedAt, failedAt: ics.failedAt };
+  },
+};
+function savedFor(domain) {
+  return SAVED_ELSEWHERE[domain] ? SAVED_ELSEWHERE[domain]() : {};
+}
+
 /** A service's name in the page's language, falling back to English. */
 function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, load, result, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };
+module.exports = { list, load, result, savedFor, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };
