@@ -103,9 +103,36 @@ function load(domain, dir = SERVICES_DIR) {
   return fs.existsSync(entry) ? require(entry) : null;
 }
 
+/**
+ * What every service's read() hands back, filled out: whatever it leaves out
+ * is empty, so the check can merge every service the same way.
+ *
+ *   items          assignments and materials, in the page's shared item shape
+ *   announcements  teachers' posts
+ *   grades         per class
+ *   events         calendar events
+ *   status         { ok, detail, fallback }: the service's dot in Settings and
+ *                  /api/check-status. `fallback` is a yellow dot: it worked,
+ *                  but not the way it was set up to (Canvas's token failing
+ *                  over to the sign-in).
+ *
+ * A read() that fails throws instead; the check turns that into a red dot.
+ */
+function result(raw = {}) {
+  const list = key => (Array.isArray(raw[key]) ? raw[key] : []);
+  const status = raw.status || {};
+  return {
+    items: list('items'),
+    announcements: list('announcements'),
+    grades: list('grades'),
+    events: list('events'),
+    status: { ok: status.ok !== false, detail: status.detail || null, fallback: !!status.fallback },
+  };
+}
+
 /** A service's name in the page's language, falling back to English. */
 function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, load, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };
+module.exports = { list, load, result, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };

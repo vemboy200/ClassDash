@@ -83,3 +83,11 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
   ok(!/require\([^)]*10-canvas\.js/.test(collector), 'the check never reaches into 10-canvas.js itself');
 }
+
+// result(): every read() comes back in one shape.
+{
+  const r = bridge.result({ items: [1], status: { detail: 'Method: API' } });
+  ok(r.items.length === 1 && r.announcements.length === 0 && r.grades.length === 0 && r.events.length === 0, 'what a service leaves out is empty');
+  ok(r.status.ok === true && r.status.detail === 'Method: API' && r.status.fallback === false, 'and the status defaults to a green dot');
+  ok(bridge.result({ items: 'nope', status: { ok: false } }).items.length === 0 && bridge.result().status.ok, 'something that isn\'t a list is treated as empty');
+}

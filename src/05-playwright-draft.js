@@ -187,7 +187,8 @@ const DELETED_FILE = path.join(PROJECT_ROOT, 'deleted-assignments.txt');
 const { writePage, daysUntil, headsUpText } = require('./08-page.js');
 // Canvas goes through the services bridge (61-services.js): its index.js is
 // the only file of it this calls, with CANVAS_BRIDGE (see below).
-const CANVAS = require('./61-services.js').load('canvas');
+const SERVICES = require('./61-services.js');
+const CANVAS = SERVICES.load('canvas');
 const { collectEdpuzzle } = require('./services/edpuzzle/11-edpuzzle.js');
 const { collectFeed, setFeedEmail } = require('./services/classroom/12-feed.js');
 const { t, locale } = require('./18-language.js');
@@ -1374,11 +1375,9 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     // access token there's no tab at all: the API is asked directly.
     let result;
     try {
-      const { items, courses, pending, note, detail, fallback } = await CANVAS.read(
-        { ...CANVAS_BRIDGE, openPage: async () => (await canvasBrowser()).newPage() });
-      console.log(`  Canvas: courses ${courses.length}, items ${items.length}` +
-                  (pending.length ? `, waiting to publish: ${pending.join(', ')}` : ''));
-      result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: true, note, detail, fallback: !!fallback };
+      const { items, status } = SERVICES.result(await CANVAS.read(
+        { ...CANVAS_BRIDGE, openPage: async () => (await canvasBrowser()).newPage(), log: console.log }));
+      result = { cls: { id: 'canvas', name: 'Canvas' }, items, ok: status.ok, detail: status.detail, fallback: status.fallback };
     } catch (e) {
       console.error(`  error on Canvas: ${e.message}`);
       result = { cls: { id: 'canvas', name: 'Canvas' }, items: [], ok: false, error: e.message };

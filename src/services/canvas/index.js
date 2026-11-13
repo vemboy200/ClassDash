@@ -7,6 +7,7 @@
  *   bridge.settings   the settings, as read at the start of the check
  *   bridge.openPage   async () => a tab of ClassDash's signed-in browser,
  *                     launching it first if it isn't running (only in read)
+ *   bridge.log        a line for the check's log (only in read)
  *
  * How Canvas is actually read (its API, or the browser sign-in as a way in or
  * a fallback) is in 10-canvas.js.
@@ -51,9 +52,12 @@ function addresses(bridge) {
   return [require('./10-canvas.js').normalizeCanvasSite(bridge.settings.canvas) + '/'];
 }
 
-/** Reads Canvas: { items, courses, pending, note, detail, fallback }. */
+/** Reads Canvas, in the shape every service's read() has (61-services.js). */
 async function read(bridge) {
-  return require('./10-canvas.js').collectCanvasPlanned(plan(bridge.settings), bridge.openPage);
+  const r = await require('./10-canvas.js').collectCanvasPlanned(plan(bridge.settings), bridge.openPage);
+  (bridge.log || (() => {}))(`  Canvas: courses ${r.courses.length}, items ${r.items.length}` +
+    (r.pending.length ? `, waiting to publish: ${r.pending.join(', ')}` : ''));
+  return { items: r.items, status: { ok: true, detail: r.detail, fallback: !!r.fallback } };
 }
 
 module.exports = { plan, enabled, browserNeeded, signInNeeded, addresses, read };
