@@ -2804,7 +2804,7 @@ if (require.main !== module) return;
     rememberCollection(all);
     fs.writeFileSync(STREAM_FILE, JSON.stringify(allAnnouncements, null, 2));
     // Q is its own sign-in, unaffected by Google's having run out.
-    startGradesCheck();
+    startBackgroundServices();
     return;
   }
 
@@ -2910,7 +2910,7 @@ if (require.main !== module) return;
   rememberCollection(all);
   fs.writeFileSync(STREAM_FILE, JSON.stringify(allAnnouncements, null, 2));
   startAnnouncementScan();
-  startGradesCheck();
+  startBackgroundServices();
 })();
 
 /**
@@ -2937,19 +2937,17 @@ function recordGradeChanges() {
 }
 
 /**
- * Grades (Settings → Services → Aequitas Q, 40-grades.js): at most once an hour it signs in
- * to the school's Q and reads them. In a process of its own, detached, like
- * the announcement scan: its own headless browser, and never a reason for
- * the check to fail or wait. It decides itself whether one's due.
+ * Services whose manifest says "runs": "background" (Q, which signs in to its
+ * portal with a browser of its own): each one is started in a process of its
+ * own (62-service-run.js), never a reason for the check to fail or wait. Each
+ * decides itself whether it's due (Q: once an hour).
  */
-function startGradesCheck() {
+function startBackgroundServices() {
   try {
-    if (SETTINGS.gradesProvider !== 'q') return;
-    const child = require('child_process').spawn(process.execPath, [path.join(__dirname, 'services/q/40-grades.js'), '--if-due'],
-      { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
+    const run = require('./62-service-run.js');
+    for (const m of SERVICES.list()) if (m.runs === 'background') run.startInBackground(m.domain);
   } catch (e) {
-    console.warn('grades check not started:', e.message);
+    console.warn('background services not started:', e.message);
   }
 }
 

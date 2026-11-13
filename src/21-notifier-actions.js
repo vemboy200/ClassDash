@@ -916,9 +916,11 @@ function act(action, arg) {
     // Settings → Services → Aequitas Q → Check now: signs in to Q and reads the grades right
     // away (not waiting out the hour), then redraws.
     case 'checkGrades': {
-      const grades = require('./services/q/40-grades.js');
-      if (!grades.takeLock()) return { ok: false, action, why: 'a grades check is already running' };
-      return grades.check({ force: true }).then(result => {
+      // Through the services bridge (62-service-run.js), the same as the
+      // background run after a check, so it never starts a second one.
+      return require('./62-service-run.js').run('q', { force: true }).then(r => {
+        if (r.busy) return { ok: false, action, why: 'a grades check is already running' };
+        const result = { ok: r.ok, why: r.why, skipped: r.skipped, classes: r.ok ? r.result.grades.length : 0 };
         logAction(result.skipped ? `  grades not checked: ${result.skipped}` : result.ok ? `  grades: ${result.classes} classes` : `  grades not read: ${result.why}`);
         // A good read goes into the grade history (and its alerts) first.
         if (result.ok) execFileSync(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), '--grades-read'], { stdio: 'ignore' });
@@ -926,7 +928,7 @@ function act(action, arg) {
         // Why it didn't even try, in words: 'password' means none is saved.
         if (result.skipped) return { ...result, action, why: require('./18-language.js').t('gradesSkip_' + result.skipped) };
         return { ...result, action };
-      }).finally(grades.dropLock);
+      });
     }
     // The Grades center's AI sidebar: a question, as base64url JSON
     // {question, live}: live is the page's id for showing the answer as

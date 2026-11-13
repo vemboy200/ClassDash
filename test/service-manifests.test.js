@@ -107,3 +107,13 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   ok(/has to start with https/.test(why || ''), 'a read that can\'t work throws why: ' + why);
   ok(JSON.stringify(bridge.savedFor('nothing-like-this')) === '{}', 'a service with nothing saved gets an empty object');
 })();
+
+// Q: read in the background, through the bridge.
+{
+  const q = bridge.load('q');
+  ok(all.find(m => m.domain === 'q').runs === 'background' && all.filter(m => m.runs === 'background').length === 1, 'Q is the one service read in the background');
+  ok(q && q.enabled({ settings: { gradesProvider: 'q' } }) && !q.enabled({ settings: { gradesProvider: 'none' } }), 'Q is on only when it\'s the grades provider');
+  ok(bridge.problems({ ...all[0], runs: 'sometimes' }, all[0].domain).some(p => /runs/.test(p)), 'an unknown "runs" is caught');
+  const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
+  ok(!/40-grades\.js'\), '--if-due'/.test(collector), 'the check no longer starts 40-grades.js itself');
+}

@@ -52,7 +52,6 @@ const { PROJECT_ROOT } = require('../../00-project-root.js');
 const FILE = path.join(PROJECT_ROOT, 'grades.json');
 const CANVAS_FILE = path.join(PROJECT_ROOT, 'canvas-grades.json');
 const SECRET_FILE = path.join(PROJECT_ROOT, 'grades-secret.json');
-const LOCK_FILE = path.join(PROJECT_ROOT, 'grades.lock');
 const SERVICE = 'ClassDash Q grades';
 const ACCOUNT = 'q-password';
 const CHECK_EVERY_MS = 60 * 60 * 1000;
@@ -428,11 +427,23 @@ async function addReport(page, base, id, c, now) {
  */
 async function check({ force = false, now = new Date(), reader = read, retryWaitMs = RETRY_WAIT_MS } = {}) {
   const s = settings();
+  const d = due(now.getTime(), { force, s });
+  if (!d.due) return { ok: false, skipped: d.why };
+  const r = await readAndSave({ s, now, reader, retryWaitMs });
+  // Q's dot beside the other platforms' (25-check-status.js).
+  require('../../25-check-status.js').record('q', r.ok, r.ok ? `${r.classes.length} classes` : r.why);
+  return { ok: r.ok, why: r.why, classes: r.ok ? r.classes.length : 0 };
+}
+
+/**
+ * The reading half of check(), without asking whether one's due: signs in,
+ * reads, and saves grades.json, the failure included (and whether it means
+ * the password was turned down). What the bridge's read() (index.js) uses.
+ * @returns {Promise<{ok: boolean, why: string|null, classes: object[]}>}
+ */
+async function readAndSave({ s = settings(), now = new Date(), reader = read, retryWaitMs = RETRY_WAIT_MS } = {}) {
   const password = passwordStore().get();
   const saved = readGrades();
-  const d = due(now.getTime(), { force, s, password, saved });
-  if (!d.due) return { ok: false, skipped: d.why };
-
   const base = portalBase(s.gradesAddress).base;
   const username = s.gradesUsername.trim();
   const next = { ...saved, triedAt: now.toISOString() };
@@ -459,9 +470,7 @@ async function check({ force = false, now = new Date(), reader = read, retryWait
     if (e instanceof NewPasswordNeeded) next.newPassword = true;
   }
   writeGrades(next);
-  // Q's dot beside the other platforms' (25-check-status.js).
-  require('../../25-check-status.js').record('q', next.ok, next.ok ? `${next.classes.length} classes` : next.why);
-  return { ok: next.ok, why: next.why, classes: next.ok ? next.classes.length : 0 };
+  return { ok: next.ok, why: next.why, classes: next.ok ? next.classes : [] };
 }
 
 // ── Canvas ──
@@ -715,39 +724,13 @@ function ranked(list) {
   return list.map(c => RANK[c.source] > RANK[best.get(c.class)] ? { ...c, superseded: true } : c);
 }
 
-// One check at a time: the collector starts one after every check, and
-// Check now can land in the middle of one.
-function takeLock() {
-  try {
-    const pid = Number(fs.readFileSync(LOCK_FILE, 'utf8'));
-    if (pid) { try { process.kill(pid, 0); return false; } catch { /* stale */ } }
-  } catch { /* no lock */ }
-  fs.writeFileSync(LOCK_FILE, String(process.pid));
-  return true;
-}
-const dropLock = () => { try { fs.unlinkSync(LOCK_FILE); } catch {} };
-
 /** A check of its own, now, in the background (it redraws when done). */
-let startCheckNow = () => {
-  require('child_process').spawn(process.execPath, [path.join(__dirname, '40-grades.js'), '--now'], { detached: true, stdio: 'ignore' }).unref();
-};
+let startCheckNow = () => require('../../62-service-run.js').startInBackground('q', '--now');
 
 module.exports = {
-  portalBase, parseAssignments, canvasGrade, canvasAssignment, canvasWeighting, estimateGrade, typedEstimate, qName, canvasHiddenTest, saveCanvasGrades, readCanvasGrades, savePassword, hasPassword, readiness, due, check, read, gradesView, readGrades,
-  takeLock, dropLock, keychainStore, fileStore, quoted, Rejected, NewPasswordNeeded, Slow, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
+  portalBase, parseAssignments, canvasGrade, canvasAssignment, canvasWeighting, estimateGrade, typedEstimate, qName, canvasHiddenTest, saveCanvasGrades, readCanvasGrades, savePassword, hasPassword, readiness, due, check, readAndSave, read, gradesView, readGrades,
+  keychainStore, fileStore, quoted, Rejected, NewPasswordNeeded, Slow, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
   _setStore: s => { storeOverride = s; },
   startCheckNow: () => startCheckNow(),
   _setStartCheck: f => { startCheckNow = f; },
 };
-
-// node 40-grades.js --if-due   after a check (05-playwright-draft.js)
-// node 40-grades.js --now      Check now, in Settings → Services → Aequitas Q
-if (require.main === module && (process.argv.includes('--if-due') || process.argv.includes('--now'))) {
-  if (!takeLock()) process.exit(0);
-  check({ force: process.argv.includes('--now') }).then(r => {
-    if (!r.skipped) {
-      console.log(r.ok ? `Grades: ${r.classes} classes` : `Grades not read: ${r.why}`);
-      require('child_process').spawnSync(process.execPath, [path.join(__dirname, '../../05-playwright-draft.js'), r.ok ? '--grades-read' : '--redraw'], { stdio: 'ignore' });
-    }
-  }).catch(e => console.error('grades check failed:', e.message)).finally(dropLock);
-}

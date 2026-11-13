@@ -23,6 +23,8 @@
  *   browser_class        background, visible, optional or none
  *   codeowners           GitHub names, [] for none yet
  *   documentation        its page, relative to the repository
+ *   runs                 optional: "background" to be read in a process of
+ *                        its own after a check (62-service-run.js), not in it
  *
  * A folder without a readable, valid manifest is skipped with a warning
  * rather than taking every other service down with it.
@@ -36,6 +38,9 @@ const SERVICES_DIR = path.join(__dirname, 'services');
 const CATEGORIES = ['assignments', 'instructions', 'announcements', 'grades', 'progress_reports', 'calendar'];
 const COMMUNICATION_CLASSES = ['cloud_polling', 'cloud_push', 'cloud_mixed'];
 const BROWSER_CLASSES = ['background', 'visible', 'optional', 'none'];
+// Optional: "background" for a slow service read in a process of its own after
+// a check (62-service-run.js); left out, or "check", it's read during the check.
+const RUNS = ['check', 'background'];
 
 // The built-in services in the order their cards have always had. Anything
 // else (a service added later without being put here) comes after them,
@@ -59,6 +64,7 @@ function problems(m, folder) {
   if (!BROWSER_CLASSES.includes(m.browser_class)) out.push(`browser_class should be one of ${BROWSER_CLASSES.join(', ')}`);
   if (!isStrings(m.codeowners) || m.codeowners.some(o => !o.startsWith('@'))) out.push('codeowners should be a list of @names');
   if (typeof m.documentation !== 'string' || !m.documentation) out.push('documentation should be the path to its page');
+  if (m.runs !== undefined && !RUNS.includes(m.runs)) out.push(`runs should be one of ${RUNS.join(', ')}`);
   return out;
 }
 

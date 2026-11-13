@@ -11,5 +11,6 @@
   "codeowners": [
     "@vemboy200"
   ],
-  "documentation": "docs/services/aequitas-q.md"
+  "documentation": "docs/services/aequitas-q.md",
+  "runs": "background"
 }
