@@ -20,6 +20,8 @@ Each service's page ends with a **Details** table, like a Home Assistant integra
 - **Code owners**: who looks after that service's code, on GitHub. Questions and bug reports about a service go to them. A service with none has no one assigned yet.
 - **Browser class**: whether it needs ClassDash's browser (see below).
 
+For contributors: the same details are in each service's `manifest.json` (`src/services/<service>/`), which is where ClassDash itself reads them from. A test fails if a manifest and its page disagree.
+
 ### Communication classes
 
 Home Assistant calls these IoT classes. ClassDash isn't talking to devices, so here they're communication classes:

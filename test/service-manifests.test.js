@@ -1,0 +1,68 @@
+// Services' manifest.json files (61-services.js): valid, in step with the
+// Details table on each service's docs page, and what the Services cards are
+// built from. Like Home Assistant's hassfest, for ClassDash's services.
+const T = require('./helpers');
+const fs = require('fs'), path = require('path');
+const ok = (c, m) => { console.log(c ? 'PASS' : 'FAIL', m); if (!c) process.exitCode = 1; };
+const bridge = require(path.join(T.REPO, 'src', '61-services.js'));
+
+const all = bridge.list();
+ok(all.map(m => m.domain).join() === 'classroom,canvas,edpuzzle,q,calendar', 'every built-in service has a valid manifest, in the cards\' order: ' + all.map(m => m.domain));
+const folders = fs.readdirSync(bridge.SERVICES_DIR, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name);
+ok(folders.length === all.length, 'no service folder is missing its manifest');
+
+// The docs' Details table, read back into manifest terms.
+const plain = cell => cell.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim();
+function details(file) {
+  const text = fs.readFileSync(path.join(T.REPO, file), 'utf8');
+  const rows = {};
+  for (const m of text.slice(text.indexOf('## Details')).matchAll(/^\| \*\*(.+?)\*\* \| (.+?) \|$/gm)) rows[m[1]] = plain(m[2]);
+  return {
+    categories: (rows.Categories || '').split(',').map(c => c.trim().toLowerCase().replace(/ /g, '_')),
+    introduced: (rows.Introduced || '').replace(/^v/, ''),
+    communication_class: (rows['Communication class'] || '').toLowerCase().replace(/ /g, '_'),
+    codeowners: rows['Code owners'] === 'None yet' ? [] : (rows['Code owners'] || '').split(',').map(o => o.trim()),
+    browser_class: { 'Background browser': 'background', 'Visible browser': 'visible', 'Optional browser': 'optional', 'No browser': 'none' }[rows['Browser class']],
+  };
+}
+for (const m of all) {
+  ok(fs.existsSync(path.join(T.REPO, m.documentation)), `${m.domain}: its documentation page exists (${m.documentation})`);
+  const doc = details(m.documentation);
+  for (const key of Object.keys(doc)) {
+    ok(JSON.stringify(doc[key]) === JSON.stringify(m[key]), `${m.domain}: ${key} matches its page (manifest ${JSON.stringify(m[key])}, page ${JSON.stringify(doc[key])})`);
+  }
+}
+ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календарь по ссылке (ICS)' && bridge.nameOf(all.find(m => m.domain === 'calendar'), 'xx') === 'Calendar feed (ICS)', 'a translated name falls back to English');
+
+// A broken service is skipped, and doesn't take the others with it.
+{
+  const dir = T.tmpDir('services-');
+  const good = { domain: 'good', name: 'Good', categories: ['grades'], introduced: '3.0.0', communication_class: 'cloud_polling', browser_class: 'none', codeowners: [], documentation: 'x.md' };
+  T.writeFiles(dir, {
+    'good/manifest.json': good,
+    'renamed/manifest.json': { ...good, domain: 'not-its-folder' },
+    'bad-class/manifest.json': { ...good, domain: 'bad-class', browser_class: 'sometimes' },
+    'not-json/manifest.json': '{ nope',
+    'no-manifest/index.js': '',
+  });
+  const warn = console.warn; const warned = []; console.warn = m => warned.push(m);
+  const found = bridge.list(dir);
+  console.warn = warn;
+  ok(found.map(m => m.domain).join() === 'good', 'only the valid one is listed: ' + found.map(m => m.domain));
+  ok(warned.length === 4 && warned.some(w => /bad-class.*browser_class/.test(w)) && warned.some(w => /renamed.*domain/.test(w)), 'each skipped one says why: ' + warned.join(' | '));
+  ok(bridge.list(path.join(dir, 'missing')).length === 0, 'no services folder at all is an empty list, not a crash');
+}
+
+// The Services cards come from the manifests.
+{
+  const proj = T.makeProject({ 'settings.json': { language: 'en', email: 'a@example.test' } });
+  T.redraw(proj);
+  const html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
+  const cards = [...html.matchAll(/class="svc-card" data-svc-card="([^"]+)"/g)].map(m => m[1]);
+  ok(cards.join() === 'classroom,canvas,edpuzzle,q,calendar', 'a card per service, in order: ' + cards);
+  ok(/data-svc-card="edpuzzle"[\s\S]*?icon-browser-head/.test(html) && /data-svc-card="calendar"[\s\S]*?Calendar feed \(ICS\)/.test(html), 'with the badge from its browser class and its name');
+  fs.rmSync(path.join(proj, 'services', 'edpuzzle', 'manifest.json'));
+  T.redraw(proj);
+  const fewer = [...fs.readFileSync(path.join(proj, 'summary.html'), 'utf8').matchAll(/class="svc-card" data-svc-card="([^"]+)"/g)].map(m => m[1]);
+  ok(!fewer.includes('edpuzzle') && fewer.length === 4, 'a service without a manifest has no card, and the page still draws');
+}

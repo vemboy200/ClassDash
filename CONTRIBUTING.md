@@ -425,7 +425,7 @@ The user-facing version is in the [API docs](docs/api.md). This is the actual pr
 
 ## How it is put together
 
-All of these live under `src/`, except `16-summary.swift` (`mac/`) and the two entries under `electron/` below. The scripts that belong to one service are in its own folder, `src/services/<service>/` (`classroom`, `canvas`, `edpuzzle`, `q`, `calendar`), and the page's icons are in `src/icons/`. The Classroom reading itself is still part of the collector, `05-playwright-draft.js`.
+All of these live under `src/`, except `16-summary.swift` (`mac/`) and the two entries under `electron/` below. The scripts that belong to one service are in its own folder, `src/services/<service>/` (`classroom`, `canvas`, `edpuzzle`, `q`, `calendar`), and the page's icons are in `src/icons/`. Each service folder has a `manifest.json` (domain, name, categories, introduced, communication_class, browser_class, codeowners, documentation: the Details table from its docs page, which `test/service-manifests.test.js` keeps in step), and `61-services.js`, the bridge, finds services by their manifests. The Services cards in Settings are built from it. The Classroom reading itself is still part of the collector, `05-playwright-draft.js`.
 
 | file | what it does |
 |---|---|

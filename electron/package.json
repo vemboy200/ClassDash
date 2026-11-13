@@ -42,7 +42,7 @@
         "filter": [
           "*.js",
           "settings.example.json",
-          "services/**/*.js",
+          "services/**/*",
           "icons/*.png"
         ]
       },

@@ -61,6 +61,7 @@ const requireFresh = (file) => {
     /path\.join\(__dirname, '(05-playwright-draft|17-api|38-announcement-scan|services\/q\/40-grades|40-grades|\.\.\/\.\.\/05-playwright-draft)\.js'\)/,
     /path\.join\(__dirname, '55-dash-render\.js'\)/,
     /cwd: __dirname/,
+    /^const SERVICES_DIR = path\.join\(__dirname, 'services'\);$/,
   ];
   const srcDir = path.join(T.REPO, 'src');
   const stray = [];

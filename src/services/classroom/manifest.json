@@ -1,0 +1,17 @@
+{
+  "domain": "classroom",
+  "name": "Google Classroom",
+  "categories": [
+    "assignments",
+    "instructions",
+    "announcements",
+    "grades"
+  ],
+  "introduced": "1.0.0",
+  "communication_class": "cloud_polling",
+  "browser_class": "background",
+  "codeowners": [
+    "@vemboy200"
+  ],
+  "documentation": "docs/services/google-classroom.md"
+}

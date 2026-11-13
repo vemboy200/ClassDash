@@ -1388,13 +1388,17 @@ function settingsPanel() {
     head: ['icon-browser-head', 'svcBrowserHead'],
     maybe: ['icon-browser-question', 'svcBrowserMaybe'],
   };
-  const SERVICES = [
-    { id: 'classroom', name: 'Google Classroom', browser: 'browser', },
-    { id: 'canvas', name: 'Canvas', browser: 'maybe', },
-    { id: 'edpuzzle', name: 'Edpuzzle', browser: 'head', },
-    { id: 'q', name: 'Aequitas Q', browser: 'browser', },
-    { id: 'calendar', name: t('calendarIcs'), browser: null, opens: 'calendar' },
-  ];
+  // Which services there are comes from their manifests (61-services.js);
+  // the badge follows each one's browser class. The calendar feed's settings
+  // live in Settings → Calendar, so its card opens that.
+  const bridge = require('./61-services.js');
+  const BROWSER_BADGE = { background: 'browser', visible: 'head', optional: 'maybe', none: null };
+  const SERVICES = bridge.list().map(m => ({
+    id: m.domain,
+    name: bridge.nameOf(m, currentLanguage()),
+    browser: BROWSER_BADGE[m.browser_class],
+    opens: m.domain === 'calendar' ? 'calendar' : undefined,
+  }));
   const badge = ([icon, words]) => `<span class="svc-badge pixel-icon ${icon}" title="${escapeHtml(t(words))}"></span>`;
   const card = v => `        <button type="button" class="svc-card" data-svc-card="${v.id}" onclick="showSettingsSection('${v.opens || 'svc-' + v.id}')"${v.id === 'calendar' && !ics ? ' hidden' : ''}>
           <span class="svc-name">${escapeHtml(v.name)}</span>
