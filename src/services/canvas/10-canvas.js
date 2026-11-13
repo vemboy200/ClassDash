@@ -52,7 +52,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PROJECT_ROOT } = require('./00-project-root.js');
+const { PROJECT_ROOT } = require('../../00-project-root.js');
 
 // The school's Canvas address comes from settings: every school has its own.
 //
@@ -72,9 +72,9 @@ function normalizeCanvasSite(raw) {
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   try { return new URL(withScheme).origin; } catch { return withScheme.replace(/\/+$/, ''); }
 }
-const SITE = normalizeCanvasSite(require('./19-settings.js').read().canvas);
-const TOKEN = String(require('./19-settings.js').read().canvasToken || '').trim();
-const { isClassStale } = require('./22-class-activity.js');
+const SITE = normalizeCanvasSite(require('../../19-settings.js').read().canvas);
+const TOKEN = String(require('../../19-settings.js').read().canvasToken || '').trim();
+const { isClassStale } = require('../../22-class-activity.js');
 
 // The last successfully read list of active courses. Written here, not
 // just returned, so the settings page can list every known Canvas course
@@ -412,14 +412,14 @@ async function readCanvas(ask) {
     const assignments = await ask(
       `/api/v1/courses/${course.id}/assignments` +
       '?include[]=submission&per_page=100&order_by=due_at');
-    try { gradebook[course.name] = assignments.map(a => require('./40-grades.js').canvasAssignment(a)); } catch { /* the grades center just won't have this course's work */ }
+    try { gradebook[course.name] = assignments.map(a => require('../q/40-grades.js').canvasAssignment(a)); } catch { /* the grades center just won't have this course's work */ }
     // The course's assignment groups (Tests, Homework…) with their weights
     // and drop rules, so ClassDash can estimate a grade the teacher hides.
     // One more call per course; a course that refuses it just gets no
     // estimate.
     try {
       const groups = await ask(`/api/v1/courses/${course.id}/assignment_groups?per_page=100`);
-      if (Array.isArray(groups)) weights[course.name] = require('./40-grades.js').canvasWeighting(course, groups);
+      if (Array.isArray(groups)) weights[course.name] = require('../q/40-grades.js').canvasWeighting(course, groups);
     } catch { /* no estimate for this course */ }
 
     for (const a of assignments) {
@@ -533,7 +533,7 @@ async function readCanvas(ask) {
   // The grades, from the same courses. A quiet course without a score is
   // left out: lots of Canvas courses exist that nobody posts in.
   try {
-    require('./40-grades.js').saveCanvasGrades(availableNow.filter(c => !isClassStale(c.name) || require('./40-grades.js').canvasGrade(c)), gradebook, new Date(), weights);
+    require('../q/40-grades.js').saveCanvasGrades(availableNow.filter(c => !isClassStale(c.name) || require('../q/40-grades.js').canvasGrade(c)), gradebook, new Date(), weights);
   } catch (e) { console.log(`  Canvas: grades not saved: ${e.message}`); }
 
   return { items, courses, pending };

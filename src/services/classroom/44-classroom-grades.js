@@ -22,7 +22,7 @@
 // first everywhere (40-grades.js gradesView).
 const fs = require('fs');
 const path = require('path');
-const { PROJECT_ROOT } = require('./00-project-root.js');
+const { PROJECT_ROOT } = require('../../00-project-root.js');
 
 const FILE = path.join(PROJECT_ROOT, 'classroom-grades.json');
 const REFRESH_MS = 60 * 60 * 1000;

@@ -21,8 +21,10 @@
  *
  * ── What it touches, and what it never does ──
  *
- * It copies what the template ships — the scripts, the icons, package.json,
- * settings.example.json — and nothing else. Settings, collected data, the
+ * It copies what the template ships — the scripts (with services/), the icons
+ * (icons/), package.json, settings.example.json — and nothing else. Files an
+ * older version shipped somewhere else (the icons and service scripts used to
+ * sit at the top level) are left where they are, unused. Settings, collected data, the
  * browser profile, logs, and any file the template doesn't have are not read,
  * changed or deleted. node_modules is replaced only when the dependencies in
  * package.json changed (or it's missing), since it's big.
@@ -59,14 +61,21 @@ const BACKUP_DIR = 'previous-scripts';
 const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const exists = p => fs.existsSync(p);
 
-/** The files a template ships, at its top level (its node_modules is a
- *  folder and handled separately). Dotfiles are left out. */
-function shippedFiles(templateDir) {
-  return fs.readdirSync(templateDir, { withFileTypes: true })
-    .filter(e => e.isFile() && !e.name.startsWith('.'))
-    .map(e => e.name)
-    .sort();
+/** The files a template ships, as paths relative to it with '/' between
+ *  folders: the top level, and its folders (services/<service>/, icons/).
+ *  node_modules is handled separately, since it's big. Dotfiles are left out. */
+function shippedFiles(templateDir, under = '') {
+  const out = [];
+  for (const e of fs.readdirSync(path.join(templateDir, under), { withFileTypes: true })) {
+    if (e.name.startsWith('.')) continue;
+    const name = under ? `${under}/${e.name}` : e.name;
+    if (e.isFile()) out.push(name);
+    else if (e.isDirectory() && name !== 'node_modules') out.push(...shippedFiles(templateDir, name));
+  }
+  return out.sort();
 }
+
+const copyInto = (from, to) => { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); };
 
 /** One hash over every shipped file's name and contents. */
 function fingerprint(templateDir, files = shippedFiles(templateDir)) {
@@ -144,9 +153,9 @@ function syncProject(templateDir, projectDir) {
       const replacing = changed.filter(name => exists(path.join(projectDir, name)));
       if (replacing.length) {
         fs.mkdirSync(backup, { recursive: true });
-        for (const name of replacing) fs.copyFileSync(path.join(projectDir, name), path.join(backup, name));
+        for (const name of replacing) copyInto(path.join(projectDir, name), path.join(backup, name));
       }
-      for (const name of changed) fs.copyFileSync(path.join(templateDir, name), path.join(projectDir, name));
+      for (const name of changed) copyInto(path.join(templateDir, name), path.join(projectDir, name));
     }
 
     if (refreshModules) {

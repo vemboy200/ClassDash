@@ -6,7 +6,7 @@
  * A test never touches the project it runs from. makeProject() builds a
  * throwaway project in the system's temp folder out of this repo's own code
  * (the same allowlist the apps bundle as their template: src/'s scripts,
- * settings.example.json and the icons, plus package.json from the true
+ * settings.example.json, services/ and icons/, plus package.json from the true
  * repo root — see 00-project-root.js for why that split matters), links
  * the repo's node_modules into it, and hands back its path. The scripts
  * read and write their settings and data next to themselves, so a test's
@@ -28,13 +28,10 @@ const cp = require('child_process');
 const REPO = path.resolve(__dirname, '..');
 
 // What the apps bundle as a project template (see build.sh and
-// electron/package.json): nothing else in src/ is a project file.
-const ICONS = ['refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png',
-               'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png', 'warning-icon.png', 'workspace-icon.png',
-               'dashboard-icon.png', 'dashboard-outline-icon.png', 'grades-icon.png',
-               'cloud-ok-icon.png', 'cloud-attention-icon.png', 'cloud-bad-icon.png', 'cloud-icon.png', 'back-icon.png', 'arrow-icon.png', 'cloud-polling-icon.png', 'browser-icon.png', 'browser-head-icon.png', 'browser-question-icon.png', 'edit-icon.png', 'cloud-filled-icon.png', 'ai-icon.png', 'api-icon.png', 'classes-icon.png', 'fetching-icon.png', 'calendar-icon.png', 'schedule-icon.png', 'display-icon.png', 'app-icon.png', 'server-icon.png', 'line-icon.png', 'line-broken-icon.png'];
-const isProjectFile = name =>
-  name.endsWith('.js') || name === 'package.json' || name === 'settings.example.json' || ICONS.includes(name);
+// electron/package.json): src/'s top-level scripts and settings.example.json,
+// and its services/ and icons/ folders. Nothing else in src/ is a project file.
+const isProjectFile = name => name.endsWith('.js') || name === 'settings.example.json';
+const PROJECT_FOLDERS = ['services', 'icons'];
 
 const made = [];
 process.on('exit', () => {
@@ -81,6 +78,7 @@ function makeProject(files = {}) {
       fs.copyFileSync(path.join(REPO, 'src', entry.name), path.join(dir, entry.name));
     }
   }
+  for (const folder of PROJECT_FOLDERS) fs.cpSync(path.join(REPO, 'src', folder), path.join(dir, folder), { recursive: true });
   const modules = path.join(REPO, 'node_modules');
   if (!fs.existsSync(modules)) {
     throw new Error('the project root has no node_modules — run `npm ci` in the repository root first');

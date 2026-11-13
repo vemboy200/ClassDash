@@ -12,7 +12,7 @@ const proj = T.makeProject({ 'settings.json': { language: 'en', email: 'a@b', ca
 process.chdir(proj);
 
 // ── what Canvas says ──
-const { lockOf } = require(path.join(proj, '10-canvas.js'));
+const { lockOf } = require(path.join(proj, 'services/canvas/10-canvas.js'));
 ok('open work has no lock', lockOf({ locked_for_user: false, unlock_at: '2026-10-09T15:00:00Z' }) === null);
 ok('an "available from" date', JSON.stringify(lockOf({ locked_for_user: true, unlock_at: '2026-10-09T15:00:00Z', lock_info: { unlock_at: '2026-10-09T15:00:00Z' } })) ===
   '{"unlockAt":"2026-10-09T15:00:00Z","lockAt":null,"module":null}');

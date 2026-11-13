@@ -34,7 +34,7 @@ const FRAGMENT = `<div id="SP_Assignments"><input id="schedreccount" type="hidde
 (async () => {
   const proj = T.makeProject({ 'settings.json': { language: 'en' } });
   process.chdir(proj);
-  const grades = require(path.join(proj, '40-grades.js'));
+  const grades = require(path.join(proj, 'services/q/40-grades.js'));
   const settings = require(path.join(proj, '19-settings.js'));
 
   // ── the address ──
@@ -181,7 +181,7 @@ const FRAGMENT = `<div id="SP_Assignments"><input id="schedreccount" type="hidde
     d = open();
     ok('saved hidden: the next page starts hidden, class names still there', d.getElementById('grades-section').classList.contains('grades-hidden') &&
       d.querySelector('.grades-toggle').textContent === 'Show' && d.querySelectorAll('#grades-section .grade-class').length === 4);
-    ok('...and the API still has them', require(path.join(proj, '40-grades.js')).gradesView().classes[0].grade === 'B+');
+    ok('...and the API still has them', require(path.join(proj, 'services/q/40-grades.js')).gradesView().classes[0].grade === 'B+');
   }
 
   // ── Canvas grades ──

@@ -24,7 +24,7 @@ const pages = {
   const on = { language: 'en', gradesProvider: 'q', gradesAddress: 'q.made-up.example/Production/StudentPortal', gradesUsername: 'made-up-user' };
   const proj = T.makeProject({ 'settings.json': on });
   process.chdir(proj);
-  const grades = require(path.join(proj, '40-grades.js'));
+  const grades = require(path.join(proj, 'services/q/40-grades.js'));
   const secret = path.join(proj, 'grades-secret.json');
   grades._setStore(grades.fileStore(secret));
   grades.savePassword('made-up-old-pass');

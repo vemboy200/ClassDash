@@ -185,9 +185,9 @@ const HIDDEN_FILE = path.join(PROJECT_ROOT, 'скрытые.txt');
 // restoring them.
 const DELETED_FILE = path.join(PROJECT_ROOT, 'deleted-assignments.txt');
 const { writePage, daysUntil, headsUpText } = require('./08-page.js');
-const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./10-canvas.js');
-const { collectEdpuzzle } = require('./11-edpuzzle.js');
-const { collectFeed, setFeedEmail } = require('./12-feed.js');
+const { collectCanvasPlanned, SITE: CANVAS_SITE } = require('./services/canvas/10-canvas.js');
+const { collectEdpuzzle } = require('./services/edpuzzle/11-edpuzzle.js');
+const { collectFeed, setFeedEmail } = require('./services/classroom/12-feed.js');
 const { t, locale } = require('./18-language.js');
 const SETTINGS = require('./19-settings.js').read();
 
@@ -1407,7 +1407,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   const teachersFound = new Map();
   // Grades, from each class's "View your work" (44-classroom-grades.js), an
   // hour apart per class.
-  const classroomGrades = require('./44-classroom-grades.js');
+  const classroomGrades = require('./services/classroom/44-classroom-grades.js');
   const gradesDue = new Set(classroomGrades.classesDue(classes).map(c => c.id));
   const gradesFound = new Map();
 
@@ -2618,7 +2618,7 @@ if (require.main !== module) return;
   allAnnouncements.sort((a, b) => b.sortTime - a.sortTime);
   // Photos only for each class's newest posts (39-announcement-photos.js).
   try {
-    const deleted = require('./39-announcement-photos.js').prune(allAnnouncements);
+    const deleted = require('./services/classroom/39-announcement-photos.js').prune(allAnnouncements);
     if (deleted) console.log(`Announcement photos deleted: ${deleted}`);
   } catch (e) { console.warn('announcement photos not pruned:', e.message); }
   // Announcement memory is also written at the very end, together with assignments.
@@ -2921,7 +2921,7 @@ function recordGradeChanges() {
   try {
     const history = require('./45-grade-history.js');
     const s = require('./19-settings.js').read();
-    const changes = history.record(require('./40-grades.js').gradesView(s));
+    const changes = history.record(require('./services/q/40-grades.js').gradesView(s));
     const alerts = history.alertsFor(changes, s.gradeAlerts);
     if (!alerts.length) return;
     const lines = alerts.map(ch => history.changeText(ch, locale()));
@@ -2942,7 +2942,7 @@ function recordGradeChanges() {
 function startGradesCheck() {
   try {
     if (SETTINGS.gradesProvider !== 'q') return;
-    const child = require('child_process').spawn(process.execPath, [path.join(__dirname, '40-grades.js'), '--if-due'],
+    const child = require('child_process').spawn(process.execPath, [path.join(__dirname, 'services/q/40-grades.js'), '--if-due'],
       { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true });
     child.unref();
   } catch (e) {

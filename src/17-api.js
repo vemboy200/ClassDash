@@ -292,7 +292,7 @@ function classRoster(d) {
   // Grades list shows): the one it goes by, Q's first, then Canvas's, then
   // Classroom's (ranked there). A Q class only lands on a class here once
   // it's linked to it in Settings → Classes.
-  const gradeView = require('./40-grades.js').gradesView();
+  const gradeView = require('./services/q/40-grades.js').gradesView();
   const gradeByClass = new Map();
   for (const c of gradeView.classes) {
     if (c.superseded || gradeByClass.has(c.class)) continue;
@@ -432,7 +432,7 @@ const HANDLERS = {
   // Grades (Settings → Grades): the current grade per class, as of the last
   // time Q was read (at most hourly), and whether the last try worked. See
   // gradesView in 40-grades.js.
-  '/api/grades': () => require('./40-grades.js').gradesView(),
+  '/api/grades': () => require('./services/q/40-grades.js').gradesView(),
 
   // The check that's running right now, if any: {running, done, total,
   // percent, updatedAt} — see readCollection() in 28-live-state.js.
@@ -1240,7 +1240,7 @@ function wantsHtml(req) {
  *  icon with its stepped corners (the Windows one, electron/build/
  *  icon-source.png), drawn at a whole 2:1 so it stays crisp. */
 const APP_ICON_B64 = (() => {
-  try { return fs.readFileSync(path.join(__dirname, 'app-icon.png')).toString('base64'); } catch { return ''; }
+  try { return fs.readFileSync(path.join(__dirname, 'icons', 'app-icon.png')).toString('base64'); } catch { return ''; }
 })();
 
 function loginPage(wrong, next, wrongWord = 'loginWrong') {

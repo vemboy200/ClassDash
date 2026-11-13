@@ -241,7 +241,7 @@ function letterFor(percent, scale) {
 
 /** Reads a progress report PDF (bytes) with PDF.js. */
 async function readReportPdf(bytes) {
-  const { loadPdfjs } = require('./32-calendar-pdf.js');
+  const { loadPdfjs } = require('../../32-calendar-pdf.js');
   const { pdfjs, dir } = await loadPdfjs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), cMapUrl: path.join(dir, 'cmaps') + path.sep, cMapPacked: true, verbosity: 0, isEvalSupported: false }).promise;
   try {

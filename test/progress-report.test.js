@@ -71,8 +71,8 @@ const TERMS = `<center><div><b><label id="lblprogressreportterms">Progress Repor
   const on = { language: 'en', gradesProvider: 'q', gradesAddress: 'q.made-up.example/Production/StudentPortal', gradesUsername: 'made-up-user', aiProvider: 'none' };
   const proj = T.makeProject({ 'settings.json': on });
   process.chdir(proj);
-  const report = require(path.join(proj, '42-progress-report.js'));
-  const grades = require(path.join(proj, '40-grades.js'));
+  const report = require(path.join(proj, 'services/q/42-progress-report.js'));
+  const grades = require(path.join(proj, 'services/q/40-grades.js'));
   const settings = require(path.join(proj, '19-settings.js'));
 
   // ── the term list ──

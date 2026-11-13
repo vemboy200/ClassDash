@@ -54,17 +54,18 @@ const requireFresh = (file) => {
     /^\? __dirname$/,
     /^: path\.dirname\(__dirname\);$/,
     /^\*/,
-    /^const readIcon = name => fs\.readFileSync\(path\.join\(__dirname, name\)\)/,
+    /^const readIcon = name => fs\.readFileSync\(path\.join\(__dirname, 'icons', name\)\)/,
     /path\.join\(__dirname, 'settings\.example\.json'\)/,
-    /path\.join\(__dirname, 'app-icon\.png'\)/,
+    /path\.join\(__dirname, 'icons', 'app-icon\.png'\)/,
     /path\.join\(__dirname, 'pdf-lib\.min\.js'\)/,
-    /path\.join\(__dirname, '(05-playwright-draft|17-api|38-announcement-scan|40-grades)\.js'\)/,
+    /path\.join\(__dirname, '(05-playwright-draft|17-api|38-announcement-scan|services\/q\/40-grades|40-grades|\.\.\/\.\.\/05-playwright-draft)\.js'\)/,
     /path\.join\(__dirname, '55-dash-render\.js'\)/,
     /cwd: __dirname/,
   ];
   const srcDir = path.join(T.REPO, 'src');
   const stray = [];
-  for (const f of fs.readdirSync(srcDir).filter(f => f.endsWith('.js'))) {
+  // Service folders too (src/services/<service>/).
+  for (const f of fs.readdirSync(srcDir, { recursive: true }).filter(f => f.endsWith('.js'))) {
     fs.readFileSync(path.join(srcDir, f), 'utf8').split('\n').forEach((line, i) => {
       const code = line.replace(/\/\/.*$/, '').trim();
       if (code.includes('__dirname') && !allowed.some(re => re.test(code))) stray.push(`${f}:${i + 1}: ${code}`);

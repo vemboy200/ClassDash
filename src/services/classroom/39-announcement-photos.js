@@ -21,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { PROJECT_ROOT } = require('./00-project-root.js');
+const { PROJECT_ROOT } = require('../../00-project-root.js');
 
 const DIR_NAME = 'announcement-photos';
 const DIR = path.join(PROJECT_ROOT, DIR_NAME);
@@ -39,7 +39,7 @@ const PHOTO_PATH = new RegExp(`^${DIR_NAME}/[0-9a-f]{20}\\.(${EXTS.join('|')})$`
 /** The announcementPhotos setting, 0–100. */
 function perClass() {
   try {
-    const n = require('./19-settings.js').read().announcementPhotos;
+    const n = require('../../19-settings.js').read().announcementPhotos;
     return Number.isInteger(n) && n >= 0 && n <= 100 ? n : DEFAULT_PER_CLASS;
   } catch { return DEFAULT_PER_CLASS; }
 }

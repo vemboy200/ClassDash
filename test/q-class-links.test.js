@@ -36,7 +36,7 @@ const proj = T.makeProject({
   ],
 });
 process.chdir(proj);
-const grades = require(path.join(proj, '40-grades.js'));
+const grades = require(path.join(proj, 'services/q/40-grades.js'));
 const center = require(path.join(proj, '41-grades-center.js'));
 const api = require(path.join(proj, '17-api.js'));
 

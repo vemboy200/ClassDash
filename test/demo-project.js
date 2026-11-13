@@ -27,8 +27,9 @@ fs.writeFileSync(path.join(dir, '.classdash-demo'), 'Made by test/demo-project.j
 // The same files the apps ship as a project (see test/helpers.js).
 fs.copyFileSync(path.join(REPO, 'package.json'), path.join(dir, 'package.json'));
 for (const name of fs.readdirSync(path.join(REPO, 'src'))) {
-  if (name.endsWith('.js') || name.endsWith('.png') || name === 'settings.example.json') fs.copyFileSync(path.join(REPO, 'src', name), path.join(dir, name));
+  if (name.endsWith('.js') || name === 'settings.example.json') fs.copyFileSync(path.join(REPO, 'src', name), path.join(dir, name));
 }
+for (const folder of ['services', 'icons']) fs.cpSync(path.join(REPO, 'src', folder), path.join(dir, folder), { recursive: true });
 fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(dir, 'node_modules'), 'dir');
 
 const day = 86400000, now = Date.now();

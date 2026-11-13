@@ -30,7 +30,7 @@ function open(proj, posted) {
     canvas: 'https://made-up.instructure.example', canvasToken: 'made-up-token', aiProvider: 'ollama', aiModel: 'made-up:1b' };
   const proj = T.makeProject({ 'settings.json': on });
   process.chdir(proj);
-  const grades = require(path.join(proj, '40-grades.js'));
+  const grades = require(path.join(proj, 'services/q/40-grades.js'));
   const center = require(path.join(proj, '41-grades-center.js'));
 
   // ── reading every assignment ──

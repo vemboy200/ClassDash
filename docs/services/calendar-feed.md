@@ -43,7 +43,7 @@ Clear the link in Settings → Calendar and click **Save link**. ClassDash forge
 
 For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-- [`34-calendar-ics.js`](../../src/34-calendar-ics.js) downloads and reads the feed, with no dependency: ICS is plain text.
+- [`34-calendar-ics.js`](../../src/services/calendar/34-calendar-ics.js) downloads and reads the feed, with no dependency: ICS is plain text.
 - [`33-school-calendar.js`](../../src/33-school-calendar.js) keeps the events, guesses what each kind of event means, and keeps the meanings the person picks.
 
 ## Details

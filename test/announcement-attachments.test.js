@@ -12,8 +12,8 @@ const ok = (n, c, x = '') => { console.log(c ? 'PASS' : 'FAIL', n, c ? '' : x); 
 
 const proj = T.makeProject({ 'settings.json': { language: 'en' } });
 process.chdir(proj);
-const photos = require(path.join(proj, '39-announcement-photos.js'));
-const { collectFeed } = require(path.join(proj, '12-feed.js'));
+const photos = require(path.join(proj, 'services/classroom/39-announcement-photos.js'));
+const { collectFeed } = require(path.join(proj, 'services/classroom/12-feed.js'));
 const { JSDOM, VirtualConsole } = T.jsdom();
 
 const ICON = k => `https://ssl.gstatic.com/docs/doclist/images/mediatype/${k}_x16.png`;

@@ -31,8 +31,8 @@ const WORK_PAGE = `<main>
       { period: '1', class: 'Made-up Biology (1111A)', grade: 'B', percent: 85, term: 'S1', assignments: [] }] },
   });
   process.chdir(proj);
-  const cg = require(path.join(proj, '44-classroom-grades.js'));
-  const grades = require(path.join(proj, '40-grades.js'));
+  const cg = require(path.join(proj, 'services/classroom/44-classroom-grades.js'));
+  const grades = require(path.join(proj, 'services/q/40-grades.js'));
 
   // ── reading the work page ──
   const w = new JSDOM(WORK_PAGE, { runScripts: 'outside-only', virtualConsole: new VirtualConsole() }).window;

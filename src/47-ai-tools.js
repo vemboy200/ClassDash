@@ -265,7 +265,7 @@ const TOOLS = [
       properties: { class: { type: 'string', description: 'One class, with its graded assignments. Leave out for every class\'s grade.' } },
     },
     run(args) {
-      const view = require('./40-grades.js').gradesView(undefined, { assignments: !!args.class });
+      const view = require('./services/q/40-grades.js').gradesView(undefined, { assignments: !!args.class });
       const classes = view.classes.filter(c => !c.superseded && (!args.class || sameClass(c.class, args.class)));
       if (args.class && !classes.length) return { error: 'No grades for that class. Leave out "class" to see which classes have grades.' };
       return { classes: classes.map(c => { const o = { ...c }; delete o.sourceClass; return o; }) };

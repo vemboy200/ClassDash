@@ -285,7 +285,7 @@ ${PAGE_SCRIPT.replace('__STRINGS__', () => JSON.stringify(L).replace(/</g, '\\u0
 }
 
 // Beside the scripts, like 08-page.js's icons (a template file, not data).
-const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
+const readIcon = name => fs.readFileSync(path.join(__dirname, 'icons', name)).toString('base64');
 const WARNING_B64 = readIcon('warning-icon.png');
 const ARROW_B64 = readIcon('arrow-icon.png');
 

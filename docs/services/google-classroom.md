@@ -61,8 +61,8 @@ ClassDash reads the Classroom pages in a browser signed in to your school Google
 For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 - [`05-playwright-draft.js`](../../src/05-playwright-draft.js) reads each class's to-do list (`/w/<id>/t/all`) off the rendered page, plus announcements and, by opening each assignment in place, its instructions. No API at all: Classroom doesn't offer one to students, so this is the one source that can break when Google changes the page.
-- [`44-classroom-grades.js`](../../src/44-classroom-grades.js) reads each class's "View your work" page for grades, matched by the page's structure, not by Google's generated class names.
-- [`39-announcement-photos.js`](../../src/39-announcement-photos.js) saves announcement photos.
+- [`44-classroom-grades.js`](../../src/services/classroom/44-classroom-grades.js) reads each class's "View your work" page for grades, matched by the page's structure, not by Google's generated class names.
+- [`39-announcement-photos.js`](../../src/services/classroom/39-announcement-photos.js) saves announcement photos.
 - **Materials** (`type: 'Material'`) come off the same stream as assignments, in the same shared item shape.
 
 ## Details

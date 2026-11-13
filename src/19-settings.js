@@ -511,7 +511,7 @@ function validate(key, raw) {
     // Kept as typed (trimmed), so the field shows what was entered; empty
     // is fine (grades off), anything else has to be a web address.
     const text = String(raw).trim();
-    if (text && !require('./40-grades.js').portalBase(text)) return { ok: false, why: 'needs to be the address of your Q login page' };
+    if (text && !require('./services/q/40-grades.js').portalBase(text)) return { ok: false, why: 'needs to be the address of your Q login page' };
     return { ok: true, value: text };
   }
   if (kind === 'aiProvider') {

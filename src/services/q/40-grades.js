@@ -47,7 +47,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { PROJECT_ROOT } = require('./00-project-root.js');
+const { PROJECT_ROOT } = require('../../00-project-root.js');
 
 const FILE = path.join(PROJECT_ROOT, 'grades.json');
 const CANVAS_FILE = path.join(PROJECT_ROOT, 'canvas-grades.json');
@@ -62,7 +62,7 @@ const SIGN_IN_TIMEOUT_MS = 60000;
 // Q being slow is usually over in a moment: one more try after this.
 const RETRY_WAIT_MS = 15000;
 
-const settings = () => require('./19-settings.js').read();
+const settings = () => require('../../19-settings.js').read();
 
 /**
  * The portal's base from whatever was typed: a scheme added if missing, and
@@ -305,7 +305,7 @@ function newPasswordMessage() {
 
 function browserOptions(s) {
   if (s.browserPath) return { executablePath: path.resolve(PROJECT_ROOT, s.browserPath) };
-  const own = require('./20-browser.js');
+  const own = require('../../20-browser.js');
   return own.isInstalled() ? { executablePath: own.BINARY } : { channel: 'chrome' };
 }
 
@@ -460,7 +460,7 @@ async function check({ force = false, now = new Date(), reader = read, retryWait
   }
   writeGrades(next);
   // Q's dot beside the other platforms' (25-check-status.js).
-  require('./25-check-status.js').record('q', next.ok, next.ok ? `${next.classes.length} classes` : next.why);
+  require('../../25-check-status.js').record('q', next.ok, next.ok ? `${next.classes.length} classes` : next.why);
   return { ok: next.ok, why: next.why, classes: next.ok ? next.classes.length : 0 };
 }
 
@@ -619,7 +619,7 @@ function typedEstimate(c, weights) {
 
 function canvasHiddenTest(s, map, links) {
   const excluded = new Set(s.exclusions || []);
-  const { isClassStale } = require('./22-class-activity.js');
+  const { isClassStale } = require('../../22-class-activity.js');
   const readJson = (name, fallback) => { try { return JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, name), 'utf8')); } catch { return fallback; } };
   let active = null;
   if (s.hideInactiveClasses) {
@@ -633,7 +633,7 @@ function canvasHiddenTest(s, map, links) {
  * by linked name), or else the one its name gives away ("P3 Biology").
  */
 function canvasPeriodLookup(map, links) {
-  const schedule = require('./35-school-schedule.js');
+  const schedule = require('../../35-school-schedule.js');
   const given = new Map();
   for (const c of schedule.readSchedule().classes || []) if (c && c.class && c.period != null && c.period !== '') given.set(c.class, String(c.period));
   return raw => {
@@ -661,9 +661,9 @@ const qName = c => c.sourceClass || c.class;
 function gradesView(s = settings(), { assignments = false } = {}) {
   const saved = readGrades();
   const on = s.gradesProvider === 'q';
-  const canvasOn = require('./19-settings.js').canvasPlan(s).enabled;
+  const canvasOn = require('../../19-settings.js').canvasPlan(s).enabled;
   const canvas = canvasOn ? readCanvasGrades() : { classes: [] };
-  const links = require('./29-class-links.js');
+  const links = require('../../29-class-links.js');
   const map = links.linkMap();
   const hidden = canvasHiddenTest(s, map, links);
   const period = canvasPeriodLookup(map, links);
@@ -671,7 +671,7 @@ function gradesView(s = settings(), { assignments = false } = {}) {
   // ones left out the same way as Canvas's, and ones with nothing graded
   // yet (no grade to show, unlike a Q or Canvas class whose teacher hid it).
   const classroom = s.classroomEnabled === false ? []
-    : require('./44-classroom-grades.js').gradeClasses().filter(c => c.percent !== null && !hidden(c.class));
+    : require('../classroom/44-classroom-grades.js').gradeClasses().filter(c => c.percent !== null && !hidden(c.class));
   return {
     provider: on ? 'q' : 'none',
     checkedAt: on ? saved.checkedAt || null : null,
@@ -747,7 +747,7 @@ if (require.main === module && (process.argv.includes('--if-due') || process.arg
   check({ force: process.argv.includes('--now') }).then(r => {
     if (!r.skipped) {
       console.log(r.ok ? `Grades: ${r.classes} classes` : `Grades not read: ${r.why}`);
-      require('child_process').spawnSync(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), r.ok ? '--grades-read' : '--redraw'], { stdio: 'ignore' });
+      require('child_process').spawnSync(process.execPath, [path.join(__dirname, '../../05-playwright-draft.js'), r.ok ? '--grades-read' : '--redraw'], { stdio: 'ignore' });
     }
   }).catch(e => console.error('grades check failed:', e.message)).finally(dropLock);
 }

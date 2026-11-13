@@ -272,7 +272,7 @@ function saveIcsError(url, why, now = new Date()) {
 
 /** Fetches the feed again and saves what came back: { ok, events } or { ok: false, why }. */
 async function refreshFeed(url = (readCalendar().ics || {}).url) {
-  const result = await require('./34-calendar-ics.js').fetchIcs(url);
+  const result = await require('./services/calendar/34-calendar-ics.js').fetchIcs(url);
   if (result.ok) saveIcs(url, result.events);
   else saveIcsError(url, result.why);
   return result.ok ? { ok: true, events: result.events.length } : { ok: false, why: result.why };

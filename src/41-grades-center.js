@@ -38,7 +38,7 @@ const MAX_UPCOMING = 15;
 const MAX_THINKING = 20000;
 
 const settings = () => require('./19-settings.js').read();
-const qName = c => require('./40-grades.js').qName(c);
+const qName = c => require('./services/q/40-grades.js').qName(c);
 
 const SYSTEM = `You help a student understand their school grades. Answer from the grades below and nothing else; if something isn't in them, say so. ` +
   `The totals are already added up for you: use them rather than adding scores yourself, and show the arithmetic when you work something out. ` +
@@ -89,7 +89,7 @@ function upcomingByClass() {
 /** What the Grades center shows: each class with its assignments, newest
  *  first, and the points added up over the graded ones. */
 function centerData(s = settings()) {
-  const view = require('./40-grades.js').gradesView(s, { assignments: true });
+  const view = require('./services/q/40-grades.js').gradesView(s, { assignments: true });
   const coming = upcomingByClass();
   return view.classes.map(c => {
     const work = [...(c.assignments || [])].sort((a, b) => String(b.due || '').localeCompare(String(a.due || '')));

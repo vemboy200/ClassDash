@@ -57,7 +57,7 @@ npm start
 
 **Known, unresolved consequence of that same fact**: the detached home API server (`17-api.js`) shares process identity with the app — it's also, technically, `ClassDash.exe`. A reinstall or the app's own self-update (both run the installer, which closes anything named `ClassDash.exe` before overwriting it) can kill the API server even though it's supposed to survive the main app closing entirely, the way it does on macOS (a genuinely separate system `node` process there). Toggling **Enable home API** off then on again (each followed by Save) forces a fresh restart and works around it; the real fix would bundle an actual separate portable Node binary for exactly this kind of long-running process, not yet built.
 
-**The new-project wizard's template** comes from `electron/package.json`'s own `build.extraResources` — two entries, both landing in the same `resources/ProjectTemplate`: every `.js` file, `settings.example.json` and the icons (`refresh-icon.png`, `freshcheck-icon.png`, `settings-icon.png` for the header, `loading-icon.png` and `loading-icon-light.png` for the loading indicators — the same sprite twice, the speed-dashes white for the dark theme and near-black for the light one; regenerate the light one if the dashes are ever redrawn) from `src/`, flattened out of it; `package.json` and `node_modules` from the true repo root, where they actually live. The Electron equivalent of `build.sh`'s own `Contents/Resources/ProjectTemplate` step for the Mac build. **Needs the root project's own `npm ci` run first** — see the release pipeline below for the real bug this already caused once.
+**The new-project wizard's template** comes from `electron/package.json`'s own `build.extraResources` — two entries, both landing in the same `resources/ProjectTemplate`: every top-level `.js` file and `settings.example.json` from `src/`, flattened out of it, plus its `services/` and `icons/` folders as they are; `package.json` and `node_modules` from the true repo root, where they actually live. The Electron equivalent of `build.sh`'s own `Contents/Resources/ProjectTemplate` step for the Mac build. **Needs the root project's own `npm ci` run first** — see the release pipeline below for the real bug this already caused once.
 
 **Brave's Windows install is a real system install**, unlike macOS's isolated `.browser/`-folder copy — Windows has no equivalent of "extract an app bundle in isolation and run it from there." Downloads `BraveBrowserStandaloneSilentSetup.exe` (confirmed against Brave's own real [winget package manifest](https://github.com/microsoft/winget-pkgs/tree/master/manifests/b/Brave/Brave) after two wrong URL guesses first — GitHub Releases directly, not `laptop-updates.brave.com` or `referrals.brave.com`) to its standard per-user location. Still safe: the profile isolation that matters comes from Playwright's own `--user-data-dir` flag, not from the install being physically separate.
 
@@ -195,13 +195,13 @@ Both apps ship a copy of the project (`Contents/Resources/ProjectTemplate` on ma
 
 On every launch each app now runs `30-template-sync.js <bundled template> <project>` (`syncProjectScripts` in `16-summary.swift` and `electron/main.js`) **from the bundled template**, never from the project, which may be too old to contain it. It prints one JSON line and always exits 0:
 
-- **What it copies:** the files the template ships at its top level (scripts, icons, `package.json`, `settings.example.json`), and nothing else. Settings, collected data, the browser profile, logs, and any file the template doesn't have are never read, changed or deleted. `node_modules` is replaced only when `package.json`'s dependencies changed or it's missing.
+- **What it copies:** the files the template ships: its top level (scripts, `package.json`, `settings.example.json`) and its folders (`services/`, `icons/`), keeping the folders, and nothing else. Settings, collected data, the browser profile, logs, and any file the template doesn't have are never read, changed or deleted. `node_modules` is replaced only when `package.json`'s dependencies changed or it's missing.
 - **When it does nothing:** the project is a **git checkout** (a `.git` folder: someone running from source, whose working copy the bundled template can be *older* than; overwriting it would destroy uncommitted work, which is why a locally built Mac app, whose project is the repo, is unaffected), the project is the template, there's no template or project, or the project's marker already matches.
 - **The marker** is `template-sync.json` in the project: a fingerprint (a hash of the template's files), not the app's version number, because a dev build has the same version string across different code. It's only written after a sync succeeds, so a failed one is retried on the next launch.
 - **One step of undo:** files about to be overwritten are first copied to `previous-scripts/`, replacing what an earlier sync left there.
 - **After a sync that changed something,** the app redraws the page from the new scripts and sends the `restartApi` notifier action, since a home API server that was already running is still the old code in memory. `restartApi` only restarts a server that is running: a refresh never switches the API on.
 
-Files a later version *removes* are left behind in the project (nothing is ever deleted), which is harmless.
+Files a later version *removes* or *moves* are left behind in the project (nothing is ever deleted), which is harmless: the service scripts and icons that used to sit at the top level stay there unused after the update that moved them into `services/` and `icons/`.
 
 **The version row is a snapshot, so the running version is recorded at launch.** The page reads `currentVersion` from `update-status.json` when it is *built* and is static afterwards, while the app only rewrites that field from an update check that finishes after the page has loaded. After installing a newer version the row (and the "update available" banner) went on showing the old one, which looked exactly like an install that hadn't worked (it happened twice on a real laptop). Right after the script refresh and before the window loads the page, both apps call the `noteVersion` notifier action with the version they are really running (`recordRunningVersion` in `26-update-check.js`); if it differs from the record it updates it, recomputes `updateAvailable`, clears a downloaded installer for a version that's now running (so the install prompt can't offer to install what's already installed), and redraws. A dev build (`0.0.0-dev.<sha>`) always counts as older than any release, so it is offered the latest release: don't install that.
 
@@ -425,17 +425,17 @@ The user-facing version is in the [API docs](docs/api.md). This is the actual pr
 
 ## How it is put together
 
-All of these live under `src/`, except `16-summary.swift` (`mac/`) and the two entries under `electron/` below.
+All of these live under `src/`, except `16-summary.swift` (`mac/`) and the two entries under `electron/` below. The scripts that belong to one service are in its own folder, `src/services/<service>/` (`classroom`, `canvas`, `edpuzzle`, `q`, `calendar`), and the page's icons are in `src/icons/`. The Classroom reading itself is still part of the collector, `05-playwright-draft.js`.
 
 | file | what it does |
 |---|---|
 | `05-playwright-draft.js` | the collector: reads sources, diffs against memory, notifies |
 | `08-page.js` | builds `summary.html` — plain code, no model involved |
-| `10-canvas.js` | Canvas through its official REST API; courses are discovered, not hardcoded; assignments and Pages (materials) both; normalizes the configured address (adds `https://` if it's missing) before using it |
-| `11-edpuzzle.js` | Edpuzzle through its own internal API (no public one exists — learned by watching the site itself); needs a visible window |
-| `12-feed.js` | teacher announcements from the Classroom stream |
-| `13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
-| `14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
+| `services/canvas/10-canvas.js` | Canvas through its official REST API; courses are discovered, not hardcoded; assignments and Pages (materials) both; normalizes the configured address (adds `https://` if it's missing) before using it |
+| `services/edpuzzle/11-edpuzzle.js` | Edpuzzle through its own internal API (no public one exists — learned by watching the site itself); needs a visible window |
+| `services/classroom/12-feed.js` | teacher announcements from the Classroom stream |
+| `services/edpuzzle/13-transcripts.js` | video → audio (ffmpeg) → text (Whisper), all local — **not wired in yet** |
+| `services/edpuzzle/14-transcript-page.js` | renders one transcript as its own page — **not wired in yet** |
 | `16-summary.swift` | the macOS app — the summary window, the `napominalka://` bridge and its browser-tab fallback, notifications, locating the project folder, and (since 2026-09-09) the no-terminal new-project setup wizard, all in one |
 | `17-api.js` | the API server |
 | `18-language.js` | Russian and English wording |

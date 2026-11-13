@@ -45,7 +45,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PROJECT_ROOT } = require('./00-project-root.js');
+const { PROJECT_ROOT } = require('../../00-project-root.js');
 
 const SITE = 'https://edpuzzle.com';
 
@@ -60,7 +60,7 @@ const CLASSES_FILE = path.join(PROJECT_ROOT, 'edpuzzle-classes.json');
 // Shared with Classroom: a class excluded by name there is excluded here
 // too. One list instead of two, since it's the same underlying school
 // class either way, just fetched through a different platform.
-const EXCLUSIONS = require('./19-settings.js').read().exclusions;
+const EXCLUSIONS = require('../../19-settings.js').read().exclusions;
 
 // See the comment on skipStaleClasses in 19-settings.js for why this
 // exists at all. Edpuzzle gets the easy version: it hands back a real
@@ -68,7 +68,7 @@ const EXCLUSIONS = require('./19-settings.js').read().exclusions;
 // memory-based classLastActivity() fallback Classroom and Canvas use in
 // 05-playwright-draft.js.
 const { skipStaleClasses: SKIP_STALE, staleMonths: STALE_MONTHS } =
-  require('./19-settings.js').read();
+  require('../../19-settings.js').read();
 
 /** The first non-empty value out of several possible field names. */
 function field(obj, ...names) {

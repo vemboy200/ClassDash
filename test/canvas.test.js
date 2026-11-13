@@ -49,7 +49,7 @@ const server = http.createServer((req, res) => {
 const load = (settings) => {
   fs.writeFileSync('settings.json', JSON.stringify(settings));
   for (const k of Object.keys(require.cache)) if (k.startsWith(PROJ) && !k.includes('node_modules')) delete require.cache[k];
-  return require(path.join(PROJ, '10-canvas.js'));
+  return require(path.join(PROJ, 'services/canvas/10-canvas.js'));
 };
 
 (async () => {

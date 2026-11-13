@@ -14,7 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { t, currentLanguage } = require('./18-language.js');
+const { t, currentLanguage } = require('../../18-language.js');
 
 const escapeHtml = s => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

@@ -8,7 +8,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const proj = T.makeProject({ 'settings.json': { language: 'en', email: 'a@b', canvas: '' }, 'last-collection.json': [] });
 process.chdir(proj);
-const { parseIcs, feedUrl } = require(path.join(proj, '34-calendar-ics.js'));
+const { parseIcs, feedUrl } = require(path.join(proj, 'services/calendar/34-calendar-ics.js'));
 const cal = require(path.join(proj, '33-school-calendar.js'));
 
 const pad = n => String(n).padStart(2, '0');

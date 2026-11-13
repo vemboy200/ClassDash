@@ -703,7 +703,7 @@ function act(action, arg) {
       // Fewer announcement photos (or none): cleared now, not at the next
       // check. More are downloaded at the next check.
       if (result.changed.includes('announcementPhotos')) {
-        const deleted = require('./39-announcement-photos.js').pruneSaved();
+        const deleted = require('./services/classroom/39-announcement-photos.js').pruneSaved();
         logAction(`  announcement photos: ${deleted} deleted`);
       }
 
@@ -900,14 +900,14 @@ function act(action, arg) {
         return { ok: false, action, why: 'could not parse: ' + e.message };
       }
       if (typeof password !== 'string') return { ok: false, action, why: 'expected a password' };
-      const result = require('./40-grades.js').savePassword(password);
+      const result = require('./services/q/40-grades.js').savePassword(password);
       logAction(result.ok ? `  grades password ${result.saved ? 'saved' : 'removed'} (${result.where})` : `  grades password not saved: ${result.why}`);
       if (result.ok) redraw();
       // A new password is tried right away, not at the next hourly check:
       // usually it's the fix for one Q turned down or wanted changed.
-      if (result.ok && result.saved && require('./40-grades.js').readiness().ready) {
+      if (result.ok && result.saved && require('./services/q/40-grades.js').readiness().ready) {
         try {
-          require('./40-grades.js').startCheckNow();
+          require('./services/q/40-grades.js').startCheckNow();
           logAction('  grades check started with the new password');
         } catch (e) { logAction(`  grades check not started: ${e.message}`); }
       }
@@ -916,7 +916,7 @@ function act(action, arg) {
     // Settings → Services → Aequitas Q → Check now: signs in to Q and reads the grades right
     // away (not waiting out the hour), then redraws.
     case 'checkGrades': {
-      const grades = require('./40-grades.js');
+      const grades = require('./services/q/40-grades.js');
       if (!grades.takeLock()) return { ok: false, action, why: 'a grades check is already running' };
       return grades.check({ force: true }).then(result => {
         logAction(result.skipped ? `  grades not checked: ${result.skipped}` : result.ok ? `  grades: ${result.classes} classes` : `  grades not read: ${result.why}`);

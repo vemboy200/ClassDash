@@ -63,7 +63,7 @@ Both ways ask Canvas's official API for the same information, but sign in differ
 
 For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-[`10-canvas.js`](../../src/10-canvas.js) uses Canvas's own REST API (documented at `canvas.instructure.com/doc/api/`). `readCanvas()` is shared by both ways and only the request differs:
+[`10-canvas.js`](../../src/services/canvas/10-canvas.js) uses Canvas's own REST API (documented at `canvas.instructure.com/doc/api/`). `readCanvas()` is shared by both ways and only the request differs:
 
 - **Google sign-in**: `askViaPage` calls it from inside the already-open, signed-in browser page, so the request rides its session cookies. Works fine headless. The API is official, but this isn't the documented way to authenticate: no OAuth app registration and no access token.
 - **API (access token)**: `askWithToken` sends the same paths from Node with `Authorization: Bearer`, with no browser and no sign-in. The documented way. Tokens expire and some schools don't let students create them, which is why the sign-in way stays as the fallback.

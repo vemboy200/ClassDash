@@ -49,7 +49,7 @@ const schoolSchedule = require('./35-school-schedule.js');
 // a whole 2:1 — so every art pixel lands on a whole device pixel on a
 // Retina display and stays crisp. Read once at module load, not per page
 // render: they're static assets.
-const readIcon = name => fs.readFileSync(path.join(__dirname, name)).toString('base64');
+const readIcon = name => fs.readFileSync(path.join(__dirname, 'icons', name)).toString('base64');
 const ICON_REFRESH_B64 = readIcon('refresh-icon.png');
 const ICON_FRESHCHECK_B64 = readIcon('freshcheck-icon.png');
 // A filled circle, drawn at 16x16 and stored here upscaled 2x
@@ -263,7 +263,7 @@ function dashboardView(data) {
   const aiOn = !!settings.aiProvider && settings.aiProvider !== 'none';
   const scanned = aiOn ? require('./38-announcement-scan.js').readState().scanned : {};
   const freshPosts = data.freshAnnouncements || new Set();
-  const { PHOTO_PATH } = require('./39-announcement-photos.js');
+  const { PHOTO_PATH } = require('./services/classroom/39-announcement-photos.js');
   const web = u => /^https?:\/\//i.test(String(u || ''));
   const post = p => {
     // Only a photo path the collector would write is used, and only web links.
@@ -308,7 +308,7 @@ function dashboardView(data) {
 
 /** Settings → Aequitas Q: how the last read of the grades went, and when. */
 function qStatusLine(s = readSettings()) {
-  const view = require('./40-grades.js').gradesView(s);
+  const view = require('./services/q/40-grades.js').gradesView(s);
   const when = iso => new Date(iso).toLocaleString(locale(), { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   const status = s.gradesProvider !== 'q' ? ''
     : view.newPassword ? t('gradesNewPassword', view.why)
@@ -813,13 +813,13 @@ function classLinksField(links) {
   // Not the classes the page's class filter hides: excluded, gone quiet,
   // never active (canvasHiddenTest, the same rules for every platform);
   // nor ones no platform lists any more (orphaned), only old data.
-  const hidden = require('./40-grades.js').canvasHiddenTest(readSettings(), classLinks.linkMap(links), classLinks);
+  const hidden = require('./services/q/40-grades.js').canvasHiddenTest(readSettings(), classLinks.linkMap(links), classLinks);
   const status = knownClassStatus();
   const classes = [...status.keys()].filter(name => status.get(name) === 'known' && !hidden(name));
   // Q's classes too (Settings → Services → Aequitas Q), marked as Q's: linked to their
   // Classroom or Canvas class, their grade goes with it (40-grades.js
   // gradesView, the API's classRoster).
-  const grades = require('./40-grades.js');
+  const grades = require('./services/q/40-grades.js');
   const qClasses = readSettings().gradesProvider === 'q'
     ? (grades.readGrades().classes || []).map(c => c.class).filter(c => c && !classes.includes(c)) : [];
   classes.push(...qClasses);
@@ -942,7 +942,7 @@ function browserLabelFor(browserPath) {
  *  Check now. gradesProvider stays the setting that says Q is on; Add
  *  service and Turn off set it, so its select is hidden. */
 function qSettings(s, field) {
-  const grades = require('./40-grades.js');
+  const grades = require('./services/q/40-grades.js');
   const on = s.gradesProvider === 'q';
   const hidden = on ? '' : ' hidden';
   const base = grades.portalBase(s.gradesAddress);
@@ -1065,7 +1065,7 @@ function gradeHistoryChart(points, now = new Date()) {
 }
 
 function gradesSection() {
-  const grades = require('./40-grades.js');
+  const grades = require('./services/q/40-grades.js');
   const s = readSettings();
   const view = grades.gradesView(s);
   const qOn = view.provider === 'q';
@@ -1112,7 +1112,7 @@ ${rows ? `      <ul class="grades-list">\n${rows}\n      </ul>` : ''}
  */
 function gradesCenterPanel() {
   const center = require('./41-grades-center.js');
-  const grades = require('./40-grades.js');
+  const grades = require('./services/q/40-grades.js');
   const s = readSettings();
   const classes = center.centerData(s);
   if (s.gradesProvider !== 'q' && !classes.length) return '';

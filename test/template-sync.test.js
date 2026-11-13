@@ -168,15 +168,34 @@ const THEIRS = ['settings.json', 'last-collection.json', 'messages.json', 'не-
 
 // ── 12: the real template shape (what build.sh / electron-builder ship) ──
 {
-  // everything that would be bundled: src/'s *.js + settings.example.json + the icons, plus package.json from the true repo root
+  // everything that would be bundled: src/'s *.js + settings.example.json + services/ + icons/, plus package.json from the true repo root
   const t = tmp();
-  for (const n of fs.readdirSync(path.join(REAL, 'src'))) if (/\.js$/.test(n) || ['settings.example.json', 'refresh-icon.png', 'freshcheck-icon.png', 'settings-icon.png', 'loading-icon.png', 'loading-icon-light.png', 'stop-icon.png', 'warning-icon.png'].includes(n)) fs.copyFileSync(path.join(REAL, 'src', n), path.join(t, n));
+  for (const n of fs.readdirSync(path.join(REAL, 'src'))) if (/\.js$/.test(n) || n === 'settings.example.json') fs.copyFileSync(path.join(REAL, 'src', n), path.join(t, n));
+  for (const folder of ['services', 'icons']) fs.cpSync(path.join(REAL, 'src', folder), path.join(t, folder), { recursive: true });
   fs.copyFileSync(path.join(REAL, 'package.json'), path.join(t, 'package.json'));
   const p = oldProject();
   const r = sync.syncProject(t, p);
   ok(r.ok && r.action === 'synced' && r.changed.length > 20, '12 the real file set syncs: ' + r.changed.length + ' files');
-  ok(has(p, '28-live-state.js') && has(p, '10-canvas.js') && has(p, '30-template-sync.js'), '12 including files an old project never had');
+  ok(has(p, '28-live-state.js') && has(p, 'services/canvas/10-canvas.js') && has(p, 'icons/refresh-icon.png') && has(p, '30-template-sync.js'), '12 including files an old project never had, in their folders');
   ok(!has(p, 'settings.json') || read(p, 'settings.json').includes('SECRET'), '12 the person\'s settings.json is still theirs');
+}
+
+// ── 13: folders (services/<service>/, icons/) ──
+{
+  const t = template('new'), p = oldProject();
+  write(t, 'services/canvas/10-canvas.js', '// canvas new\n');
+  write(t, 'icons/refresh-icon.png', 'png-in-folder');
+  fs.rmSync(path.join(t, 'refresh-icon.png'));
+  write(p, 'refresh-icon.png', 'png-at-the-top');
+  let r = sync.syncProject(t, p);
+  ok(r.ok && r.changed.includes('services/canvas/10-canvas.js') && r.changed.includes('icons/refresh-icon.png'), '13 files in folders are shipped: ' + JSON.stringify(r.changed));
+  ok(read(p, 'services/canvas/10-canvas.js') === '// canvas new\n' && read(p, 'icons/refresh-icon.png') === 'png-in-folder', '13 and land in the same folders');
+  ok(read(p, 'refresh-icon.png') === 'png-at-the-top', '13 a file an older version kept at the top is left alone');
+  ok(!has(p, 'node_modules/playwright/index.js') || !r.changed.some(n => n.startsWith('node_modules')), '13 node_modules is never walked as shipped files');
+  write(t, 'services/canvas/10-canvas.js', '// canvas newer\n');
+  r = sync.syncProject(t, p);
+  ok(r.ok && read(p, 'services/canvas/10-canvas.js') === '// canvas newer\n', '13 a changed file in a folder is replaced');
+  ok(read(p, 'previous-scripts/services/canvas/10-canvas.js') === '// canvas new\n', '13 and backed up under the same folders');
 }
 
 console.log(`template-sync: ${pass} pass, ${fail} fail`);
