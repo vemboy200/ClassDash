@@ -56,12 +56,20 @@ const UNKNOWN = { status: 'unknown', at: null, detail: null };
  */
 function record(platform, ok, detail = null, { fallback = false } = {}) {
   const all = readRaw();
+  // A failure that's a sign-in having run out (Classroom landing on
+  // Google's sign-in page, say) names that sign-in (64-sign-ins.js): the
+  // page shows it as waiting for the sign-in, in yellow, rather than an
+  // error. The status stays "problem", since nothing was read, so anything
+  // reading /api/check-status sees the same four statuses as before.
+  let waitingFor = null;
+  if (!ok) { try { waitingFor = require('./64-sign-ins.js').waitingFor(platform, detail); } catch { /* not worth failing over */ } }
   all[platform] = {
     status: !ok ? 'problem' : fallback ? 'fallback' : 'ok',
     at: new Date().toISOString(),
     // A detail is allowed on a success too: which way Canvas was read, or
     // that the backup way was used and why. The status panel shows it.
     detail: detail || null,
+    ...(waitingFor ? { waitingFor } : {}),
   };
   try {
     fs.writeFileSync(FILE, JSON.stringify(all, null, 2));

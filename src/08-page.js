@@ -407,9 +407,9 @@ function serviceStatusLines() {
   const icsWhen = ics && ics.fetchedAt ? new Date(ics.fetchedAt).toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
   const line = st => `<span class="svc-status status-${st ? st.status : 'unknown'}">${escapeHtml(st ? st.text : '')}</span>`;
   const forService = (key) => {
-    const st = status[key];
+    const st = shownStatus(status[key]);
     return line(st.status === 'unknown' ? { status: 'unknown', text: t('checkSummaryNone') }
-      : { status: st.status, text: `${checkStatusWord(st.status)} · ${checkStatusWhen(st)}` });
+      : { status: st.status, text: `${st.word || checkStatusWord(st.status)} · ${checkStatusWhen(st)}` });
   };
   return {
     classroom: forService('classroom'), canvas: forService('canvas'), edpuzzle: forService('edpuzzle'), q: forService('q'),
@@ -2003,6 +2003,19 @@ function checkStatusEntries() {
     ...bridge.list().filter(m => m.custom).map(m => [m.domain, bridge.nameOf(m, currentLanguage())])];
 }
 
+/**
+ * How a status shows: one that failed only because its sign-in ran out
+ * (waitingFor, 25-check-status.js) is yellow and says it's waiting for the
+ * sign-in, with where to sign in, instead of a red error.
+ */
+function shownStatus(st) {
+  if (!st || st.status !== 'problem' || !st.waitingFor) return st || { status: 'unknown' };
+  const bridge = require('./61-services.js');
+  const m = st.waitingFor === 'google' ? null : bridge.list().find(x => x.domain === st.waitingFor);
+  const name = m ? bridge.nameOf(m, currentLanguage()) : 'Google';
+  return { ...st, status: 'fallback', waiting: true, word: t('checkStatusWaiting'), detail: t('checkStatusWaitingDetail', name) };
+}
+
 function checkStatusWord(s) {
   return s === 'ok' ? t('checkStatusOk')
     : s === 'fallback' ? t('checkStatusFallback')
@@ -2024,10 +2037,14 @@ function checkStatusWhen(s) {
  * say how many failed; the panel it opens has each one.
  */
 function checkStatusSummary(status) {
-  const on = checkStatusEntries().map(([k]) => (status[k] || { status: 'unknown' }).status).filter(s => s !== 'unknown');
+  const shown = checkStatusEntries().map(([k]) => shownStatus(status[k])).filter(s => s.status !== 'unknown');
+  const on = shown.map(s => s.status);
   const failed = on.filter(s => s === 'problem').length;
-  const backup = on.filter(s => s === 'fallback').length;
+  const waiting = shown.filter(s => s.waiting).length;
+  const backup = on.filter(s => s === 'fallback').length - waiting;
   if (!on.length) return { status: 'unknown', text: t('checkSummaryNone') };
+  // Waiting for a sign-in isn't broken: it's yellow, and says so.
+  if (waiting && !failed) return { status: 'fallback', text: t('checkSummaryWaiting', waiting, on.length) };
   if (failed) return { status: (on.length - failed) / on.length < 0.5 ? 'problem' : 'fallback', text: t('checkSummaryFailed', failed, on.length) };
   if (backup) return { status: 'fallback', text: t('checkSummaryBackup', backup, on.length) };
   return { status: 'ok', text: t('checkSummaryOk') };
@@ -2049,11 +2066,11 @@ function checkStatusIndicator() {
 function checkStatusPanel() {
   const status = checkStatus();
   const row = (key, label) => {
-    const s = status[key];
+    const s = shownStatus(status[key]);
     return `      <div class="check-status-row">
         <span class="status-dot status-${s.status}"></span>
         <span class="check-status-name">${escapeHtml(label)}</span>
-        <span class="check-status-word">${escapeHtml(checkStatusWord(s.status))}</span>
+        <span class="check-status-word">${escapeHtml(s.word || checkStatusWord(s.status))}</span>
         <span class="check-status-time">${escapeHtml(checkStatusWhen(s))}</span>
         ${s.detail ? `<span class="check-status-detail-text">${escapeHtml(s.detail)}</span>` : ''}
       </div>`;
@@ -2455,9 +2472,7 @@ function setupAndSignInBanners() {
   // no more figuring out there's a terminal command, or that a headless
   // scheduled check has no window a person could even sign into.
   const liveStatus = checkStatus();
-  const signInNeeded =
-    (liveStatus.classroom.status === 'problem' && /cookies expired/.test(liveStatus.classroom.detail || '')) ||
-    (liveStatus.canvas.status === 'problem' && /stuck on sign-in/.test(liveStatus.canvas.detail || ''));
+  const signInNeeded = require('./64-sign-ins.js').state('google', liveStatus) === 'out';
   const signInBanner = signInNeeded
     ? `  <div class="warn sign-in-banner">
        <span>${escapeHtml(t('signInNeeded'))}</span>

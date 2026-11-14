@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **A sign-in running out is one notification, not one every check**: "Google signed you out" (or Edpuzzle), once, however many services use it, and again only after it has worked in between. Until you sign in again, the services waiting for it show a yellow "Waiting for sign-in" instead of a red error, and the status cloud counts them as waiting, not failed. `/api/check-status` keeps the status `problem` for them and adds `waitingFor` (`"google"`, or the service).
 - **Services show their logos** on their cards in Settings → Services, on Found services and on Settings → Sign-ins. A custom service can bring its own (`brand/icon.png`).
 - **ClassDash finds services after you sign in**, like Home Assistant's discovered devices: sign in to Google in Settings → Sign-ins, and if Google Classroom (or Canvas, with its address saved) is off but works with that sign-in, Settings → Services offers it as **Found**, with **Set up** and **Ignore**. **Look again** in Settings → Sign-ins tries again.
 - **Adding a service that signs in through ClassDash's browser asks you to sign in first**: Google Classroom asks for your Google sign-in and Edpuzzle for its own, before the rest of the setup shows. Each service's page and Settings → Sign-ins say whether you're signed in, signed out, or not checked yet.

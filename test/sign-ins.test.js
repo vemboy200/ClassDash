@@ -69,3 +69,34 @@ const ask = (settings, code) => {
   ok(/data-sign-in="google"[\s\S]*?setupSignIn\(this, 'google'\)/.test(html) && /data-sign-in="edpuzzle"/.test(html), 'a row and a Sign In… for each sign-in');
   ok(!/onclick="setupSignIn\(this\)"/.test(html), 'no Sign In… without a sign-in left anywhere');
 }
+
+// Waiting for a sign-in (4b): which sign-in a failure names, one
+// notification per sign-in, and yellow on the page.
+{
+  ok(ask({}, `[s.waitingFor('classroom', 'cookies expired, need to sign in again'), s.waitingFor('canvas', 'stuck on sign-in (https://x) — Canvas may need signing into again'), s.waitingFor('edpuzzle', 'Edpuzzle responded 401 to https://edpuzzle.com/api'), s.waitingFor('classroom', 'Classroom responded "Class not found"'), s.waitingFor('q', 'cookies expired')]`).join() === 'google,google,edpuzzle,,',
+    'a sign-in that ran out is named (Google for Classroom and Canvas, Edpuzzle\'s own), anything else isn\'t');
+  const rec = cp.spawnSync(process.execPath, ['-e', `const c = require('./25-check-status.js'); c.record('classroom', false, 'cookies expired, need to sign in again'); c.record('canvas', false, 'Canvas responded 500');
+    const raw = JSON.parse(require('fs').readFileSync(c.FILE, 'utf8')); process.stdout.write(JSON.stringify([raw.classroom.status, raw.classroom.waitingFor, raw.canvas.status, 'waitingFor' in raw.canvas]))`], { cwd: proj, encoding: 'utf8' });
+  ok(rec.stdout === '["problem","google","problem",false]', 'its status stays "problem" (what /api/check-status always had), with waitingFor added: ' + rec.stdout + rec.stderr.slice(-200));
+
+  const alertsRun = cp.spawnSync(process.execPath, ['-e', `const s = require('./64-sign-ins.js'); const told = [];
+    const out = { classroom: { status: 'problem', waitingFor: 'google' }, edpuzzle: { status: 'problem', waitingFor: 'edpuzzle' } };
+    const r = [s.alerts(out, n => told.push(n)), s.alerts(out, n => told.push(n)),
+      s.alerts({ classroom: { status: 'ok' } }, n => told.push(n)), s.alerts(out, n => told.push(n))];
+    process.stdout.write(JSON.stringify({ r, told }))`], { cwd: proj, encoding: 'utf8' });
+  const a = JSON.parse(alertsRun.stdout || '{}');
+  ok(a.r && a.r[0].join() === 'google,edpuzzle', 'one notification per sign-in that ran out: ' + alertsRun.stdout + alertsRun.stderr.slice(-200));
+  ok(a.r && a.r[1].length === 0, 'none on the next check while it\'s still out');
+  ok(a.r && a.r[3].join() === 'google', 'again only after it worked in between (Edpuzzle hasn\'t, so it isn\'t told twice)');
+  ok(a.told && a.told.slice(0, 2).join() === 'Google,Edpuzzle', 'named the way Settings → Sign-ins names them');
+
+  fs.writeFileSync(path.join(proj, 'check-status.json'), JSON.stringify({
+    classroom: { status: 'problem', at: new Date().toISOString(), detail: 'cookies expired, need to sign in again', waitingFor: 'google' },
+  }));
+  T.redraw(proj);
+  const html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
+  ok(/data-piece="svc-classroom">[\s\S]{0,40}<span class="svc-status status-fallback">Waiting for sign-in · /.test(html), 'Classroom\'s card: yellow, waiting for sign-in');
+  ok(/class="status-cloud pixel-icon status-fallback"[\s\S]{0,200}1 needs sign-in/.test(html), 'the status cloud: yellow, "1 needs sign-in", not failed');
+  ok(/Google signed you out: Settings → Sign-ins → Google/.test(html), 'the status panel says where to sign in');
+  ok(/class="warn sign-in-banner"/.test(html), 'and the dashboard\'s sign-in banner still shows');
+}

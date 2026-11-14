@@ -105,10 +105,19 @@ function domainsFor(id) {
   return id === 'google' ? services.list().filter(m => m.sign_in.includes('google')).map(m => m.domain) : [id];
 }
 
+/** The sign-in a failure is waiting for ("google", or a service's own),
+ *  when its message says the sign-in ran out; otherwise null. */
+function waitingFor(domain, detail) {
+  if (!SIGNED_OUT[domain] || !SIGNED_OUT[domain].test(String(detail || ''))) return null;
+  const manifest = services.list().find(m => m.domain === domain);
+  const steps = manifest ? stepsFor(manifest) : [];
+  return steps.length ? steps[0].id : null;
+}
+
 function state(id, status) {
   const domains = domainsFor(id);
   const s = d => status[d] || {};
-  if (domains.some(d => SIGNED_OUT[d] && s(d).status === 'problem' && SIGNED_OUT[d].test(s(d).detail || ''))) return 'out';
+  if (domains.some(d => s(d).status === 'problem' && (s(d).waitingFor === id || (SIGNED_OUT[d] && SIGNED_OUT[d].test(s(d).detail || ''))))) return 'out';
   if (domains.some(d => !NOT_PROOF.includes(d) && ['ok', 'fallback'].includes(s(d).status))) return 'in';
   return 'unknown';
 }
@@ -127,4 +136,32 @@ function stepsFor(manifest, language = 'en') {
   return out;
 }
 
-module.exports = { list, pagesFor, signedOut, state, stepsFor, GOOGLE_START };
+/**
+ * One notification per sign-in that ran out, not one per service and not
+ * one per check: told once when it goes from working to signed out, and
+ * again only after it has worked in between. sign-in-alerts.json keeps
+ * which ones were told. `notify(name)` shows it; returns the ids told now.
+ */
+const ALERTS_FILE = require('path').join(require('./00-project-root.js').PROJECT_ROOT, 'sign-in-alerts.json');
+function alerts(status, notify, language = 'en') {
+  const fs = require('fs');
+  let told = {};
+  try { told = JSON.parse(fs.readFileSync(ALERTS_FILE, 'utf8')) || {}; } catch { /* none yet */ }
+  const ids = new Map();
+  for (const m of services.list()) for (const st of stepsFor(m, language)) ids.set(st.id, st.name);
+  const now = [];
+  for (const [id, name] of ids) {
+    if (state(id, status) === 'out') {
+      if (told[id]) continue;
+      told[id] = new Date().toISOString();
+      now.push(id);
+      try { notify(name, id); } catch { /* a notification that can't show isn't worth failing over */ }
+    } else if (state(id, status) === 'in') {
+      delete told[id];
+    }
+  }
+  try { fs.writeFileSync(ALERTS_FILE, JSON.stringify(told, null, 2)); } catch { /* best effort */ }
+  return now;
+}
+
+module.exports = { list, pagesFor, signedOut, state, stepsFor, waitingFor, alerts, GOOGLE_START, ALERTS_FILE };

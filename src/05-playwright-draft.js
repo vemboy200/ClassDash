@@ -1887,6 +1887,14 @@ if (require.main !== module) return;
   if (edpuzzleResult) recordCheckStatus('edpuzzle', edpuzzleResult.ok, edpuzzleResult.error);
   for (const r of taskResults.filter(x => x.custom)) recordCheckStatus(r.cls.id, r.ok, r.error || r.detail, { fallback: r.fallback });
 
+  // A sign-in that just ran out gets one notification, however many
+  // services use it, and none on the checks after that until it has worked
+  // again (64-sign-ins.js alerts). It used to be one on every check.
+  try {
+    require('./64-sign-ins.js').alerts(require('./25-check-status.js').checkStatus(),
+      name => notify(t('schoolLabel'), t('signInOutTitle', name), t('signInOutHint', name)));
+  } catch (e) { console.warn('sign-in alerts skipped:', e.message); }
+
   // The school calendar's feed, once a day, so a new event (a snow day, a
   // changed minimum day) shows up without anyone saving the link again.
   const CALENDAR = SERVICES.load('calendar');
@@ -2139,8 +2147,8 @@ if (require.main !== module) return;
   // deadlines. The log doesn't apply here: this isn't a summary, it's a
   // failure, and it needs repeating every time until it's fixed.
   if (COOKIES_EXPIRED) {
+    // Said once, by the sign-in alerts above, not on every check.
     console.log('\nCOOKIES EXPIRED — need to sign in again');
-    notify(t('schoolLabel'), t('signInRequired'), t('signInRequiredHint'));
     rememberCollection(all);
     fs.writeFileSync(STREAM_FILE, JSON.stringify(allAnnouncements, null, 2));
     // Q is its own sign-in, unaffected by Google's having run out.
