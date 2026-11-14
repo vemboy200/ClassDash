@@ -439,6 +439,47 @@ async function login(which = '') {
   await new Promise(resolve => ctx.on('close', resolve));
   clearInterval(finishPoll);
   console.log('Profile saved to', PROFILE_DIR);
+
+  // Then look for services this sign-in works with (65-discovery.js), in a
+  // process of its own: whoever started this one may be waiting for it to end.
+  try {
+    require('child_process').spawn(process.execPath, [__filename, '--discover', ...(which ? [which] : [])],
+      { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch (e) { console.warn('not looking for services:', e.message); }
+}
+
+/**
+ * Tries the services a sign-in could work for and aren't set up yet
+ * (65-discovery.js), in a headless browser on the same profile, and redraws
+ * the page so Settings → Services offers what was found. Takes the check's
+ * lock: the profile can only be open in one browser at a time.
+ */
+async function discover(which) {
+  const discovery = require('./65-discovery.js');
+  if (!discovery.candidates(which, SETTINGS).length) {
+    console.log('No service to look for: every one this sign-in could work for is set up or ignored.');
+    return;
+  }
+  if (!acquireLock()) {
+    console.log('A check is running: not looking for services now (Look again in Settings → Sign-ins).');
+    return;
+  }
+  let ctx = null;
+  try {
+    ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
+      ...BROWSER, headless: true, viewport: { width: 1280, height: 900 },
+      extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
+    });
+    console.log(`Looking for services${which ? ` for the ${which} sign-in` : ''}:`);
+    const found = await discovery.run(which, SETTINGS, () => ctx.newPage(), console.log);
+    console.log(found.length ? `Found: ${found.join(', ')}` : 'Nothing new found.');
+  } catch (e) {
+    console.warn('looking for services failed:', String(e.message).split('\n')[0]);
+  } finally {
+    if (ctx) await ctx.close().catch(() => {});
+    releaseLock();
+  }
+  redrawPage();
 }
 
 // ── Lock against simultaneous runs ────────────────────────────
@@ -1619,6 +1660,12 @@ if (require.main !== module) return;
     // Which sign-in (a row of Settings → Sign-ins), if one follows.
     const which = process.argv[process.argv.indexOf('--login') + 1] || '';
     await login(/^[a-z0-9_]+$/.test(which) ? which : '');
+    return;
+  }
+
+  if (process.argv.includes('--discover')) {
+    const which = process.argv[process.argv.indexOf('--discover') + 1] || '';
+    await discover(/^[a-z0-9_]+$/.test(which) ? which : '');
     return;
   }
 

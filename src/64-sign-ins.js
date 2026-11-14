@@ -53,7 +53,10 @@ function list(settings, language = 'en') {
   const using = inUse(settings);
   const rows = [];
   const google = using.filter(u => u.manifest.sign_in.includes('google'));
-  if (google.length) {
+  // Google's row is there whenever any service could use it, even with
+  // none of them on yet: signing in to Google is how ClassDash finds them
+  // (65-discovery.js). It then opens Google's own sign-in page.
+  if (google.length || services.list().some(m => m.sign_in.includes('google'))) {
     // Opening the services themselves, not just Google's page: each one
     // passes you through Google and lands signed in, which is also the
     // proof it worked. Google's own page only when no service gives one.
@@ -74,7 +77,8 @@ function list(settings, language = 'en') {
  */
 function pagesFor(id, settings) {
   const rows = list(settings);
-  if (!id) return [...new Set(rows.flatMap(r => r.pages))];
+  // Every sign-in in use; Google with nothing using it yet isn't one.
+  if (!id) return [...new Set(rows.filter(r => r.usedBy.length).flatMap(r => r.pages))];
   const row = rows.find(r => r.id === id);
   return row ? row.pages : [];
 }

@@ -44,7 +44,7 @@ A manifest with a mistake in it is skipped, with the reason in ClassDash's log (
 
 ## index.js
 
-The only file ClassDash calls. It exports a `read` function, and optionally `enabled`, `browserNeeded` and `addresses`. Each one gets a `bridge` object:
+The only file ClassDash calls. It exports a `read` function, and optionally `enabled`, `browserNeeded`, `addresses`, `found` (see below) and `canFind` (whether there's anything for `found` to try yet, so nothing opens a browser for nothing). Each one gets a `bridge` object:
 
 - `bridge.settings`: ClassDash's settings.
 - `bridge.openPage()`: in `read`, a new tab of ClassDash's signed-in browser (a [Playwright page](https://playwright.dev/docs/api/class-page)), for a service whose browser class isn't `none`. Close it when you're done.
@@ -57,6 +57,19 @@ module.exports = {
 
   // Optional: where it is, so a check with no internet can say so.
   addresses: bridge => ['https://example.com/'],
+
+  // Optional, for a service that signs in through the browser: after that
+  // sign-in, while the service is off, ClassDash asks whether it works, and
+  // offers it as "Found" if it does. Only look; don't change anything.
+  found: async bridge => {
+    const page = await bridge.openPage();
+    try {
+      await page.goto('https://example.com/');
+      return !page.url().includes('/login');
+    } finally {
+      await page.close();
+    }
+  },
 
   // What it found. Throwing an error marks it as failed.
   read: async bridge => {

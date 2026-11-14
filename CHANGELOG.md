@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **ClassDash finds services after you sign in**, like Home Assistant's discovered devices: sign in to Google in Settings → Sign-ins, and if Google Classroom (or Canvas, with its address saved) is off but works with that sign-in, Settings → Services offers it as **Found**, with **Set up** and **Ignore**. **Look again** in Settings → Sign-ins tries again.
 - **Adding a service that signs in through ClassDash's browser asks you to sign in first**: Google Classroom asks for your Google sign-in and Edpuzzle for its own, before the rest of the setup shows. Each service's page and Settings → Sign-ins say whether you're signed in, signed out, or not checked yet.
 - **Settings → Sign-ins**: a page for the sign-ins done in ClassDash's browser, Google and Edpuzzle, each with what uses it, **Signed out** when a check found it signed out, and its own **Sign In…** that opens only that site. It replaces the single Sign In… under Settings → Services → Setup, which opened every site at once. The window opening one site needs the updated Mac or Windows app; an older one still opens them all.
 - **Custom services**, like Home Assistant's custom integrations: a folder of your own code in the project's `custom_services/` adds a service ClassDash doesn't have. It gets a card and a status dot in Settings → Services, and its assignments are on the dashboard. See [Custom services](docs/custom-services.md).

@@ -177,4 +177,24 @@ async function read(bridge) {
   };
 }
 
-module.exports = { enabled, browserNeeded, signInNeeded, addresses, read, SITE };
+/**
+ * Discovery (65-discovery.js): does the Google sign-in work for Classroom?
+ * Its class list loading, rather than Google's sign-in page, says yes.
+ * Only looks.
+ */
+async function found(bridge) {
+  const page = await bridge.openPage();
+  try {
+    const account = Number(bridge.settings.account) || 0;
+    await page.goto(`${SITE}u/${account}/h`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (/accounts\.google\.com/.test(page.url())) return false;
+    await page.waitForSelector('a[href*="/c/"]', { timeout: 15000 });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try { await page.close(); } catch { /* already closed */ }
+  }
+}
+
+module.exports = { enabled, browserNeeded, signInNeeded, addresses, read, found, SITE };

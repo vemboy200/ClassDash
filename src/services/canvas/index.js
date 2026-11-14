@@ -60,4 +60,31 @@ async function read(bridge) {
   return { items: r.items, status: { ok: true, detail: r.detail, fallback: !!r.fallback } };
 }
 
-module.exports = { plan, enabled, browserNeeded, signInNeeded, addresses, read };
+/**
+ * Discovery (65-discovery.js): with its address saved but Canvas off, does
+ * the browser's sign-in reach it? Landing on Canvas itself, rather than a
+ * sign-in page (Canvas's /login, Google's, or anyone else's), says yes.
+ * Only looks.
+ */
+async function found(bridge) {
+  const address = String(bridge.settings.canvas || '').trim();
+  if (!address) return false;
+  const site = require('./10-canvas.js').normalizeCanvasSite(address);
+  const page = await bridge.openPage();
+  try {
+    await page.goto(site + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Give a sign-in that hands off (to Google and back) a moment to settle.
+    await page.waitForTimeout(2000);
+    const url = new URL(page.url());
+    return url.origin === new URL(site).origin && !/\/login\b/.test(url.pathname);
+  } catch {
+    return false;
+  } finally {
+    try { await page.close(); } catch { /* already closed */ }
+  }
+}
+
+/** Only with its address saved: every school's Canvas is somewhere else. */
+const canFind = bridge => !!String(bridge.settings.canvas || '').trim();
+
+module.exports = { plan, enabled, browserNeeded, signInNeeded, addresses, read, found, canFind };

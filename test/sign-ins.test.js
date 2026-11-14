@@ -28,7 +28,10 @@ const ask = (settings, code) => {
 {
   const rows = ask({ classroomEnabled: false, edpuzzleEnabled: false, canvas: SITE, canvasSsoEnabled: true }, 's.list(settings)');
   ok(rows.length === 1 && rows[0].usedBy.join() === 'Canvas', 'with Classroom off, Google is there for Canvas alone');
-  ok(ask({ classroomEnabled: false, edpuzzleEnabled: false, canvas: '' }, 's.list(settings)').length === 0, 'nothing using the browser: no rows');
+  const none = ask({ classroomEnabled: false, edpuzzleEnabled: false, canvas: '' }, 's.list(settings)');
+  ok(none.length === 1 && none[0].id === 'google' && none[0].usedBy.length === 0 && none[0].pages.join() === 'https://accounts.google.com/',
+    'nothing on: Google is still there, to sign in and find services, opening Google\'s own page: ' + JSON.stringify(none));
+  ok(ask({ classroomEnabled: false, edpuzzleEnabled: false, canvas: '' }, 's.pagesFor("", settings)').length === 0, 'but the window with none chosen opens nothing for it');
 }
 {
   ok(ask({}, 's.pagesFor("edpuzzle", settings)').join() === 'https://edpuzzle.com/', 'one sign-in opens only its own pages');

@@ -1007,6 +1007,21 @@ function act(action, arg) {
     case 'signIn':
       signIn(String(arg || ''));
       return { ok: true, action };
+    // Settings → Sign-ins' Look again: tries the services a sign-in could
+    // work for (65-discovery.js), in a process of its own, which redraws
+    // the page when it's done.
+    case 'discover': {
+      const which = /^[a-z0-9_]+$/.test(String(arg || '')) ? [String(arg)] : [];
+      spawn(process.execPath, [path.join(__dirname, '05-playwright-draft.js'), '--discover', ...which],
+        { detached: true, stdio: 'ignore', cwd: __dirname }).unref();
+      return { ok: true, action };
+    }
+    // A found service's Ignore in Settings → Services.
+    case 'ignoreFound': {
+      if (!require('./65-discovery.js').ignore(String(arg || ''))) return { ok: false, action, why: 'not a service' };
+      redraw();
+      return { ok: true, action };
+    }
     // The app telling the project which version is really running, at launch
     // (see recordRunningVersion in 26-update-check.js): redraws only if that
     // changed what the page shows.

@@ -77,3 +77,4 @@ ai-defaults.json
 
 # Custom services (custom_services/<domain>/): your own, not part of ClassDash
 custom_services/
+discovered.json

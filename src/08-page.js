@@ -329,13 +329,18 @@ function signInsBody(settings) {
       <p class="hint">${escapeHtml(t('signInsNone'))}</p>`;
   return `
       <p class="hint">${escapeHtml(t('signInsHint'))}</p>
+      <div class="setting-row">
+        <span class="field-name">${escapeHtml(t('signInsLookAgain'))}</span>
+        <span class="field-with-value"><button type="button" class="mini-btn" onclick="lookAgain(this)">${escapeHtml(t('signInsLookAgainButton'))}</button></span>
+        <span class="field-hint">${escapeHtml(t('signInsLookAgainHint'))}</span>
+      </div>
 ${rows.map(r => {
     return `      <div class="setting-row" data-sign-in="${escapeHtml(r.id)}">
         <span class="field-name">${escapeHtml(r.name)}</span>
         <span class="field-with-value" data-native-only>
           <button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(r.id)}')">${escapeHtml(t('settingsSetupSignInButton'))}</button>
         </span>
-        <span class="field-hint">${liveSpan(`signin-${r.id}`, signInStateWords(signIns.state(r.id, status)))} · ${escapeHtml(t('signInUsedBy', r.usedBy.join(', ')))}</span>
+        <span class="field-hint">${liveSpan(`signin-${r.id}`, signInStateWords(signIns.state(r.id, status)))} · ${escapeHtml(r.usedBy.length ? t('signInUsedBy', r.usedBy.join(', ')) : t('signInUsedByNone'))}</span>
       </div>`;
   }).join('\n')}`;
 }
@@ -1482,7 +1487,20 @@ function settingsPanel() {
           ${liveSpan(`svc-${v.id}`, statusLines[v.id])}
           <span class="svc-badges">${badge(['icon-cloud-polling', 'svcPolling'])}${v.browser ? badge(BADGE[v.browser]) : ''}</span>
         </button>`;
-  const servicesBody = () => `
+  // Found after a sign-in (65-discovery.js): offered, never turned on by itself.
+  const found = require('./65-discovery.js').offers(s);
+  const foundBox = !found.length ? '' : `
+      <div class="svc-found">
+${found.map(m => `        <div class="setting-row" data-svc-found="${m.domain}">
+          <span class="field-name">${escapeHtml(t('svcFound', bridge.nameOf(m, currentLanguage())))}</span>
+          <span class="field-with-value">
+            <button type="button" class="mini-btn" onclick="setUpFound('${m.domain}')">${escapeHtml(t('svcFoundSetUp'))}</button>
+            <button type="button" class="mini-btn" onclick="ignoreFound(this, '${m.domain}')">${escapeHtml(t('svcFoundIgnore'))}</button>
+          </span>
+          <span class="field-hint">${escapeHtml(t('svcFoundHint'))}</span>
+        </div>`).join('\n')}
+      </div>`;
+  const servicesBody = () => `${foundBox}
       <p class="hint svc-none" id="svc-none" hidden>${escapeHtml(t('svcNone'))}</p>
       <div class="svc-grid">
 ${SERVICES.map(card).join('\n')}
@@ -3344,6 +3362,7 @@ ${cardHtml[id]}
   .svc-card[hidden], .svc-add-menu[hidden] { display: none; }
   /* A service's page while it's being set up (addService): the sign-in
      step first, the rest once it's done. */
+  .svc-found { border: 2px dashed var(--line); padding: 4px 12px; margin-bottom: 12px; }
   .svc-setup-note, .svc-continue { display: none; }
   .svc-setting-up .svc-setup-note { display: block; }
   .svc-setting-up .svc-continue { display: inline-block; }
@@ -4158,6 +4177,7 @@ const WORDS = ${JSON.stringify({
   classLinkNone: t('classLinkNone'),
   classLinkName: t('classLinkName'),
   signInOpening: t('signInOpening'),
+  lookingAgain: t('signInsLooking'),
   calendarReading: t('calendarReading'),
   aiTest: t('aiTest'),
   aiTesting: t('aiTesting'),
@@ -5882,6 +5902,33 @@ function addService(id) {
   var section = document.querySelector('[data-section="svc-' + id + '"]');
   if (section && section.querySelector('.svc-sign-in-step')) section.classList.add('svc-setting-up');
   showSettingsSection('svc-' + id);
+}
+// A service found after a sign-in: set up like + Add service, minus the
+// sign-in step, since finding it showed the sign-in already works.
+function setUpFound(id) {
+  addService(id);
+  var section = document.querySelector('[data-section="svc-' + id + '"]');
+  if (section) section.classList.remove('svc-setting-up');
+  var row = document.querySelector('[data-svc-found="' + id + '"]');
+  if (row) row.hidden = true;
+}
+function ignoreFound(button, id) {
+  button.disabled = true;
+  dispatchAction('ignoreFound', id, function (res) {
+    var row = document.querySelector('[data-svc-found="' + id + '"]');
+    if (res && res.ok && row) row.hidden = true;
+    else button.disabled = false;
+  });
+}
+// Settings → Sign-ins: try again which services the sign-ins work for.
+// It runs on its own; what it finds shows under Services once it's done.
+function lookAgain(button) {
+  var original = button.textContent;
+  button.disabled = true;
+  button.textContent = WORDS.lookingAgain;
+  dispatchAction('discover', '', function () {
+    setTimeout(function () { button.disabled = false; button.textContent = original; }, 4000);
+  });
 }
 function continueSetup(button) {
   var section = button.closest('[data-section]');
