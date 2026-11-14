@@ -189,7 +189,6 @@ const { writePage, daysUntil, headsUpText } = require('./08-page.js');
 // the only file of it this calls, with CANVAS_BRIDGE (see below).
 const SERVICES = require('./61-services.js');
 const CANVAS = SERVICES.load('canvas');
-const { collectEdpuzzle } = require('./services/edpuzzle/11-edpuzzle.js');
 const { collectFeed, setFeedEmail } = require('./services/classroom/12-feed.js');
 const { t, locale } = require('./18-language.js');
 const SETTINGS = require('./19-settings.js').read();
@@ -350,7 +349,13 @@ function signInNeeded() {
 // unread, same as Canvas being off — see the `unread` array further
 // down). Unlike CANVAS_ENABLED this isn't inferred from a blank field;
 // there's nothing to type in for Edpuzzle, so it's its own real toggle.
-const EDPUZZLE_ENABLED = SETTINGS.edpuzzleEnabled !== false;
+// Through the services bridge, like Canvas (services/edpuzzle/index.js).
+const EDPUZZLE = SERVICES.load('edpuzzle');
+const EDPUZZLE_BRIDGE = { domain: 'edpuzzle', settings: SETTINGS };
+const EDPUZZLE_ENABLED = !!EDPUZZLE && EDPUZZLE.enabled(EDPUZZLE_BRIDGE);
+// A service whose browser class is "visible" (Edpuzzle, from its manifest)
+// opens a window, so it's only read in a full check: see withEdpuzzle.
+const EDPUZZLE_VISIBLE = SERVICES.list().some(m => m.domain === 'edpuzzle' && m.browser_class === 'visible');
 
 // EXPIRED COOKIES — A FAILURE WORTH SHOUTING ABOUT.
 //
@@ -439,7 +444,7 @@ async function login() {
   // the Google account in this same profile is already authenticated.
   // There used to be no way to ever sign into it at all.
   const edpuzzlePage = await ctx.newPage();
-  await edpuzzlePage.goto('https://edpuzzle.com/');
+  await edpuzzlePage.goto(EDPUZZLE ? EDPUZZLE.SITE : 'https://edpuzzle.com/');
 
   // A third tab for Canvas — only when a real school address is
   // actually configured. Unlike Classroom (always required to run at
@@ -1388,18 +1393,13 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
 
   const edpuzzleTask = !withEdpuzzle ? null : (async () => {
     console.log('Reading: Edpuzzle');
-    let page = null;
     let result;
     try {
-      page = await newPage();
-      const { items, classrooms } = await collectEdpuzzle(page);
-      console.log(`  Edpuzzle: classes ${classrooms.length}, assignments ${items.length}`);
-      result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items, ok: true };
+      const { items, status } = SERVICES.result(await EDPUZZLE.read({ ...EDPUZZLE_BRIDGE, openPage: newPage, log: console.log }));
+      result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items, ok: status.ok };
     } catch (e) {
       console.error(`  error on Edpuzzle: ${e.message}`);
       result = { cls: { id: 'edpuzzle', name: 'Edpuzzle' }, items: [], ok: false, error: e.message };
-    } finally {
-      if (page) { try { await page.close(); } catch {} }
     }
     reportProgress(result);
     return result;
@@ -2378,7 +2378,7 @@ if (require.main !== module) return;
   const places = [
     ...(CLASSROOM_ENABLED ? ['https://classroom.google.com/'] : []),
     ...(CANVAS_ENABLED ? CANVAS.addresses(CANVAS_BRIDGE) : []),
-    ...(EDPUZZLE_ENABLED && process.argv.includes('--full') ? ['https://edpuzzle.com/'] : []),
+    ...(EDPUZZLE_ENABLED && process.argv.includes('--full') ? EDPUZZLE.addresses(EDPUZZLE_BRIDGE) : []),
   ];
   if (places.length && !await networkCheck.online(places)) {
     console.error(`Check not run: ${networkCheck.NO_INTERNET}`);
@@ -2459,7 +2459,7 @@ if (require.main !== module) return;
   // EDPUZZLE_ENABLED overrides both triggers, manual included — turning
   // it off means "don't fetch it", not "don't fetch it unless someone
   // clicks the button", see that constant's own comment above.
-  const withEdpuzzle = EDPUZZLE_ENABLED && (manual || isDigestTime);
+  const withEdpuzzle = EDPUZZLE_ENABLED && (!EDPUZZLE_VISIBLE || manual || isDigestTime);
   console.log(withEdpuzzle
     ? `Full check${manual ? ' (run manually)' : ''}: with Edpuzzle, a window will show`
     : !EDPUZZLE_ENABLED && (manual || isDigestTime)

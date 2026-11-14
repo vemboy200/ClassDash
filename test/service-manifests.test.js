@@ -71,7 +71,7 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
 {
   const canvas = bridge.load('canvas');
   ok(canvas && typeof canvas.read === 'function' && typeof canvas.enabled === 'function', 'Canvas loads through the bridge');
-  ok(bridge.load('edpuzzle') === null && bridge.load('nothing-like-this') === null, 'a service without an index.js yet, or none at all, is null');
+  ok(bridge.load('classroom') === null && bridge.load('nothing-like-this') === null, 'a service without an index.js yet, or none at all, is null');
   const b = settings => ({ settings });
   const site = 'https://school.example.test';
   ok(!canvas.enabled(b({ canvas: '' })) && canvas.addresses(b({ canvas: '' })).length === 0, 'no address: off, and nowhere to reach');
@@ -117,3 +117,16 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
   ok(!/40-grades\.js'\), '--if-due'/.test(collector), 'the check no longer starts 40-grades.js itself');
 }
+
+// Edpuzzle through the bridge.
+(async () => {
+  const ed = bridge.load('edpuzzle');
+  ok(ed && ed.enabled({ settings: {} }) && !ed.enabled({ settings: { edpuzzleEnabled: false } }), 'Edpuzzle is on unless switched off');
+  ok(ed.addresses({ settings: {} })[0] === 'https://edpuzzle.com/' && ed.addresses({ settings: { edpuzzleEnabled: false } }).length === 0, 'its address, only while on');
+  let closed = false, why = null;
+  const page = { evaluate: async () => { throw new Error('made-up page failure'); }, goto: async () => { throw new Error('made-up page failure'); }, url: () => '', close: async () => { closed = true; } };
+  try { await ed.read({ settings: {}, openPage: async () => page }); } catch (e) { why = e.message; }
+  ok(why && closed, 'a read that fails throws, and its tab is closed anyway: ' + why);
+  const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
+  ok(!/require\([^)]*11-edpuzzle\.js/.test(collector), 'the check never reaches into 11-edpuzzle.js itself');
+})();
