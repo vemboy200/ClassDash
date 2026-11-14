@@ -332,6 +332,7 @@ function serviceStatusLines() {
   };
   return {
     classroom: forService('classroom'), canvas: forService('canvas'), edpuzzle: forService('edpuzzle'), q: forService('q'),
+    ...Object.fromEntries(Object.keys(status).filter(k => !['classroom', 'canvas', 'edpuzzle', 'q'].includes(k)).map(k => [k, forService(k)])),
     calendar: line(!ics ? null
       : ics.error ? { status: 'problem', text: ics.error }
       : ics.fetchedAt ? { status: 'ok', text: t('calendarIcsStatus', (ics.events || []).length, icsWhen) }
@@ -1408,6 +1409,7 @@ function settingsPanel() {
     name: bridge.nameOf(m, currentLanguage()),
     browser: BROWSER_BADGE[m.browser_class],
     opens: m.domain === 'calendar' ? 'calendar' : undefined,
+    custom: !!m.custom,
   }));
   const badge = ([icon, words]) => `<span class="svc-badge pixel-icon ${icon}" title="${escapeHtml(t(words))}"></span>`;
   const card = v => `        <button type="button" class="svc-card" data-svc-card="${v.id}" onclick="showSettingsSection('${v.opens || 'svc-' + v.id}')"${v.id === 'calendar' && !ics ? ' hidden' : ''}>
@@ -1423,7 +1425,7 @@ ${SERVICES.map(card).join('\n')}
       <div class="svc-add">
         <button type="button" class="mini-btn" id="svc-add-btn" onclick="toggleAddService()" aria-expanded="false">${escapeHtml(t('svcAdd'))}</button>
         <div class="svc-add-menu" id="svc-add-menu" hidden>
-${SERVICES.map(v => `          <button type="button" class="mini-btn" data-svc-add="${v.id}" onclick="addService('${v.id}')"${v.id === 'calendar' && ics ? ' hidden' : ''}>${escapeHtml(v.name)}</button>`).join('\n')}
+${SERVICES.filter(v => !v.custom).map(v => `          <button type="button" class="mini-btn" data-svc-add="${v.id}" onclick="addService('${v.id}')"${v.id === 'calendar' && ics ? ' hidden' : ''}>${escapeHtml(v.name)}</button>`).join('\n')}
         </div>
       </div>`;
   const offButton = id => `
@@ -1472,6 +1474,11 @@ ${offButton('canvas')}` },
 ${offButton('edpuzzle')}` },
     { id: 'svc-q', parent: 'services', label: 'Aequitas Q', body: `${qSettings(s, field)}
 ${offButton('q')}` },
+    // A page for each custom service: what it is and where it lives. It has
+    // no settings of its own here; it's turned off by removing its folder.
+    ...bridge.list().filter(m => m.custom).map(m => ({ id: `svc-${m.domain}`, parent: 'services', label: bridge.nameOf(m, currentLanguage()), body: `
+      <p class="hint">${escapeHtml(t('svcCustomHint', m.version, `custom_services/${m.domain}`))}</p>${/^https:\/\//.test(m.documentation) ? `
+      <p class="hint"><a href="${escapeHtml(m.documentation)}" target="_blank" rel="noopener">${escapeHtml(t('svcCustomDocs'))}</a></p>` : ''}` })),
     { id: 'services', label: t('settingsSectionAccount'), desc: t('settingsDescServices'), body: `${servicesBody()}
       <div class="setup-group" data-needs="browser" data-native-only${needs.browser ? '' : ' hidden'}>
         <div class="settings-subhead">${escapeHtml(t('settingsSetup'))}</div>
@@ -1886,6 +1893,12 @@ const CHECK_STATUS_ENTRIES = [
   ['edpuzzle', 'Edpuzzle'],
   ['q', 'Aequitas Q'],
 ];
+/** The entries above, then each custom service (custom_services/ in the project). */
+function checkStatusEntries() {
+  const bridge = require('./61-services.js');
+  return [...CHECK_STATUS_ENTRIES,
+    ...bridge.list().filter(m => m.custom).map(m => [m.domain, bridge.nameOf(m, currentLanguage())])];
+}
 
 function checkStatusWord(s) {
   return s === 'ok' ? t('checkStatusOk')
@@ -1908,7 +1921,7 @@ function checkStatusWhen(s) {
  * say how many failed; the panel it opens has each one.
  */
 function checkStatusSummary(status) {
-  const on = CHECK_STATUS_ENTRIES.map(([k]) => status[k].status).filter(s => s !== 'unknown');
+  const on = checkStatusEntries().map(([k]) => (status[k] || { status: 'unknown' }).status).filter(s => s !== 'unknown');
   const failed = on.filter(s => s === 'problem').length;
   const backup = on.filter(s => s === 'fallback').length;
   if (!on.length) return { status: 'unknown', text: t('checkSummaryNone') };
@@ -1944,7 +1957,7 @@ function checkStatusPanel() {
   };
   // Only the services that are on and have been checked: one that's off
   // has nothing to say, and the cloud doesn't count it either.
-  const rows = CHECK_STATUS_ENTRIES.filter(([k]) => status[k].status !== 'unknown').map(([k, l]) => row(k, l));
+  const rows = checkStatusEntries().filter(([k]) => status[k] && status[k].status !== 'unknown').map(([k, l]) => row(k, l));
   return `  <div class="check-status-panel" id="check-status-panel" hidden>
     <div class="check-status-panel-title">${escapeHtml(t('checkStatusTitle'))}</div>
 ${rows.length ? rows.join('\n') : `      <div class="check-status-row"><span class="check-status-word">${escapeHtml(t('checkSummaryNone'))}</span></div>`}

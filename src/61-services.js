@@ -28,12 +28,23 @@
  *
  * A folder without a readable, valid manifest is skipped with a warning
  * rather than taking every other service down with it.
+ *
+ * ── Custom services ──
+ *
+ * Like Home Assistant's custom_components: a folder of the same shape in the
+ * project's own custom_services/<domain>/, which ClassDash loads next to the
+ * built-in ones. Its manifest also needs a `version` (its own, not
+ * ClassDash's), and the bridge marks it `custom: true`. One with a built-in
+ * service's domain is skipped: a custom service adds a service, it doesn't
+ * replace one. A custom service is code you put there yourself, run with the
+ * same access as ClassDash, so only add one you trust.
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const SERVICES_DIR = path.join(__dirname, 'services');
+const CUSTOM_DIR = path.join(require('./00-project-root.js').PROJECT_ROOT, 'custom_services');
 
 const CATEGORIES = ['assignments', 'instructions', 'announcements', 'grades', 'progress_reports', 'calendar'];
 const COMMUNICATION_CLASSES = ['cloud_polling', 'cloud_push', 'cloud_mixed'];
@@ -48,11 +59,13 @@ const RUNS = ['check', 'background'];
 const ORDER = ['classroom', 'canvas', 'edpuzzle', 'q', 'calendar'];
 
 /** What's wrong with a manifest, as a list of reasons; empty when it's fine. */
-function problems(m, folder) {
+function problems(m, folder, { custom = false } = {}) {
   const out = [];
   const isStrings = a => Array.isArray(a) && a.every(x => typeof x === 'string');
   if (!m || typeof m !== 'object' || Array.isArray(m)) return ['not a JSON object'];
   if (m.domain !== folder) out.push(`domain should be "${folder}", the folder's name`);
+  // It ends up in the page's HTML and in file names, so only these.
+  if (!/^[a-z0-9_]+$/.test(folder)) out.push('the folder\'s name (the domain) should be lowercase letters, digits and _ only');
   const nameOk = typeof m.name === 'string' ? !!m.name.trim()
     : m.name && typeof m.name === 'object' && typeof m.name.en === 'string' && !!m.name.en.trim();
   if (!nameOk) out.push('name should be a string, or an object with at least "en"');
@@ -65,15 +78,12 @@ function problems(m, folder) {
   if (!isStrings(m.codeowners) || m.codeowners.some(o => !o.startsWith('@'))) out.push('codeowners should be a list of @names');
   if (typeof m.documentation !== 'string' || !m.documentation) out.push('documentation should be the path to its page');
   if (m.runs !== undefined && !RUNS.includes(m.runs)) out.push(`runs should be one of ${RUNS.join(', ')}`);
+  if (custom && (typeof m.version !== 'string' || !m.version.trim())) out.push('version should be the custom service\'s own version, like 1.0.0');
   return out;
 }
 
-/**
- * Every service with a valid manifest, built-in order first.
- * @param {string} [dir] where to look (tests point it at a folder of their own)
- * @returns {object[]} the manifests
- */
-function list(dir = SERVICES_DIR) {
+/** Every valid manifest in one folder of services, with where it was found. */
+function listIn(dir, { custom = false } = {}) {
   let folders = [];
   try {
     folders = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name);
@@ -87,26 +97,58 @@ function list(dir = SERVICES_DIR) {
       console.warn(`service "${folder}" skipped: no readable manifest.json (${e.message})`);
       continue;
     }
-    const wrong = problems(manifest, folder);
+    const wrong = problems(manifest, folder, { custom });
     if (wrong.length) {
-      console.warn(`service "${folder}" skipped: ${wrong.join('; ')}`);
+      console.warn(`${custom ? 'custom ' : ''}service "${folder}" skipped: ${wrong.join('; ')}`);
       continue;
     }
+    // Where it was found, for load(); not part of what a manifest says.
+    Object.defineProperty(manifest, 'dir', { value: path.join(dir, folder) });
+    if (custom) manifest.custom = true;
     found.push(manifest);
   }
-  const rank = d => (ORDER.includes(d) ? ORDER.indexOf(d) : ORDER.length);
-  return found.sort((a, b) => rank(a.domain) - rank(b.domain) || a.domain.localeCompare(b.domain));
+  return found;
 }
 
 /**
- * A service's code: its services/<domain>/index.js, which is the only file of
- * a service the check calls. null when it has none yet (not every built-in
- * service goes through the bridge yet) or no valid manifest.
+ * Every service with a valid manifest: the built-in ones in their order, then
+ * custom ones (custom_services/ in the project) alphabetically.
+ * @param {string} [dir] only this folder of services (tests point it at one of their own)
+ * @param {object} [options] { customDir }: where custom services are, or null for none
+ * @returns {object[]} the manifests
  */
-function load(domain, dir = SERVICES_DIR) {
-  if (!list(dir).some(m => m.domain === domain)) return null;
-  const entry = path.join(dir, domain, 'index.js');
-  return fs.existsSync(entry) ? require(entry) : null;
+function list(dir, { customDir = dir ? null : CUSTOM_DIR } = {}) {
+  const found = listIn(dir || SERVICES_DIR);
+  if (customDir) {
+    for (const m of listIn(customDir, { custom: true })) {
+      if (found.some(b => b.domain === m.domain)) {
+        console.warn(`custom service "${m.domain}" skipped: there's a built-in service with that name`);
+        continue;
+      }
+      found.push(m);
+    }
+  }
+  const rank = d => (ORDER.includes(d) ? ORDER.indexOf(d) : ORDER.length);
+  return found.sort((a, b) => (!!a.custom - !!b.custom) || rank(a.domain) - rank(b.domain) || a.domain.localeCompare(b.domain));
+}
+
+/**
+ * A service's code: its index.js, which is the only file of a service the
+ * check calls. null when there's no such service, it has no index.js, or its
+ * index.js fails to load (a custom service with a mistake in it is skipped
+ * with a warning, and takes nothing else down).
+ */
+function load(domain, dir, options) {
+  const manifest = list(dir, options).find(m => m.domain === domain);
+  if (!manifest) return null;
+  const entry = path.join(manifest.dir, 'index.js');
+  if (!fs.existsSync(entry)) return null;
+  try {
+    return require(entry);
+  } catch (e) {
+    console.warn(`service "${domain}" not loaded: its index.js failed (${String(e.message).split('\n')[0]})`);
+    return null;
+  }
 }
 
 /**
@@ -161,4 +203,4 @@ function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, load, result, savedFor, nameOf, problems, SERVICES_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };
+module.exports = { list, load, result, savedFor, nameOf, problems, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };

@@ -289,8 +289,9 @@ const CLASSROOM_ENABLED = !!CLASSROOM && CLASSROOM.enabled(CLASSROOM_BRIDGE);
  * launches a browser at all: no window, nothing to install, nothing to
  * sign into.
  */
-function browserNeeded(withEdpuzzle) {
+function browserNeeded(withEdpuzzle, fullCheck = withEdpuzzle) {
   return (CLASSROOM_ENABLED && CLASSROOM.browserNeeded(CLASSROOM_BRIDGE)) || withEdpuzzle ||
+         customInCheck(fullCheck).some(customNeedsBrowser) ||
          CANVAS_NEEDS_BROWSER;
 }
 
@@ -314,6 +315,47 @@ const EDPUZZLE_ENABLED = !!EDPUZZLE && EDPUZZLE.enabled(EDPUZZLE_BRIDGE);
 // A service whose browser class is "visible" (Edpuzzle, from its manifest)
 // opens a window, so it's only read in a full check: see withEdpuzzle.
 const EDPUZZLE_VISIBLE = SERVICES.list().some(m => m.domain === 'edpuzzle' && m.browser_class === 'visible');
+
+// Custom services: the project's own custom_services/<domain>/ (see
+// 61-services.js), read in the check like Canvas, each as a source of its
+// own. One marked "runs": "background" is read after the check instead, by
+// startBackgroundServices. What a custom service reads is tagged with its
+// name as the platform (unless it says otherwise), the way Canvas's and
+// Edpuzzle's are, so a failed read keeps its items from memory, and its ids
+// get its domain in front so they can't collide with anyone else's.
+//
+// Its name is the English one: a platform tag is kept in memory, and
+// switching the page's language mustn't make its items look new.
+const CUSTOM = SERVICES.list().filter(m => m.custom && m.runs !== 'background').map(m => {
+  const bridge = { domain: m.domain, settings: SETTINGS };
+  const service = SERVICES.load(m.domain);
+  let on = false;
+  try {
+    on = !!service && typeof service.read === 'function' && (!service.enabled || !!service.enabled(bridge));
+  } catch (e) {
+    console.warn(`custom service "${m.domain}": enabled() failed (${e.message}), so it's off`);
+  }
+  if (service && typeof service.read !== 'function') console.warn(`custom service "${m.domain}" has no read(), so it's off`);
+  return { manifest: m, service, bridge, name: SERVICES.nameOf(m, 'en'), on };
+});
+// How long a custom service's read() may take before it counts as failed,
+// so one that hangs can't hold up the whole check until PASS_LIMIT.
+const CUSTOM_READ_LIMIT_MS = 2 * 60 * 1000;
+
+/** The custom services this check reads: on, and a "visible" one only in a
+ *  full check, like Edpuzzle. */
+function customInCheck(fullCheck) {
+  return CUSTOM.filter(c => c.on && (c.manifest.browser_class !== 'visible' || fullCheck));
+}
+
+/** Whether a custom service needs the browser in this check, from its
+ *  browser class: "optional" ones are asked (browserNeeded). */
+function customNeedsBrowser(c) {
+  const cls = c.manifest.browser_class;
+  if (cls === 'background' || cls === 'visible') return true;
+  if (cls !== 'optional') return false;
+  try { return !!(c.service.browserNeeded && c.service.browserNeeded(c.bridge)); } catch { return false; }
+}
 
 // EXPIRED COOKIES — A FAILURE WORTH SHOUTING ABOUT.
 //
@@ -559,9 +601,12 @@ async function launchForCollection(withEdpuzzle, options) {
   }
 }
 
-async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = false) {
+async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = false, fullCheck = withEdpuzzle) {
   // No browser at all when nothing here needs one (see browserNeeded).
-  const useBrowser = browserNeeded(withEdpuzzle);
+  const useBrowser = browserNeeded(withEdpuzzle, fullCheck);
+  const customs = customInCheck(fullCheck);
+  // A window, when anything in this check needs one (see below).
+  const headed = withEdpuzzle || customs.some(c => c.manifest.browser_class === 'visible');
   const launchOptions = {
     ...BROWSER,               // the same browser as login mode —
                               // otherwise the cookie profile won't be picked up
@@ -587,9 +632,9 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     //
     // Position -3000,-3000 pushes the window off past the corner of the
     // screen, so at least it doesn't sit there in view.
-    headless: !withEdpuzzle,
-    viewport: withEdpuzzle ? null : { width: 1280, height: 900 },
-    args: withEdpuzzle
+    headless: !headed,
+    viewport: headed ? null : { width: 1280, height: 900 },
+    args: headed
       ? ['--window-position=-3000,-3000', '--window-size=1280,1000']
       : [],
     // The profile remembers Russian — Chrome picked it up from the system
@@ -649,7 +694,8 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // them (started, below).
   const sources = [
     ...(CANVAS_ENABLED ? [{ id: 'canvas', name: 'Canvas' }] : []),
-    ...(withEdpuzzle ? [{ id: 'edpuzzle', name: 'Edpuzzle' }] : [])];
+    ...(withEdpuzzle ? [{ id: 'edpuzzle', name: 'Edpuzzle' }] : []),
+    ...customs.map(c => ({ id: c.manifest.domain, name: c.name }))];
 
   // The page's progress bar goes from "starting" to a real 0 of N (and N
   // grows by Classroom's classes once they're listed). Canvas and Edpuzzle count as a step each, since
@@ -751,6 +797,36 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     return parts.map(asPart);
   })();
 
+  // Custom services, each a source of its own like Canvas. A read() that
+  // throws, or takes longer than CUSTOM_READ_LIMIT_MS, is that service
+  // failing, never the check.
+  const customTasks = customs.map(c => (async () => {
+    const domain = c.manifest.domain;
+    console.log(`Reading: ${c.name}`);
+    let result, timer;
+    try {
+      const limit = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`took longer than ${CUSTOM_READ_LIMIT_MS / 1000} s`)), CUSTOM_READ_LIMIT_MS);
+      });
+      const r = SERVICES.result(await Promise.race([c.service.read({ ...c.bridge, openPage: newPage, log: console.log }), limit]));
+      const items = r.items.filter(x => x && typeof x === 'object' && x.title).map(x => ({
+        ...x,
+        class: x.class || c.name,
+        platform: x.platform || c.name,
+        id: `${domain}-${x.id || x.title}`,
+      }));
+      console.log(`  ${c.name}: items ${items.length}`);
+      result = { cls: { id: domain, name: c.name }, custom: true, items, ok: r.status.ok, detail: r.status.detail, fallback: r.status.fallback };
+    } catch (e) {
+      console.error(`  error on ${c.name}: ${e.message}`);
+      result = { cls: { id: domain, name: c.name }, custom: true, items: [], ok: false, error: String(e.message).split('\n')[0].slice(0, 200) };
+    } finally {
+      clearTimeout(timer);
+    }
+    reportProgress(result);
+    return result;
+  })());
+
   // THE BROWSER CLOSES NO MATTER WHAT.
   //
   // `ctx.close()` used to just be the next line after Promise.all — that
@@ -771,7 +847,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   let results;
   try {
     results = (await Promise.all(
-      [classroomTask, canvasTask, edpuzzleTask].filter(Boolean))).flat();
+      [classroomTask, canvasTask, edpuzzleTask, ...customTasks].filter(Boolean))).flat();
   } finally {
     for (const open of [ctx, lateCtx]) {
       try {
@@ -1634,12 +1710,16 @@ if (require.main !== module) return;
     ...(CLASSROOM_ENABLED ? CLASSROOM.addresses(CLASSROOM_BRIDGE) : []),
     ...(CANVAS_ENABLED ? CANVAS.addresses(CANVAS_BRIDGE) : []),
     ...(EDPUZZLE_ENABLED && process.argv.includes('--full') ? EDPUZZLE.addresses(EDPUZZLE_BRIDGE) : []),
+    ...customInCheck(process.argv.includes('--full')).flatMap(c => {
+      try { return c.service.addresses ? c.service.addresses(c.bridge) : []; } catch { return []; }
+    }),
   ];
   if (places.length && !await networkCheck.online(places)) {
     console.error(`Check not run: ${networkCheck.NO_INTERNET}`);
     if (CLASSROOM_ENABLED) recordCheckStatus('classroom', false, networkCheck.NO_INTERNET);
     if (CANVAS_ENABLED) recordCheckStatus('canvas', false, networkCheck.NO_INTERNET);
     if (EDPUZZLE_ENABLED && process.argv.includes('--full')) recordCheckStatus('edpuzzle', false, networkCheck.NO_INTERNET);
+    for (const c of customInCheck(process.argv.includes('--full'))) recordCheckStatus(c.manifest.domain, false, networkCheck.NO_INTERNET);
     live.endRun();
     redrawPage();
     process.exitCode = 1;
@@ -1743,7 +1823,7 @@ if (require.main !== module) return;
         announcements: announcementsForProgress(announcementMemory, readSoFar || [], now) },
       PAGE_FILE,
     );
-  }, nonEmptyClasses, withEdpuzzle);
+  }, nonEmptyClasses, withEdpuzzle, manual || isDigestTime);
 
   // EVERY CLASS THAT ACTUALLY TURNED UP HERE WAS JUST SEEN ACTIVE.
   //
@@ -1787,7 +1867,7 @@ if (require.main !== module) return;
   // pass (Canvas off, or Edpuzzle outside a full check) — its entry
   // just stays whatever it last was, see 25-check-status.js's own
   // comment on why that's fine.
-  const classroomResults = taskResults.filter(r => r.cls.id !== 'canvas' && r.cls.id !== 'edpuzzle');
+  const classroomResults = taskResults.filter(r => r.cls.id !== 'canvas' && r.cls.id !== 'edpuzzle' && !r.custom);
   if (classroomResults.length) {
     const failed = classroomResults.find(r => !r.ok);
     // No browser is the whole of Classroom's problem, not one class's.
@@ -1803,6 +1883,7 @@ if (require.main !== module) return;
   }
   const edpuzzleResult = taskResults.find(r => r.cls.id === 'edpuzzle');
   if (edpuzzleResult) recordCheckStatus('edpuzzle', edpuzzleResult.ok, edpuzzleResult.error);
+  for (const r of taskResults.filter(x => x.custom)) recordCheckStatus(r.cls.id, r.ok, r.error || r.detail, { fallback: r.fallback });
 
   // The school calendar's feed, once a day, so a new event (a snow day, a
   // changed minimum day) shows up without anyone saving the link again.
@@ -1822,6 +1903,8 @@ if (require.main !== module) return;
   const unread = [
     ...(withEdpuzzle ? [] : ['Edpuzzle']),
     ...(CANVAS_ENABLED ? [] : ['Canvas']),
+    // A custom service that's off, or "visible" outside a full check.
+    ...CUSTOM.filter(c => !customInCheck(manual || isDigestTime).includes(c)).map(c => c.name),
   ];
 
   const { fresh, merged: all } = diffWithPrevious(collected, [...broken, ...unread]);

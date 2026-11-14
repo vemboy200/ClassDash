@@ -74,3 +74,6 @@ workspace-pdf.html
 ai-runs.json
 ai-defaults.json
 .*.tmp
+
+# Custom services (custom_services/<domain>/): your own, not part of ClassDash
+custom_services/

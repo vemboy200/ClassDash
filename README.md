@@ -43,6 +43,7 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 - [Getting started](docs/getting-started.md): installing, the first run, keeping it running, updates
 - [Using the dashboard](docs/dashboard.md): the page, keyboard shortcuts, assignments, reminders
 - [Services](docs/services.md): a page for each one (Google Classroom, Canvas, Edpuzzle, Aequitas Q, calendar feeds), and how they compare
+- [Custom services](docs/custom-services.md): adding a service ClassDash doesn't have, as a folder of your own code
 - [Calendar and schedule](docs/calendar.md)
 - [Grades](docs/grades.md)
 - [Workspace](docs/workspace.md): PDFs, web pages and the AI pane

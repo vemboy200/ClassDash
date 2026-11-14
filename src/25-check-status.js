@@ -89,7 +89,13 @@ function checkStatus() {
     // Aequitas Q, for grades (40-grades.js): recorded by each sign-in, at
     // most hourly, not by the collection itself.
     q: settings.gradesProvider === 'q' ? (raw.q || UNKNOWN) : UNKNOWN,
+    // Custom services (custom_services/ in the project), by their domain.
+    ...Object.fromEntries(customDomains().map(d => [d, raw[d] || UNKNOWN])),
   };
+}
+
+function customDomains() {
+  try { return require('./61-services.js').list().filter(m => m.custom).map(m => m.domain); } catch { return []; }
 }
 
 module.exports = { record, checkStatus, FILE };

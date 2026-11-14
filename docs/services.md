@@ -45,6 +45,7 @@ Some services can only be read through ClassDash's own browser, signed in as you
 
 - Settings → **Services** has a card for each service that's on: its name, how its last check went, and badges. The cloud with ↑ means ClassDash asks it on a schedule (polling). The browser badge says what it takes: a hidden browser in the background, a browser with a face for a visible browser window (Edpuzzle), or a browser with a ? when it depends on how it's set up (Canvas).
 - Click a card for that service's settings. **+ Add service** turns one on, and **Turn off** on a service's page turns it off again. Turning one off keeps what you typed for it, in case you turn it back on.
+- **A service ClassDash doesn't have?** You can add your own as a [custom service](custom-services.md): a folder of code in your project, like a Home Assistant custom integration.
 - **Only use Canvas?** Pick **Only Canvas** and an access token in the first-run setup (or turn off everything but Canvas, and Canvas's Google sign-in), and ClassDash never opens a browser at all.
 
 ## Classes from more than one service
@@ -53,7 +54,7 @@ Some services can only be read through ClassDash's own browser, signed in as you
 
 ## Not supported yet
 
-Services that would fit ClassDash but aren't built yet, in case anyone wants to pick one up (see [CONTRIBUTING.md](../CONTRIBUTING.md)). Adding one needs someone with an account on it to test against, since ClassDash only reads what your own account can see. Whoever builds one becomes its code owner.
+Services that would fit ClassDash but aren't built yet, in case anyone wants to pick one up (see [CONTRIBUTING.md](../CONTRIBUTING.md)), or to try as a [custom service](custom-services.md) first. Adding one needs someone with an account on it to test against, since ClassDash only reads what your own account can see. Whoever builds one becomes its code owner.
 
 What's known about reading each one is a starting point, not checked against the real thing:
 
