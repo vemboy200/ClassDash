@@ -310,6 +310,11 @@ const DEFAULTS = {
   // Announcement scan (38-announcement-scan.js): tell the AI to leave out
   // classwork, so only work for outside class becomes a reminder.
   aiSkipClasswork: false,
+  // The automatic announcement scan with a model on this computer (Ollama, LM
+  // Studio...): only while the screen is off, and only with this much memory
+  // free (GB; 0 = don't check). See mayScanNow in 38-announcement-scan.js.
+  aiScanOnlyIdle: true,
+  aiScanMinFreeGb: 4,
   aiOpenaiKey: '',
   aiAnthropicKey: '',
   aiGeminiKey: '',
@@ -374,6 +379,7 @@ const TYPES = {
   aiOpenaiKey: 'token', aiAnthropicKey: 'token', aiGeminiKey: 'token',
   gradesProvider: 'gradesProvider', gradesAddress: 'gradesAddress', gradesUsername: 'string', gradesHidden: 'boolean', navCollapsed: 'boolean', dashHidden: 'dashCards', gradesAiAgreed: 'aiAgreed', gradesWeights: 'gradesWeights',
   gradeAlerts: 'gradeAlerts',
+  aiScanOnlyIdle: 'boolean', aiScanMinFreeGb: 'number',
 };
 
 function read() {

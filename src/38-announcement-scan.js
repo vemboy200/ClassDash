@@ -360,6 +360,73 @@ function pendingNew(now = Date.now()) {
  * Resolves { ok, scanned, kept: [{title, class, due}], dropped, failed, why? }.
  * `deps.complete` stands in for 37-ai.js's in tests.
  */
+/**
+ * How much memory is free for a model to use, in GB, or null when it can't be
+ * told. On a Mac that's free + inactive + speculative + purgeable pages
+ * (vm_stat): macOS keeps "free" itself near zero on purpose, so os.freemem()
+ * alone would say there's never room. Elsewhere, os.freemem() (on Linux that's
+ * MemAvailable).
+ */
+function freeMemoryGb() {
+  const os = require('os');
+  if (process.platform !== 'darwin') return os.freemem() / 1073741824;
+  try {
+    const text = require('child_process').execFileSync('vm_stat', { encoding: 'utf8', timeout: 5000 });
+    const page = Number((text.match(/page size of (\d+) bytes/) || [])[1]) || 16384;
+    const pages = name => Number((text.match(new RegExp(`Pages ${name}:\\s+(\\d+)`)) || [])[1]) || 0;
+    return (pages('free') + pages('inactive') + pages('speculative') + pages('purgeable')) * page / 1073741824;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether macOS itself says memory is tight (warning or critical), or false
+ *  when it can't be told or it isn't a Mac. */
+function memoryTight() {
+  if (process.platform !== 'darwin') return false;
+  try {
+    const level = Number(require('child_process').execFileSync('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level'], { encoding: 'utf8', timeout: 5000 }));
+    return level > 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the AUTOMATIC scan may ask a local model right now, or why not. A
+ * model running on this computer takes its memory and processor, and with
+ * other apps open it can make the whole computer crawl (it did, on a 16GB Mac
+ * with LM Studio, bad enough to need a forced shutdown). So, for a local
+ * provider only:
+ *
+ *   aiScanOnlyIdle    only while the display is asleep (the app's own
+ *                     report, host-state.json): nobody's using the computer.
+ *                     No recent report counts as not asleep.
+ *   aiScanMinFreeGb   only with at least this much memory free, and never
+ *                     while macOS says memory is tight. 0 turns this off.
+ *
+ * Asked before each announcement, so someone coming back, or memory running
+ * low, stops the scan between two; the rest stay new for a later check. A
+ * scan someone starts themselves (the button by an announcement) isn't held.
+ * `deps` stands in for the computer in tests.
+ */
+function mayScanNow(settings, deps = {}) {
+  const provider = require('./37-ai.js').PROVIDERS[settings.aiProvider];
+  if (!provider || !provider.local) return { ok: true };
+  if (settings.aiScanOnlyIdle !== false) {
+    const host = deps.host !== undefined ? deps.host : require('./52-check-schedule.js').readHostState();
+    if (!host || !host.asleep) return { ok: false, why: 'waiting for the screen to be off' };
+  }
+  // Missing (settings from before this existed) is the usual 4 GB, not "don't check".
+  const minGb = settings.aiScanMinFreeGb === undefined ? 4 : Number(settings.aiScanMinFreeGb);
+  if (minGb > 0) {
+    if ((deps.tight || memoryTight)()) return { ok: false, why: 'memory is tight' };
+    const free = (deps.freeGb || freeMemoryGb)();
+    if (free !== null && free < minGb) return { ok: false, why: `only ${free.toFixed(1)} GB of memory free, ${minGb} GB needed` };
+  }
+  return { ok: true };
+}
+
 async function scan({ ids, newOnly } = {}, deps = {}) {
   const settings = deps.settings || require('./19-settings.js').read();
   if (!settings.aiProvider || settings.aiProvider === 'none') return { ok: false, why: 'AI is off' };
@@ -386,6 +453,11 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
     const result = { ok: true, scanned: 0, kept: [], dropped: 0, failed: 0 };
     const others = existing();
     for (const a of todo) {
+      // The automatic scan steps aside between announcements (mayScanNow).
+      if (newOnly) {
+        const may = mayScanNow(settings, deps);
+        if (!may.ok) { result.held = may.why; break; }
+      }
       const className = linkedName(a.class);
       const answer = await complete({ system: systemFor(settings), prompt: promptFor(a, className), maxTokens: 600 });
       const record = { at: new Date().toISOString(), found: 0, kept: 0, steps: [] };
@@ -433,7 +505,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
   }
 }
 
-module.exports = { SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, STATE_FILE };
+module.exports = { mayScanNow, freeMemoryGb, SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.

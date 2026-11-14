@@ -14,7 +14,7 @@ const soon = new Date(2026, 9, 14, 23, 59);       // Problem Set 7's due date
 const ann = (id, cls, text, sortTime = Date.now() - 3600e3) => ({ platform: 'Classroom', type: 'Announcement', class: cls, id, author: 'Made-up Teacher', date: 'Oct 5', title: '', text, link: `https://classroom.example/${id}`, sortTime });
 
 const proj = T.makeProject({
-  'settings.json': { language: 'en', aiProvider: 'ollama', aiModel: 'm', classLinks: [{ name: 'Made-up Bio', classes: ['Biology Period 2'] }] },
+  'settings.json': { language: 'en', aiProvider: 'ollama', aiModel: 'm', aiScanOnlyIdle: false, aiScanMinFreeGb: 0, classLinks: [{ name: 'Made-up Bio', classes: ['Biology Period 2'] }] },
   'classes.json': [{ name: 'Biology Period 2' }, { name: 'Made-up Math' }],
   'last-collection.json': [{ class: 'Made-up Math', id: 'r1', type: 'Assignment', title: 'Problem Set 7', due: null, due_iso: soon.toISOString(), link: 'x' }],
   'messages.json': [ann('old1', 'Made-up Math', 'An old post with homework: read chapter 2 by Friday.', MON)],
@@ -177,7 +177,7 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
   {
     const DAY = 864e5;
     const many = Array.from({ length: 30 }, (_, i) => ann(`m${i}`, 'Made-up Math', `Read section ${i + 1}.`, MON - i * 3600e3));
-    const fresh = T.makeProject({ 'settings.json': { language: 'en', aiProvider: 'ollama', aiModel: 'm' }, 'messages.json': many });
+    const fresh = T.makeProject({ 'settings.json': { language: 'en', aiProvider: 'ollama', aiModel: 'm', aiScanOnlyIdle: false, aiScanMinFreeGb: 0 }, 'messages.json': many });
     const scanner = require(path.join(fresh, '38-announcement-scan.js'));
     const here = process.cwd(); process.chdir(fresh);
     let calls = 0;
@@ -250,6 +250,41 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     T.redraw(proj);
     const html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
     ok('AI off: the footer is the plain one', /no model involved/.test(html) && !/AI only reads/.test(html));
+  }
+
+  // ── a local model waits for the screen to be off and enough memory ──
+  {
+    const local = { aiProvider: 'lmstudio', aiModel: 'm' };
+    const may = (extra, deps) => sc.mayScanNow({ ...local, ...extra }, deps);
+    const roomy = { freeGb: () => 12, tight: () => false };
+    ok('screen on: held', !may({}, { host: { asleep: false }, ...roomy }).ok);
+    ok('no word from the app counts as on: held', !may({}, { host: null, ...roomy }).ok);
+    ok('screen off with room: goes', may({}, { host: { asleep: true }, ...roomy }).ok);
+    ok('the switch off: goes with the screen on', may({ aiScanOnlyIdle: false }, { host: { asleep: false }, ...roomy }).ok);
+    const low = may({}, { host: { asleep: true }, freeGb: () => 2.5, tight: () => false });
+    ok('not enough memory free: held, and says how much', !low.ok && /2\.5 GB of memory free, 4 GB needed/.test(low.why), low.why);
+    ok('macOS saying memory is tight: held', !may({}, { host: { asleep: true }, freeGb: () => 12, tight: () => true }).ok);
+    ok('0 GB: memory isn\'t checked', may({ aiScanMinFreeGb: 0 }, { host: { asleep: true }, freeGb: () => 0.1, tight: () => true }).ok);
+    ok('memory that can\'t be told doesn\'t hold it', may({}, { host: { asleep: true }, freeGb: () => null, tight: () => false }).ok);
+    ok('a model somewhere else isn\'t held at all', sc.mayScanNow({ aiProvider: 'openai', aiModel: 'm' }, { host: { asleep: false }, freeGb: () => 0.1, tight: () => true }).ok);
+
+    const many = [1, 2, 3].map(i => ann('h' + i, 'Made-up Math', 'Read chapter ' + i + '.'));
+    const fresh = T.makeProject({ 'settings.json': { language: 'en', ...local }, 'messages.json': [] });
+    const scanner = require(path.join(fresh, '38-announcement-scan.js'));
+    scanner.seedKnown();
+    fs.writeFileSync(path.join(fresh, 'messages.json'), JSON.stringify(many));
+    let asks = 0;
+    const answer = async () => { asks++; return { ok: true, text: '[]' }; };
+    let r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, settings: { ...local, aiScanMinFreeGb: 0 }, host: { asleep: false } });
+    ok('the automatic scan with the screen on asks nothing, and says why', asks === 0 && r.scanned === 0 && /screen to be off/.test(r.held || ''), JSON.stringify(r));
+    let awake = 0;
+    const host = { get asleep() { return awake++ < 1; } };
+    r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, settings: { ...local, aiScanMinFreeGb: 0 }, host });
+    ok('someone coming back stops it between announcements', r.scanned === 1 && asks === 1 && r.held, JSON.stringify(r));
+    r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, settings: { ...local, aiScanMinFreeGb: 0 }, host: { asleep: true } });
+    ok('...and the rest are read on a later check', r.scanned === 2 && asks === 3 && !r.held, JSON.stringify(r));
+    r = await scanner.scan({ ids: ['h1'] }, { complete: answer, settings: { ...local }, host: { asleep: false }, freeGb: () => 0.1 });
+    ok('a scan someone starts by hand isn\'t held', r.scanned === 1 && asks === 4, JSON.stringify(r));
   }
 
   // ── a check starts the scan ──

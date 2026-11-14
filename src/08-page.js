@@ -1312,6 +1312,16 @@ function aiScanSection() {
           <input type="checkbox" class="toggle" data-bool-key="aiSkipClasswork"${s.aiSkipClasswork ? ' checked' : ''}>
           <span class="field-hint">${escapeHtml(t('aiSkipClassworkHint'))}</span>
         </label>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('aiScanOnlyIdle'))}</span>
+          <input type="checkbox" class="toggle" data-bool-key="aiScanOnlyIdle"${s.aiScanOnlyIdle !== false ? ' checked' : ''}>
+          <span class="field-hint">${escapeHtml(t('aiScanOnlyIdleHint'))}</span>
+        </label>
+        <label class="setting-row">
+          <span class="field-name">${escapeHtml(t('aiScanMinFreeGb'))}</span>
+          <input type="text" data-key="aiScanMinFreeGb" value="${escapeHtml(String(s.aiScanMinFreeGb))}">
+          <span class="field-hint">${escapeHtml(t('aiScanMinFreeGbHint'))}</span>
+        </label>
       </div>`;
 }
 
