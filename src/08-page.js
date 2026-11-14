@@ -336,13 +336,25 @@ function signInsBody(settings) {
       </div>
 ${rows.map(r => {
     return `      <div class="setting-row" data-sign-in="${escapeHtml(r.id)}">
-        <span class="field-name">${escapeHtml(r.name)}</span>
+        <span class="field-name">${brandIcon(logoOf(r.id))}${escapeHtml(r.name)}</span>
         <span class="field-with-value" data-native-only>
           <button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(r.id)}')">${escapeHtml(t('settingsSetupSignInButton'))}</button>
         </span>
         <span class="field-hint">${liveSpan(`signin-${r.id}`, signInStateWords(signIns.state(r.id, status)))} · ${escapeHtml(r.usedBy.length ? t('signInUsedBy', r.usedBy.join(', ')) : t('signInUsedByNone'))}</span>
       </div>`;
   }).join('\n')}`;
+}
+
+/** The logo of a service by its domain (none for Google's sign-in row). */
+function logoOf(domain) {
+  const bridge = require('./61-services.js');
+  const m = bridge.list().find(x => x.domain === domain);
+  return m ? bridge.iconOf(m) : null;
+}
+
+/** A service's logo (61-services.js iconOf), or nothing when it has none. */
+function brandIcon(base64) {
+  return base64 ? `<img class="svc-logo" src="data:image/png;base64,${base64}" alt="" aria-hidden="true">` : '';
 }
 
 /** A sign-in's state as the last checks saw it (64-sign-ins.js state()). */
@@ -1480,10 +1492,11 @@ function settingsPanel() {
     browser: BROWSER_BADGE[m.browser_class],
     opens: m.domain === 'calendar' ? 'calendar' : undefined,
     custom: !!m.custom,
+    icon: bridge.iconOf(m),
   }));
   const badge = ([icon, words]) => `<span class="svc-badge pixel-icon ${icon}" title="${escapeHtml(t(words))}"></span>`;
   const card = v => `        <button type="button" class="svc-card" data-svc-card="${v.id}" onclick="showSettingsSection('${v.opens || 'svc-' + v.id}')"${v.id === 'calendar' && !ics ? ' hidden' : ''}>
-          <span class="svc-name">${escapeHtml(v.name)}</span>
+          <span class="svc-head">${brandIcon(v.icon)}<span class="svc-name">${escapeHtml(v.name)}</span></span>
           ${liveSpan(`svc-${v.id}`, statusLines[v.id])}
           <span class="svc-badges">${badge(['icon-cloud-polling', 'svcPolling'])}${v.browser ? badge(BADGE[v.browser]) : ''}</span>
         </button>`;
@@ -1492,7 +1505,7 @@ function settingsPanel() {
   const foundBox = !found.length ? '' : `
       <div class="svc-found">
 ${found.map(m => `        <div class="setting-row" data-svc-found="${m.domain}">
-          <span class="field-name">${escapeHtml(t('svcFound', bridge.nameOf(m, currentLanguage())))}</span>
+          <span class="field-name">${brandIcon(bridge.iconOf(m))}${escapeHtml(t('svcFound', bridge.nameOf(m, currentLanguage())))}</span>
           <span class="field-with-value">
             <button type="button" class="mini-btn" onclick="setUpFound('${m.domain}')">${escapeHtml(t('svcFoundSetUp'))}</button>
             <button type="button" class="mini-btn" onclick="ignoreFound(this, '${m.domain}')">${escapeHtml(t('svcFoundIgnore'))}</button>
@@ -3372,6 +3385,10 @@ ${cardHtml[id]}
     background: var(--bg); color: var(--text); font: inherit; padding: 12px 14px; cursor: pointer;
   }
   .svc-name { font-size: 15px; font-weight: 600; }
+  .svc-head { display: flex; align-items: center; gap: 10px; }
+  /* A service's own logo, not pixel art: kept smooth at its size. */
+  .svc-logo { width: 28px; height: 28px; object-fit: contain; flex: none; image-rendering: auto; }
+  .field-name .svc-logo { width: 20px; height: 20px; vertical-align: -4px; margin-right: 8px; }
   .svc-status { font-size: 13px; color: var(--dim); }
   .svc-badges { display: flex; gap: 6px; margin-top: 4px; color: var(--dim); }
   /* At their drawn size, like the sidebar's icons. */

@@ -33,6 +33,10 @@ for (const m of all) {
     ok(JSON.stringify(doc[key]) === JSON.stringify(m[key]), `${m.domain}: ${key} matches its page (manifest ${JSON.stringify(m[key])}, page ${JSON.stringify(doc[key])})`);
   }
 }
+for (const m of all.filter(x => x.domain !== 'calendar')) {
+  const png = Buffer.from(bridge.iconOf(m) || '', 'base64');
+  ok(png.slice(1, 4).toString() === 'PNG' && png.readUInt32BE(16) === 64 && png.readUInt32BE(20) === 64 && png.length < 16 * 1024, `${m.domain}: its icon is a 64×64 PNG under 16 KB (${png.length} bytes)`);
+}
 ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календарь по ссылке (ICS)' && bridge.nameOf(all.find(m => m.domain === 'calendar'), 'xx') === 'Calendar feed (ICS)', 'a translated name falls back to English');
 
 // A broken service is skipped, and doesn't take the others with it.
@@ -67,6 +71,8 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   T.redraw(proj);
   const fewer = [...fs.readFileSync(path.join(proj, 'summary.html'), 'utf8').matchAll(/class="svc-card" data-svc-card="([^"]+)"/g)].map(m => m[1]);
   ok(!fewer.includes('edpuzzle') && fewer.length === 4, 'a service without a manifest has no card, and the page still draws');
+  const logo = id => new RegExp(`data-svc-card="${id}"[^>]*>\\s*<span class="svc-head"><img class="svc-logo" src="data:image/png;base64,`).test(html);
+  ok(['classroom', 'canvas', 'edpuzzle', 'q'].every(logo) && !logo('calendar'), 'cards show a service\'s brand/icon.png, and the calendar feed has none');
 }
 
 // The bridge's load(): a service's index.js, the only file of it the check calls.

@@ -40,6 +40,8 @@ The same fields as a built-in service's, which are the **Details** table on its 
 - `documentation`: when it's an `https://` address, the service's page in Settings links to it.
 - `"runs": "background"` reads it in a process of its own after each check instead of during it, for something slow.
 
+**A logo**, optionally: `brand/icon.png` in the service's folder, square, with a transparent background (64×64 is plenty), shown on its card in Settings → Services.
+
 A manifest with a mistake in it is skipped, with the reason in ClassDash's log (`runs.log` in the project folder on a Mac). Nothing else is affected.
 
 ## index.js

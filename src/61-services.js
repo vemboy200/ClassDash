@@ -28,6 +28,9 @@
  *   runs                 optional: "background" to be read in a process of
  *                        its own after a check (62-service-run.js), not in it
  *
+ * Next to it, an optional brand/icon.png: the service's logo, square, with a
+ * transparent background, for its card in Settings → Services (iconOf).
+ *
  * A folder without a readable, valid manifest is skipped with a warning
  * rather than taking every other service down with it.
  *
@@ -207,9 +210,14 @@ function savedFor(domain) {
   return SAVED_ELSEWHERE[domain] ? SAVED_ELSEWHERE[domain]() : {};
 }
 
+/** A service's logo (brand/icon.png in its folder) as base64, or null. */
+function iconOf(manifest) {
+  try { return fs.readFileSync(path.join(manifest.dir, 'brand', 'icon.png')).toString('base64'); } catch { return null; }
+}
+
 /** A service's name in the page's language, falling back to English. */
 function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, load, result, savedFor, nameOf, problems, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES, SIGN_INS };
+module.exports = { list, load, result, savedFor, nameOf, iconOf, problems, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES, SIGN_INS };
