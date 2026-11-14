@@ -60,7 +60,9 @@ ClassDash reads the Classroom pages in a browser signed in to your school Google
 
 For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-- [`05-playwright-draft.js`](../../src/05-playwright-draft.js) reads each class's to-do list (`/w/<id>/t/all`) off the rendered page, plus announcements and, by opening each assignment in place, its instructions. No API at all: Classroom doesn't offer one to students, so this is the one source that can break when Google changes the page.
+- [`index.js`](../../src/services/classroom/index.js) is what ClassDash calls. Its `read()` lists the classes, then reads every class at the same time, each in its own tab, and reports each one as it finishes. One class failing is only that class failing: it keeps what it had.
+- [`15-classroom.js`](../../src/services/classroom/15-classroom.js) reads each class's to-do list (`/w/<id>/t/all`) off the rendered page and, by opening each assignment in place, its instructions, plus the class list and teachers. No API at all: Classroom doesn't offer one to students, so this is the one source that can break when Google changes the page.
+- [`12-feed.js`](../../src/services/classroom/12-feed.js) reads each class's announcements.
 - [`44-classroom-grades.js`](../../src/services/classroom/44-classroom-grades.js) reads each class's "View your work" page for grades, matched by the page's structure, not by Google's generated class names.
 - [`39-announcement-photos.js`](../../src/services/classroom/39-announcement-photos.js) saves announcement photos.
 - **Materials** (`type: 'Material'`) come off the same stream as assignments, in the same shared item shape.

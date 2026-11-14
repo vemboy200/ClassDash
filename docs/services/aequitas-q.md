@@ -53,6 +53,7 @@ ClassDash signs in to your school's Q StudentConnection portal in a headless bro
 
 For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+- [`index.js`](../../src/services/q/index.js) is what ClassDash calls. Q is slow to read, so its manifest has `"runs": "background"`: it's read in a process of its own after a check ([`62-service-run.js`](../../src/62-service-run.js)), never holding the check up.
 - [`40-grades.js`](../../src/services/q/40-grades.js) signs in to the Q portal in a headless browser of its own, with an empty profile, never the shared one, reads the grades and signs out. No API: Q has none for students.
 - [`42-progress-report.js`](../../src/services/q/42-progress-report.js) reads the progress-report PDF behind the printer button: every assignment of the term, each one's category, and the grading scale. Category weights aren't in it; they come from the person ([`41-grades-center.js`](../../src/41-grades-center.js)).
 

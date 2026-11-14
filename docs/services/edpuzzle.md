@@ -45,8 +45,9 @@ ClassDash asks Edpuzzle's own site endpoints from a real browser window. They ar
 
 For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+- [`index.js`](../../src/services/edpuzzle/index.js) is what ClassDash calls.
 - [`11-edpuzzle.js`](../../src/services/edpuzzle/11-edpuzzle.js) asks Edpuzzle's internal REST endpoints. They're unofficial: no public docs, no token. They were found by watching the site's own network traffic, and the shape of what they return was confirmed against real responses, not a spec. That file's top comment lists them.
-- Edpuzzle detects and refuses headless browsers ("Error 18"), so any check that includes it needs a real, visible browser window, opened off-screen (`--window-position=-3000,-3000`). `withEdpuzzle` in [`05-playwright-draft.js`](../../src/05-playwright-draft.js) decides when that's worth it.
+- Edpuzzle detects and refuses headless browsers ("Error 18"), so any check that includes it needs a real, visible browser window, opened off-screen (`--window-position=-3000,-3000`). Its manifest says so (`"browser_class": "visible"`), and from that, `withEdpuzzle` in [`05-playwright-draft.js`](../../src/05-playwright-draft.js) only reads it in a full check.
 - [`13-transcripts.js`](../../src/services/edpuzzle/13-transcripts.js) and [`14-transcript-page.js`](../../src/services/edpuzzle/14-transcript-page.js) are written and tested on their own, but not wired into the collector yet.
 
 ## Details
