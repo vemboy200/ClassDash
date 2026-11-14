@@ -11,7 +11,7 @@ ClassDash reads Google Classroom the way you see it: it opens each class's pages
 
 1. Settings → **Services** → **+ Add service** → **Google Classroom** (it's on by default).
 2. Fill in your **School email**.
-3. Sign in: **Settings → Services → Setup → Sign In…** opens a real browser window, and you sign in by hand, the same as on any site. That sign-in is saved and lasts for weeks.
+3. Sign in: **Settings → Sign-ins → Google → Sign In…** opens a real browser window, and you sign in by hand, the same as on any site. That sign-in is saved and lasts for weeks.
 
 ## Options
 
@@ -48,7 +48,7 @@ ClassDash reads the Classroom pages in a browser signed in to your school Google
 
 ## Troubleshooting
 
-- **Signed out:** on a Mac, ClassDash tells you with a notification. Sign in again with **Settings → Services → Setup → Sign In…**.
+- **Signed out:** on a Mac, ClassDash tells you with a notification. Sign in again with **Settings → Sign-ins → Google → Sign In…**. Settings → Sign-ins also shows **Signed out** next to Google.
 - **Links say "Class not found":** fill in your **School email**, and check the **Google account number** if the browser has more than one Google account.
 - **The status cloud shows Classroom failed:** click the cloud at the bottom of the sidebar to see what went wrong.
 

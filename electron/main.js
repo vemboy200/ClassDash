@@ -402,7 +402,7 @@ ipcMain.on('classdash-action', async (_event, body) => {
   // The setup actions need native dialogs (a file picker, message boxes, a
   // browser window), so they never reach the notifier script.
   if (NATIVE_SETUP_ACTIONS.includes(action)) {
-    deliverResult(id, await runNativeSetupAction(action));
+    deliverResult(id, await runNativeSetupAction(action, arg));
     return;
   }
   const result = await runAction(action, arg);
@@ -661,9 +661,10 @@ async function captureWebPanes(arg) {
 //                   {ok: false, cancelled: true}.
 const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn', 'signIn', 'pickCalendarPdf'];
 
-async function runNativeSetupAction(action) {
+async function runNativeSetupAction(action, arg = '') {
   if (action === 'setupSignIn' || action === 'signIn') {
-    attemptLogin();
+    // Which sign-in (a row of Settings → Sign-ins); empty opens every one.
+    attemptLogin(String(arg || ''));
     return { ok: true, action };
   }
   if (action === 'pickCalendarPdf') {
@@ -1814,9 +1815,11 @@ async function promptForSettingsThenLogin() {
 // job is just to write that flag and then actually wait for the
 // process to exit — via onExit, the real moment it happens, not a
 // fixed guess at how long that should take.
-function attemptLogin() {
+function attemptLogin(target = '') {
   let hasFinished = false;
-  runNodeScriptDetached('05-playwright-draft.js', ['--login'], projectDir, 3000, async (crashed, errorText) => {
+  // Passed on to --login only if it's a plain id: it ends up on a command line.
+  const which = /^[a-z0-9_]+$/.test(target) ? [target] : [];
+  runNodeScriptDetached('05-playwright-draft.js', ['--login', ...which], projectDir, 3000, async (crashed, errorText) => {
     if (crashed) {
       // Leads with Playwright's OWN error text when there is any —
       // "no compatible browser is installed" was always a guess at the
@@ -1840,7 +1843,7 @@ function attemptLogin() {
         buttons: ['Try Again', 'Cancel'],
         defaultId: 0,
       });
-      if (response === 0) attemptLogin();
+      if (response === 0) attemptLogin(target);
       return;
     }
     await dialog.showMessageBox(win, {

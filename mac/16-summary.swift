@@ -2051,7 +2051,9 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
             }
             return true
         case "setupSignIn", "signIn":
-            attemptLogin()
+            // The page says which sign-in (a row of Settings → Sign-ins);
+            // empty opens every one, as before there was a choice.
+            attemptLogin(target: arg)
             deliver(requestId: requestId, resultJSON: "{\"ok\":true}")
             return true
         case "pickCalendarPdf":
@@ -2732,7 +2734,10 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // seconds before saying anything at all: see runNodeScriptDetached's
     // own comment on why, and the real crash (no compatible browser
     // installed at all) this was written against.
-    private func attemptLogin() {
+    private func attemptLogin(target: String = "") {
+        // Passed on to --login only if it's a plain id: it ends up on a
+        // command line.
+        let which = target.range(of: "^[a-z0-9_]+$", options: .regularExpression) != nil ? [target] : []
         // Found live testing this: without any warning, macOS's own
         // Privacy & Security block (App Management/Automation, Files
         // and Folders — see the README's own step 3) shows up as an
@@ -2766,7 +2771,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         // the real moment it happens) for the process to exit, instead
         // of assuming Done means done.
         var hasFinished = false
-        runNodeScriptDetached("05-playwright-draft.js", args: ["--login"], in: projectDir, completion: { [weak self] crashed in
+        runNodeScriptDetached("05-playwright-draft.js", args: ["--login"] + which, in: projectDir, completion: { [weak self] crashed in
             guard let self = self else { return }
             if crashed {
                 let alert = NSAlert()
@@ -2780,7 +2785,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
                 alert.addButton(withTitle: "Try Again")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() == .alertFirstButtonReturn {
-                    self.attemptLogin()
+                    self.attemptLogin(target: target)
                 }
                 return
             }

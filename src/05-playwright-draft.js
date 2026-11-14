@@ -295,13 +295,6 @@ function browserNeeded(withEdpuzzle, fullCheck = withEdpuzzle) {
          CANVAS_NEEDS_BROWSER;
 }
 
-/** Is there anything to sign into through the browser? Broader than
- *  browserNeeded(): a fallback session has to be signed in too, even while
- *  a working token means it isn't used. */
-function signInNeeded() {
-  return (CLASSROOM_ENABLED && CLASSROOM.signInNeeded(CLASSROOM_BRIDGE)) || EDPUZZLE_ENABLED || (CANVAS_ENABLED && CANVAS.signInNeeded(CANVAS_BRIDGE));
-}
-
 // Same module-level reasoning as CANVAS_ENABLED above: needed both when
 // deciding withEdpuzzle (don't open the tab, don't open the visible
 // window it requires) and when comparing against memory (treat it as
@@ -392,11 +385,18 @@ const PASS_LIMIT = SETTINGS.passLimitMs;
 
 // ── Login mode ───────────────────────────────────────────────
 
-async function login() {
-  // Nothing signs in through the browser when Classroom and Edpuzzle are
-  // both off and Canvas is on a token only (or off): nothing to do here.
-  if (!signInNeeded()) {
-    console.log('Nothing to sign into: Google Classroom and Edpuzzle are off, and Canvas is read with an access token.');
+/**
+ * The sign-in window: `which` is a row of Settings → Sign-ins (64-sign-ins.js),
+ * "google" or a service with its own sign-in ("edpuzzle"), and only its
+ * pages open. Without one (an app from before Settings → Sign-ins, or
+ * `npm run login`), every sign-in in use opens, a tab each.
+ */
+async function login(which = '') {
+  const pages = require('./64-sign-ins.js').pagesFor(which, SETTINGS);
+  if (!pages.length) {
+    console.log(which
+      ? `Nothing to sign into for "${which}": no service that's on uses it.`
+      : 'Nothing to sign into: no service that\'s on signs in through the browser (Canvas on an access token doesn\'t).');
     return;
   }
   const ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
@@ -407,72 +407,25 @@ async function login() {
   });
   // Noted beside failed check launches (63-browser-health.js): whether the
   // sign-in window opens while checks can't start is half of telling why.
-  require('./63-browser-health.js').note('the sign-in window opened');
-  if (CLASSROOM_ENABLED) {
-    const classroomPage = await ctx.newPage();
-    await classroomPage.goto(CLASSROOM.SITE);
+  require('./63-browser-health.js').note(`the sign-in window opened${which ? ` (${which})` : ''}`);
+  // Each in its own tab, in the same profile, so each sign-in is kept
+  // (Playwright's persistent context keeps cookies for the whole profile).
+  // Opening the service itself rather than a bare sign-in page: it sends
+  // you to sign in, and lands signed in once you have, which is the proof.
+  for (const url of pages) {
+    try {
+      const page = await ctx.newPage();
+      await page.goto(url);
+    } catch (e) {
+      console.warn(`couldn't open ${url}: ${e.message}`);
+    }
   }
+  console.log(`\n${pages.length === 1 ? 'A tab' : `${pages.length} tabs`} opened: sign in` +
+    (pages.length === 1 ? '' : ' in each') + '. Once you\'re signed in, close the window, or click Done in ClassDash.\n');
 
-  // A second tab for Edpuzzle, opened in the same persistent profile.
-  // Edpuzzle doesn't share Google's session — confirmed live: it answers
-  // 401 on its own API until someone signs into it directly, even though
-  // the Google account in this same profile is already authenticated.
-  // There used to be no way to ever sign into it at all.
-  const edpuzzlePage = await ctx.newPage();
-  await edpuzzlePage.goto(EDPUZZLE ? EDPUZZLE.SITE : 'https://edpuzzle.com/');
-
-  // A third tab for Canvas — only when a real school address is
-  // actually configured. Unlike Classroom (always required to run at
-  // all) and Edpuzzle (always opened here regardless of its own
-  // enabled toggle, since it's a separate login from Google's), an
-  // unconfigured Canvas has no real URL to open at all — SITE would
-  // just be whatever normalizeCanvasSite() does with an empty string.
-  //
-  // Before this, a Canvas-only school with no Google Classroom had no
-  // discoverable way to ever sign into Canvas — it shares this same
-  // persistent profile/cookie jar (confirmed live: Playwright's
-  // launchPersistentContext() keeps state for the whole context, not
-  // per tab or per origin), so the only way in was a person figuring
-  // out on their own to navigate to Canvas manually inside this same
-  // window. This makes that the default, not a workaround someone has
-  // to be told about.
-  //
-  // Not when the browser way is switched off: the access token has no
-  // session to sign into. (With the token AND the browser way on, the
-  // session is the fallback, and it has to be signed in to be one.)
-  const CANVAS_TAB = CANVAS_ENABLED && CANVAS.signInNeeded(CANVAS_BRIDGE);
-  if (CANVAS_TAB) {
-    const canvasPage = await ctx.newPage();
-    await canvasPage.goto(CANVAS.addresses(CANVAS_BRIDGE)[0]);
-  }
-
-  console.log(`\n${CANVAS_TAB ? 'Three' : 'Two'} tabs opened: sign into your school Google account,`);
-  console.log(CANVAS_TAB
-    ? 'your school Canvas, and Edpuzzle (skip the Edpuzzle tab if you'
-    : 'and into Edpuzzle in the other (skip the Edpuzzle tab if you');
-  console.log('don\'t use it — nothing reads it unless you run --full).');
-  console.log('Once you\'re signed in — close the window, or click Done in ClassDash.\n');
-
-  // Lets the wrapper app (16-summary.swift/electron/main.js) actually
-  // finish this flow instead of only ever being able to watch it run.
-  //
-  // FOUND LIVE, TWICE IN ONE EVENING: both wrappers' "Done" button used
-  // to just dismiss its own dialog and kick off a background check,
-  // never touching this process or the browser it opened at all — so
-  // someone who'd already finished signing in had no way to actually
-  // END the flow short of hunting down and manually closing a browser
-  // window they might not even remember seeing. This file is the one
-  // place that can close it correctly (ctx.close(), the same thing a
-  // manual window-close triggers), so it's the one place this belongs.
-  //
-  // A plain file flag, not a process signal: SIGTERM/SIGKILL sent to
-  // THIS process from the wrapper would, on Windows, just force-kill it
-  // outright — Windows has no real POSIX signal delivery, so a handler
-  // registered here would never actually run, and the real browser
-  // window would be orphaned instead of closed. Polling a file works
-  // identically on both platforms and needs nothing OS-specific, the
-  // same reasoning already behind every other cross-process signal in
-  // this project (не-срочно.txt, скрытые.txt, check-status.json, …).
+  // "Done" in ClassDash's own dialog asks this to finish by writing a
+  // file (a signal wouldn't reach it on Windows): the window closes, and
+  // the profile is saved with it.
   const finishFlag = path.join(PROJECT_ROOT, 'login-finish-request.txt');
   try { fs.unlinkSync(finishFlag); } catch { /* nothing stale to clear */ }
   const finishPoll = setInterval(() => {
@@ -580,7 +533,7 @@ async function launchForCollection(withEdpuzzle, options) {
     const step = health.failed(e.message, new Date(), { canRestart: require('./23-api-security.js').isServerRunning() });
     const reason = String(e.message).split('\n')[0];
     const message = `couldn't start a browser (${reason}) — ` + (health.restarted()
-      ? 'restarting ClassDash\'s server didn\'t help: sign in again in Settings → Services → Setup (Sign In…), or choose a browser there'
+      ? 'restarting ClassDash\'s server didn\'t help: sign in again in Settings → Sign-ins, or choose a browser in Settings → Services → Setup'
       : 'set one up in Settings → Services → Setup (Choose Browser…)') + (CANVAS_NEEDS_BROWSER
         ? ', or give Canvas an access token, which needs no browser' : '');
     console.error(message);
@@ -1663,7 +1616,9 @@ if (require.main !== module) return;
   }
 
   if (process.argv.includes('--login')) {
-    await login();
+    // Which sign-in (a row of Settings → Sign-ins), if one follows.
+    const which = process.argv[process.argv.indexOf('--login') + 1] || '';
+    await login(/^[a-z0-9_]+$/.test(which) ? which : '');
     return;
   }
 

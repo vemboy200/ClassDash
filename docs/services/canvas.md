@@ -7,7 +7,7 @@ ClassDash reads Canvas through Canvas's official API, in one of two ways: with a
 - Your school's Canvas address, like `https://yourschool.instructure.com`.
 - One of these:
   - **An access token** (Canvas → Account → Settings → **New Access Token**). Some schools don't let students make one.
-  - **Google sign-in**, if your school's Canvas opens with "Sign in with Google". This uses ClassDash's browser, signed in the same way as for [Google Classroom](google-classroom.md).
+  - **Google sign-in**, if your school's Canvas opens with "Sign in with Google". This uses ClassDash's browser, signed in the same way as for [Google Classroom](google-classroom.md): **Settings → Sign-ins → Google → Sign In…** opens Classroom and your Canvas together, each passing you through Google.
 
 ## Setting it up
 

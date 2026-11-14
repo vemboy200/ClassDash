@@ -20,7 +20,7 @@
  *     Only when a server is running for this project (canRestart): with none,
  *     there's nothing to restart, and restartApi would start one.
  *   - If launches still fail after that restart, the person is told, once,
- *     to sign in again (Settings → Services → Setup → Sign In…), which opens the same
+ *     to sign in again (Settings → Sign-ins), which opens the same
  *     browser with a window.
  *
  * One launch that works clears all of it.

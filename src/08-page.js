@@ -320,6 +320,27 @@ function qStatusLine(s = readSettings()) {
 }
 
 /** Each service card's status line: how it went, and when. Changes with every check. */
+/** Settings → Sign-ins' rows: one per sign-in done in ClassDash's browser. */
+function signInsBody(settings) {
+  const signIns = require('./64-sign-ins.js');
+  const rows = signIns.list(settings, currentLanguage());
+  const status = checkStatus();
+  if (!rows.length) return `
+      <p class="hint">${escapeHtml(t('signInsNone'))}</p>`;
+  return `
+      <p class="hint">${escapeHtml(t('signInsHint'))}</p>
+${rows.map(r => {
+    const out = signIns.signedOut(r, status);
+    return `      <div class="setting-row" data-sign-in="${escapeHtml(r.id)}">
+        <span class="field-name">${escapeHtml(r.name)}</span>
+        <span class="field-with-value" data-native-only>
+          <button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(r.id)}')">${escapeHtml(t('settingsSetupSignInButton'))}</button>
+        </span>
+        <span class="field-hint">${out ? `<b class="sign-in-out">${escapeHtml(t('signInOut'))}</b> · ` : ''}${escapeHtml(t('signInUsedBy', r.usedBy.join(', ')))}</span>
+      </div>`;
+  }).join('\n')}`;
+}
+
 function serviceStatusLines() {
   const status = checkStatus();
   const ics = (c => (c.ics && c.ics.url ? c.ics : null))(schoolCalendar.readCalendar());
@@ -1489,14 +1510,12 @@ ${offButton('q')}` },
           </span>
           <span class="field-hint">${escapeHtml(t('settingsSetupBrowserNow'))}: <b id="browser-current">${escapeHtml(browserLabelFor(s.browserPath))}</b>. ${escapeHtml(t('settingsSetupBrowserHint'))}</span>
         </div>
-        <div class="setting-row">
-          <span class="field-name">${escapeHtml(t('settingsSetupSignIn'))}</span>
-          <span class="field-with-value">
-            <button type="button" class="mini-btn" onclick="setupSignIn(this)">${escapeHtml(t('settingsSetupSignInButton'))}</button>
-          </span>
-          <span class="field-hint">${escapeHtml(t('settingsSetupSignInHint'))}</span>
-        </div>
       </div>` },
+    // Settings → Sign-ins: each sign-in done in ClassDash's browser
+    // (64-sign-ins.js), with what uses it and a Sign in button that opens
+    // only its pages. The button drives a native window, so it's only there
+    // inside the app.
+    { id: 'sign-ins', label: t('settingsSectionSignIns'), desc: t('settingsDescSignIns'), body: signInsBody(s) },
     { id: 'display', label: t('settingsSectionDisplay'), desc: t('settingsDescDisplay'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
@@ -1659,10 +1678,10 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
       </div>` },
   ];
 
-  const ORDER = ['services', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'sync', 'api', 'advanced'];
+  const ORDER = ['services', 'sign-ins', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'sync', 'api', 'advanced'];
   sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
-  const ROW_ICONS = { services: 'icon-cloud-filled', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', sync: 'icon-server', api: 'icon-api', advanced: 'icon-settings' };
+  const ROW_ICONS = { services: 'icon-cloud-filled', 'sign-ins': 'icon-browser', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', sync: 'icon-server', api: 'icon-api', advanced: 'icon-settings' };
   const menuRows = sections.filter(sec => !sec.parent).map(sec =>
     `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
     `<span class="settings-row-icon${ROW_ICONS[sec.id] ? ' pixel-icon ' + ROW_ICONS[sec.id] : ''}" aria-hidden="true"></span>` +
@@ -5315,7 +5334,9 @@ function dismissUpdateBanner(btn) {
 function triggerSignIn(link) {
   var original = link.textContent;
   link.textContent = WORDS.signInOpening;
-  dispatchAction('signIn', '', function (res) {
+  // The banner is only shown for the Google sign-in (Classroom or Canvas
+  // landing on a sign-in page), so only Google's window opens.
+  dispatchAction('signIn', 'google', function (res) {
     if (res && res.ok) return;
     link.textContent = (res && res.why) || WORDS.signInFailed;
     setTimeout(function () { link.textContent = original; }, 4000);
@@ -7132,14 +7153,15 @@ function renderSchedule() {
 // The month above was drawn before scheduleData was read: once more, with it.
 renderSchedule();
 
-// Opens the sign-in browser window. The sources ticked in the panel may not
-// be saved yet, and sign-in reads them from disk (whether there's a Canvas
-// tab to open, say), so anything pending is saved first.
-function setupSignIn(button) {
+// Opens the sign-in browser window for one sign-in (a row of Settings →
+// Sign-ins; empty opens all of them). The services switched on in the panel
+// may not be saved yet, and sign-in reads them from disk (whether Canvas uses
+// Google, say), so anything pending is saved first.
+function setupSignIn(button, which) {
   var original = button.textContent;
   var go = function () {
     button.textContent = WORDS.signInOpening;
-    dispatchAction('setupSignIn', '', function () { button.textContent = original; });
+    dispatchAction('setupSignIn', which || '', function () { button.textContent = original; });
   };
   if (settingsDirty()) saveSettings(go);
   else go();

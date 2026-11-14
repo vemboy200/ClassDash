@@ -209,9 +209,11 @@ function quickCheck() {
  *  shown when 25-check-status.js records Classroom's "cookies expired"
  *  or Canvas's "stuck on sign-in") as well as from the native menu —
  *  the same underlying flow either way, just two different triggers. */
-function signIn() {
+function signIn(which = '') {
+  // Which sign-in to open (a row of Settings → Sign-ins), or all of them.
+  const target = /^[a-z0-9_]+$/.test(which) ? [which] : [];
   const child = spawn(process.execPath,
-    [path.join(__dirname, '05-playwright-draft.js'), '--login'],
+    [path.join(__dirname, '05-playwright-draft.js'), '--login', ...target],
     { detached: true, stdio: 'ignore', cwd: __dirname });
   child.unref();
 }
@@ -1003,7 +1005,7 @@ function act(action, arg) {
       quickCheck();
       return { ok: true, action };
     case 'signIn':
-      signIn();
+      signIn(String(arg || ''));
       return { ok: true, action };
     // The app telling the project which version is really running, at launch
     // (see recordRunningVersion in 26-update-check.js): redraws only if that

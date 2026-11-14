@@ -4,7 +4,7 @@ ClassDash reads your Edpuzzle assignments through Edpuzzle's own site, from a re
 
 ## Before you start
 
-- Your Edpuzzle account, signed in in ClassDash's browser: **Settings → Services → Setup → Sign In…** opens an Edpuzzle tab of its own. Edpuzzle keeps its own sign-in, so signing in to your school Google account doesn't sign you in to Edpuzzle, even if you use Edpuzzle's "Log in with Google" button there.
+- Your Edpuzzle account, signed in in ClassDash's browser: **Settings → Sign-ins → Edpuzzle → Sign In…** opens a browser window with only Edpuzzle in it. Edpuzzle keeps its own sign-in, so signing in to your school Google account doesn't sign you in to Edpuzzle, even if you use Edpuzzle's "Log in with Google" button there.
 
 ## Setting it up
 
@@ -35,7 +35,7 @@ ClassDash asks Edpuzzle's own site endpoints from a real browser window. They ar
 ## Troubleshooting
 
 - **Edpuzzle didn't update:** it's only read on full checks. Click **Fresh check** at the bottom of the sidebar.
-- **The status cloud shows Edpuzzle failed:** click the cloud to see what went wrong. If you were signed out, sign in again with **Settings → Services → Setup → Sign In…**, in its Edpuzzle tab.
+- **The status cloud shows Edpuzzle failed:** click the cloud to see what went wrong. If you were signed out, sign in again with **Settings → Sign-ins → Edpuzzle → Sign In…**.
 
 ## Turning it off
 
