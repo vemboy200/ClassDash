@@ -5,7 +5,7 @@ const fs = require('fs'), path = require('path');
 const ok = (c, m) => { console.log(c ? 'PASS' : 'FAIL', m); if (!c) process.exitCode = 1; };
 
 const proj = T.makeProject({ 'settings.json': { language: 'en', email: 'a@example.test', gradesProvider: 'none' } });
-const manifest = domain => ({ domain, name: domain, categories: ['grades'], introduced: '3.0.0', communication_class: 'cloud_polling', browser_class: 'none', codeowners: [], documentation: 'x.md', runs: 'background' });
+const manifest = domain => ({ domain, name: domain, categories: ['grades'], introduced: '3.0.0', communication_class: 'cloud_polling', browser_class: 'none', sign_in: ['fields'], codeowners: [], documentation: 'x.md', runs: 'background' });
 T.writeFiles(path.join(proj, 'services'), {
   'goodone/manifest.json': manifest('goodone'),
   'goodone/index.js': `module.exports = {

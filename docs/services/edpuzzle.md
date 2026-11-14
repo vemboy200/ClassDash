@@ -59,3 +59,4 @@ For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTR
 | **Communication class** | [Cloud Polling](../services.md#communication-classes) |
 | **Code owners** | None yet |
 | **Browser class** | [Visible browser](../services.md#browser-classes) |
+| **Sign-in** | [Own browser sign-in](../services.md#sign-in-classes) |

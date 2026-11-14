@@ -21,6 +21,8 @@
  *   communication_class  cloud_polling, cloud_push or cloud_mixed (HA's
  *                        iot_class, for school services)
  *   browser_class        background, visible, optional or none
+ *   sign_in              how it's signed into: one or more of fields,
+ *                        browser and google (SIGN_INS below)
  *   codeowners           GitHub names, [] for none yet
  *   documentation        its page, relative to the repository
  *   runs                 optional: "background" to be read in a process of
@@ -49,6 +51,12 @@ const CUSTOM_DIR = path.join(require('./00-project-root.js').PROJECT_ROOT, 'cust
 const CATEGORIES = ['assignments', 'instructions', 'announcements', 'grades', 'progress_reports', 'calendar'];
 const COMMUNICATION_CLASSES = ['cloud_polling', 'cloud_push', 'cloud_mixed'];
 const BROWSER_CLASSES = ['background', 'visible', 'optional', 'none'];
+// How a service is signed into, one or more of (docs/services.md, "Sign-in
+// classes"):
+//   fields   typed into its own setup: a token, a password, a link
+//   browser  its own sign-in in ClassDash's browser, used by it alone (Edpuzzle)
+//   google   the shared Google sign-in, done once and used by several services
+const SIGN_INS = ['fields', 'browser', 'google'];
 // Optional: "background" for a slow service read in a process of its own after
 // a check (62-service-run.js); left out, or "check", it's read during the check.
 const RUNS = ['check', 'background'];
@@ -75,6 +83,7 @@ function problems(m, folder, { custom = false } = {}) {
   if (typeof m.introduced !== 'string' || !/^\d+\.\d+\.\d+$/.test(m.introduced)) out.push('introduced should be a version like 1.0.0');
   if (!COMMUNICATION_CLASSES.includes(m.communication_class)) out.push(`communication_class should be one of ${COMMUNICATION_CLASSES.join(', ')}`);
   if (!BROWSER_CLASSES.includes(m.browser_class)) out.push(`browser_class should be one of ${BROWSER_CLASSES.join(', ')}`);
+  if (!isStrings(m.sign_in) || !m.sign_in.length || m.sign_in.some(x => !SIGN_INS.includes(x))) out.push(`sign_in should be one or more of ${SIGN_INS.join(', ')}`);
   if (!isStrings(m.codeowners) || m.codeowners.some(o => !o.startsWith('@'))) out.push('codeowners should be a list of @names');
   if (typeof m.documentation !== 'string' || !m.documentation) out.push('documentation should be the path to its page');
   if (m.runs !== undefined && !RUNS.includes(m.runs)) out.push(`runs should be one of ${RUNS.join(', ')}`);
@@ -203,4 +212,4 @@ function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, load, result, savedFor, nameOf, problems, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES };
+module.exports = { list, load, result, savedFor, nameOf, problems, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES, SIGN_INS };

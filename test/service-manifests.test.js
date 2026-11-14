@@ -23,6 +23,7 @@ function details(file) {
     communication_class: (rows['Communication class'] || '').toLowerCase().replace(/ /g, '_'),
     codeowners: rows['Code owners'] === 'None yet' ? [] : (rows['Code owners'] || '').split(',').map(o => o.trim()),
     browser_class: { 'Background browser': 'background', 'Visible browser': 'visible', 'Optional browser': 'optional', 'No browser': 'none' }[rows['Browser class']],
+    sign_in: (rows['Sign-in'] || '').split(',').map(w => ({ 'Own fields': 'fields', 'Own browser sign-in': 'browser', 'Google sign-in': 'google' })[w.trim()]),
   };
 }
 for (const m of all) {
@@ -37,11 +38,12 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
 // A broken service is skipped, and doesn't take the others with it.
 {
   const dir = T.tmpDir('services-');
-  const good = { domain: 'good', name: 'Good', categories: ['grades'], introduced: '3.0.0', communication_class: 'cloud_polling', browser_class: 'none', codeowners: [], documentation: 'x.md' };
+  const good = { domain: 'good', name: 'Good', categories: ['grades'], introduced: '3.0.0', communication_class: 'cloud_polling', browser_class: 'none', sign_in: ['fields'], codeowners: [], documentation: 'x.md' };
   T.writeFiles(dir, {
     'good/manifest.json': good,
     'renamed/manifest.json': { ...good, domain: 'not-its-folder' },
     'bad-class/manifest.json': { ...good, domain: 'bad-class', browser_class: 'sometimes' },
+    'bad_sign_in/manifest.json': { ...good, domain: 'bad_sign_in', sign_in: ['facebook'] },
     'not-json/manifest.json': '{ nope',
     'no-manifest/index.js': '',
   });
@@ -49,7 +51,7 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   const found = bridge.list(dir);
   console.warn = warn;
   ok(found.map(m => m.domain).join() === 'good', 'only the valid one is listed: ' + found.map(m => m.domain));
-  ok(warned.length === 4 && warned.some(w => /bad-class.*browser_class/.test(w)) && warned.some(w => /renamed.*domain/.test(w)), 'each skipped one says why: ' + warned.join(' | '));
+  ok(warned.length === 5 && warned.some(w => /bad_sign_in.*sign_in/.test(w)) && warned.some(w => /bad-class.*browser_class/.test(w)) && warned.some(w => /renamed.*domain/.test(w)), 'each skipped one says why: ' + warned.join(' | '));
   ok(bridge.list(path.join(dir, 'missing')).length === 0, 'no services folder at all is an empty list, not a crash');
 }
 

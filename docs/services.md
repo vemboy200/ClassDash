@@ -19,6 +19,7 @@ Each service's page ends with a **Details** table, like a Home Assistant integra
 - **Communication class**: how ClassDash talks to it (see below).
 - **Code owners**: who looks after that service's code, on GitHub. Questions and bug reports about a service go to them. A service with none has no one assigned yet.
 - **Browser class**: whether it needs ClassDash's browser (see below).
+- **Sign-in**: how you sign in to it (see below).
 
 For contributors: the same details are in each service's `manifest.json` (`src/services/<service>/`), which is where ClassDash itself reads them from. A test fails if a manifest and its page disagree. Next to it, the service's `index.js` is the only file of it ClassDash calls: whether it's on, whether it needs the browser, where it is, and `read()`. [CONTRIBUTING.md](../CONTRIBUTING.md) has what each of those gets and returns.
 
@@ -40,6 +41,17 @@ Some services can only be read through ClassDash's own browser, signed in as you
 - **Visible browser**: a *headed* browser, with a window you can see, because the service refuses headless ones. It only opens during full checks, and while it's open, the background-browser services that share it (Google Classroom, and Canvas's Google sign-in) are read in that same window.
 - **Optional browser**: it depends on how you set it up. Canvas needs one for Google sign-in, but not with an access token.
 - **No browser**: read directly, over the internet, with no browser at all.
+
+### Sign-in classes
+
+How a service is signed into comes down to two questions: is the sign-in that service's alone, or shared by several, and is it typed into ClassDash or done in ClassDash's browser?
+
+| | **Typed into ClassDash** | **Done in ClassDash's browser** |
+|---|---|---|
+| **That service's own** | **Own fields**: a token, a password or a link, typed into the service's own settings. Canvas's access token, Aequitas Q, the calendar feed. | **Own browser sign-in**: the service's own sign-in page, in a window of ClassDash's browser, used by that service alone. Edpuzzle. |
+| **Shared** | None yet. | **Google sign-in**: signing in to Google once in ClassDash's browser, which Google Classroom and Canvas's Google sign-in both use. |
+
+A service can have more than one: Canvas is read with its access token (own fields) or through Google sign-in, whichever you set up.
 
 ## Adding and turning off services
 

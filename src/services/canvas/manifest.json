@@ -9,6 +9,10 @@
   "introduced": "1.0.0",
   "communication_class": "cloud_polling",
   "browser_class": "optional",
+  "sign_in": [
+    "fields",
+    "google"
+  ],
   "codeowners": [
     "@vemboy200"
   ],

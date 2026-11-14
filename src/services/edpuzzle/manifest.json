@@ -7,6 +7,9 @@
   "introduced": "1.0.0",
   "communication_class": "cloud_polling",
   "browser_class": "visible",
+  "sign_in": [
+    "browser"
+  ],
   "codeowners": [],
   "documentation": "docs/services/edpuzzle.md"
 }

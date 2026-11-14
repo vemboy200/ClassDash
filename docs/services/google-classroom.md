@@ -76,3 +76,4 @@ For contributors; how ClassDash works inside is in [CONTRIBUTING.md](../../CONTR
 | **Communication class** | [Cloud Polling](../services.md#communication-classes) |
 | **Code owners** | [@vemboy200](https://github.com/vemboy200) |
 | **Browser class** | [Background browser](../services.md#browser-classes) |
+| **Sign-in** | [Google sign-in](../services.md#sign-in-classes) |

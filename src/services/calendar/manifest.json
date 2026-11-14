@@ -10,6 +10,9 @@
   "introduced": "2.3.0",
   "communication_class": "cloud_polling",
   "browser_class": "none",
+  "sign_in": [
+    "fields"
+  ],
   "codeowners": [
     "@vemboy200"
   ],

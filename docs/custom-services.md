@@ -27,6 +27,7 @@ The same fields as a built-in service's, which are the **Details** table on its 
   "introduced": "3.0.0",
   "communication_class": "cloud_polling",
   "browser_class": "none",
+  "sign_in": ["fields"],
   "codeowners": [],
   "documentation": "https://example.com/homework-club-for-classdash"
 }
@@ -35,6 +36,7 @@ The same fields as a built-in service's, which are the **Details** table on its 
 - `name` can also be translated: `{ "en": "Homework Club", "ru": "Кружок" }`.
 - `introduced` is the ClassDash version you wrote it for.
 - `browser_class`: `none` if it doesn't need ClassDash's browser, `background` if it reads pages in it (no window), `visible` if it needs a window (then it's only read in a full check, like Edpuzzle), `optional` if it decides each time (its `browserNeeded()` says).
+- `sign_in`: how it's signed into, one or more of `fields` (typed into ClassDash), `browser` (its own sign-in in ClassDash's browser) and `google` (the shared Google sign-in). See [Sign-in classes](services.md#sign-in-classes).
 - `documentation`: when it's an `https://` address, the service's page in Settings links to it.
 - `"runs": "background"` reads it in a process of its own after each check instead of during it, for something slow.
 

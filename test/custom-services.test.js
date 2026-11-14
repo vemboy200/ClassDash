@@ -7,7 +7,7 @@ const bridge = require(path.join(T.REPO, 'src', '61-services.js'));
 
 const manifest = (domain, extra = {}) => ({
   domain, name: domain.replace(/_/g, ' '), categories: ['assignments'], introduced: '3.0.0',
-  communication_class: 'cloud_polling', browser_class: 'none', codeowners: [], documentation: 'README.md', version: '1.0.0', ...extra,
+  communication_class: 'cloud_polling', browser_class: 'none', sign_in: ['fields'], codeowners: [], documentation: 'README.md', version: '1.0.0', ...extra,
 });
 
 // The bridge: which custom services are loaded, and which are skipped.

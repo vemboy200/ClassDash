@@ -8,6 +8,9 @@
   "introduced": "2.5.0",
   "communication_class": "cloud_polling",
   "browser_class": "background",
+  "sign_in": [
+    "fields"
+  ],
   "codeowners": [
     "@vemboy200"
   ],

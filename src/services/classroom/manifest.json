@@ -10,6 +10,9 @@
   "introduced": "1.0.0",
   "communication_class": "cloud_polling",
   "browser_class": "background",
+  "sign_in": [
+    "google"
+  ],
   "codeowners": [
     "@vemboy200"
   ],
