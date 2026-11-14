@@ -58,7 +58,7 @@ const requireFresh = (file) => {
     /path\.join\(__dirname, 'settings\.example\.json'\)/,
     /path\.join\(__dirname, 'icons', 'app-icon\.png'\)/,
     /path\.join\(__dirname, 'pdf-lib\.min\.js'\)/,
-    /path\.join\(__dirname, '(05-playwright-draft|17-api|38-announcement-scan|services\/q\/40-grades|40-grades|\.\.\/\.\.\/05-playwright-draft)\.js'\)/,
+    /path\.join\(__dirname, '(05-playwright-draft|17-api|21-notifier-actions|38-announcement-scan|services\/q\/40-grades|40-grades|\.\.\/\.\.\/05-playwright-draft)\.js'\)/,
     /path\.join\(__dirname, '55-dash-render\.js'\)/,
     /cwd: __dirname/,
     /^const SERVICES_DIR = path\.join\(__dirname, 'services'\);$/,

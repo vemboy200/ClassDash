@@ -89,6 +89,8 @@ const read = f => { try { return JSON.parse(fs.readFileSync(path.join(E2E, f), '
     const mem3 = read('last-collection.json') || [];
     ok(mem3.some(x => x.id === 'canvas-7') && mem3.some(x => x.id === 'cr-9a'), 'memory has Canvas fresh and Classroom kept, not wiped: ' + mem3.map(x => x.id));
     ok(fs.readFileSync(path.join(E2E, 'summary.html'), 'utf8').includes('Kept classroom work'), 'and the page still shows the Classroom work');
+    const launchLog = fs.readFileSync(path.join(E2E, 'browser-launch-log.txt'), 'utf8');
+    ok(/launch failed \(1 in a row\)/.test(launchLog) && launchLog.split('\n').length > 3, 'the whole launch error is kept in browser-launch-log.txt');
   }
 
   // 4. Canvas on the browser way (no token) also needs one

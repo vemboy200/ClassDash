@@ -433,6 +433,9 @@ async function login() {
     headless: false,          // the window has to be visible — a human signs in
     viewport: { width: 1280, height: 900 },
   });
+  // Noted beside failed check launches (63-browser-health.js): whether the
+  // sign-in window opens while checks can't start is half of telling why.
+  require('./63-browser-health.js').note('the sign-in window opened');
   if (CLASSROOM_ENABLED) {
     const classroomPage = await ctx.newPage();
     await classroomPage.goto('https://classroom.google.com/');
@@ -1195,14 +1198,34 @@ function killLeftoverBrowser() {
 }
 
 async function launchForCollection(withEdpuzzle, options) {
+  // Failures in a row are counted, with the whole error kept, and lead to a
+  // server restart and then a request to sign in (63-browser-health.js).
+  const health = require('./63-browser-health.js');
   try {
-    return await chromium.launchPersistentContext(PROFILE_DIR, options);
+    const ctx = await chromium.launchPersistentContext(PROFILE_DIR, options);
+    health.worked();
+    return ctx;
   } catch (e) {
+    // A restart only when a server is running for this project: the checks
+    // are its children. With none (a check run by hand), restartApi would
+    // start one.
+    const step = health.failed(e.message, new Date(), { canRestart: require('./23-api-security.js').isServerRunning() });
     const reason = String(e.message).split('\n')[0];
-    const message = `couldn't start a browser (${reason}) — set one up in Settings → ` +
-      'Account → Setup (Choose Browser…)' + (CANVAS_NEEDS_BROWSER
+    const message = `couldn't start a browser (${reason}) — ` + (health.restarted()
+      ? 'restarting ClassDash\'s server didn\'t help: sign in again in Settings → Services → Setup (Sign In…), or choose a browser there'
+      : 'set one up in Settings → Services → Setup (Choose Browser…)') + (CANVAS_NEEDS_BROWSER
         ? ', or give Canvas an access token, which needs no browser' : '');
     console.error(message);
+    if (step === 'restart') {
+      // The way the menu bar's Restart Server does it. This check runs on
+      // its own (detached), so the restart doesn't end it.
+      try {
+        require('child_process').spawn(process.execPath, [path.join(__dirname, '21-notifier-actions.js'), 'restartApi'],
+          { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        console.error('the browser failed to start several times in a row: restarting the home API server');
+      } catch (err) { console.warn('server restart not started:', err.message); }
+    }
+    if (step === 'signIn') notify(t('schoolLabel'), t('browserStuck'), t('browserStuckHint'));
     if (CLASSROOM_ENABLED) recordCheckStatus('classroom', false, message);
     if (withEdpuzzle) recordCheckStatus('edpuzzle', false, message);
     if (CANVAS_NEEDS_BROWSER) recordCheckStatus('canvas', false, message);
