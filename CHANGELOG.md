@@ -4,6 +4,9 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Beta versions:** a switch in Settings → Advanced. Turned on, ClassDash offers test versions before they're released, marked as beta; a newer beta (beta.2 after beta.1) is now offered too.
+- **Repairs and updates in Settings:** like Home Assistant, Settings now starts with what needs you to fix it (a sign-in that ran out, Q turning down the password or wanting a new one, Canvas refusing the access token), each opening where to fix it, and then a newer ClassDash. Its page has the release notes, Install (the app downloads it and asks once more before installing), the release on GitHub, and Skip. The sidebar's Settings shows how many there are. A new version isn't a banner on the dashboard any more.
+- **Settings tried before they're saved:** Canvas's address and access token are tried when you save them, and a calendar link is read first. If they don't work, nothing of Canvas's (or the link) is saved, and Settings says why; the rest of the save still goes through.
 - **New icons:** the sidebar folds with an arrow (in to close, out to open) instead of ☰, Settings → Sign-ins has its own icon, and the Calendar service shows a calendar.
 - **A sign-in running out is one notification, not one every check**: "Google signed you out" (or Edpuzzle), once, however many services use it, and again only after it has worked in between. Until you sign in again, the services waiting for it show a yellow "Waiting for sign-in" instead of a red error, and the status cloud counts them as waiting, not failed. `/api/check-status` keeps the status `problem` for them and adds `waitingFor` (`"google"`, or the service).
 - **Services show their logos** on their cards in Settings → Services, on Found services and on Settings → Sign-ins. A custom service can bring its own (`brand/icon.png`).

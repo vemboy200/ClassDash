@@ -84,7 +84,22 @@ async function found(bridge) {
   }
 }
 
+/** Its own settings: a save that changes any of them tests them first
+ *  (testsFor in 61-services.js). */
+const fields = ['canvas', 'canvasToken', 'canvasApiEnabled', 'canvasSsoEnabled'];
+
+/**
+ * Test before saving: does Canvas answer at this address, and take the
+ * token when the token way is on with one filled in? The Google sign-in
+ * way has nothing typed to test beyond the address: signing in is its own
+ * step, in Settings → Sign-ins.
+ */
+async function test(bridge) {
+  const p = plan(bridge.settings);
+  return require('./10-canvas.js').testSettings(bridge.settings.canvas, p.api ? bridge.settings.canvasToken : '');
+}
+
 /** Only with its address saved: every school's Canvas is somewhere else. */
 const canFind = bridge => !!String(bridge.settings.canvas || '').trim();
 
-module.exports = { plan, enabled, browserNeeded, signInNeeded, addresses, read, found, canFind };
+module.exports = { plan, enabled, browserNeeded, signInNeeded, addresses, read, found, canFind, fields, test };

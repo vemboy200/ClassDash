@@ -116,6 +116,11 @@ function cleanDescription(html) {
 }
 
 const REQUEST_TIMEOUT_MS = 30000;
+// Settings waits on the test before saving, so it gets less.
+const TEST_TIMEOUT_MS = 15000;
+// The only addresses the token may go to over plain http: this computer, for
+// a Canvas run for development.
+const LOCAL_SITE = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|[^/:]+\.docker)(:|\/|$)/i;
 
 // An error a retry can't fix — a missing or refused token — so the wrapper
 // below doesn't wait three seconds just to hear the same thing again.
@@ -164,6 +169,47 @@ async function askWithToken(apiPath) {
   }
   if (!res.ok) throw new Error(`Canvas responded ${res.status} to ${apiPath}`);
   return JSON.parse((await res.text()).replace(/^while\(1\);?/, ''));
+}
+
+/**
+ * Test before saving (Home Assistant's test-before-configure): whether a
+ * Canvas address, and its access token when there is one, work, before
+ * Settings keeps them. One GET to /api/v1/users/self, whose answer isn't
+ * kept: with the token, 200 and the student; without one, Canvas's own 401
+ * {"status":"unauthenticated"} says the address is a Canvas (what a real
+ * school's Canvas answers, checked 2026-11-13). Like askWithToken, a reason
+ * never has the token in it.
+ * @returns {Promise<{ok: boolean, why?: string}>}
+ */
+async function testSettings(address, token) {
+  const site = normalizeCanvasSite(address);
+  let url;
+  try { url = new URL(site + '/api/v1/users/self'); } catch { return { ok: false, why: 'that isn\'t a web address' }; }
+  token = String(token || '').trim();
+  if (token && url.protocol !== 'https:' && !LOCAL_SITE.test(site)) {
+    return { ok: false, why: 'the Canvas address needs to be https:// — the access token is sent with every request' };
+  }
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      // Never after a redirect with the token on: it's for this address only.
+      redirect: token ? 'manual' : 'follow',
+      signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
+    });
+  } catch (e) {
+    const why = (e.cause && (e.cause.code || e.cause.message)) || e.name || 'network error';
+    return { ok: false, why: `couldn't reach Canvas at that address (${why})` };
+  }
+  let body = null;
+  try { body = JSON.parse((await res.text()).replace(/^while\(1\);?/, '')); } catch { /* not JSON: not Canvas */ }
+  if (token) {
+    if (res.status === 200 && body && body.id !== undefined) return { ok: true };
+    if (res.status === 401) return { ok: false, why: 'Canvas refused the access token (mistyped, expired or deleted?)' };
+  } else if (res.status === 401 && body && body.status === 'unauthenticated') {
+    return { ok: true };
+  }
+  return { ok: false, why: `that address doesn't answer the way Canvas does (it responded ${res.status}), so it may not be your school's Canvas` };
 }
 
 /**
@@ -268,7 +314,7 @@ async function collectCanvasOnce(page, way) {
     // The token would travel with every request, so only over https (a
     // Canvas running on this same computer, for development, is the one
     // exception).
-    const local = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|[^/:]+\.docker)(:|\/|$)/i.test(SITE);
+    const local = LOCAL_SITE.test(SITE);
     if (!/^https:\/\//i.test(SITE) && !local) {
       throw fatal('the Canvas address needs to be https:// — the access token is sent with every request');
     }
@@ -539,4 +585,4 @@ async function readCanvas(ask) {
   return { items, courses, pending };
 }
 
-module.exports = { collectCanvas, collectCanvasPlanned, lockOf, normalizeCanvasSite, SITE };
+module.exports = { collectCanvas, collectCanvasPlanned, testSettings, lockOf, normalizeCanvasSite, SITE };

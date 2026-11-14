@@ -659,9 +659,32 @@ async function captureWebPanes(arg) {
 //                   32-calendar-pdf.js read it. Answers with the read for the
 //                   page to check (nothing is saved here), or
 //                   {ok: false, cancelled: true}.
-const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn', 'signIn', 'pickCalendarPdf'];
+//   installUpdate   Install on the update's page in Settings: the same
+//                   download and "Install?" prompt as Check for Updates…,
+//                   without asking to download first. Answered at once.
+//   checkUpdates    Settings → Advanced's beta switch: check now, and redraw
+//                   the page once it's done. Answered at once.
+const NATIVE_SETUP_ACTIONS = ['setupBrowser', 'pickBrowserApp', 'setupSignIn', 'signIn', 'pickCalendarPdf', 'installUpdate', 'checkUpdates'];
 
 async function runNativeSetupAction(action, arg = '') {
+  if (action === 'checkUpdates') {
+    checkForUpdates(false, () => { runAction('updateChecked', '').catch(() => {}); });
+    return { ok: true, action };
+  }
+  if (action === 'installUpdate') {
+    const status = readUpdateStatusFile() || {};
+    if (!status.updateAvailable || !status.latestVersion) return { ok: false, action, why: 'no update to install' };
+    const latest = status.latestVersion;
+    setImmediate(() => {
+      if (status.readyToInstall && status.readyVersion === latest) {
+        declinedInstallVersion = null;
+        maybeShowInstallPrompt();
+      } else {
+        offerToDownload(latest, false);
+      }
+    });
+    return { ok: true, action };
+  }
   if (action === 'setupSignIn' || action === 'signIn') {
     // Which sign-in (a row of Settings → Sign-ins); empty opens every one.
     attemptLogin(String(arg || ''));
@@ -1926,6 +1949,12 @@ function setupAutoFreshCheck() {
 // per-platform, same as Swift — that step has no meaning outside an
 // actual running app instance.
 const UPDATE_API_URL = 'https://api.github.com/repos/vemboy200/ClassDash/releases/latest';
+// With beta versions on (Settings → Advanced, betaUpdates): every release,
+// pre-releases included, and the newest of them is offered.
+const UPDATE_LIST_URL = 'https://api.github.com/repos/vemboy200/ClassDash/releases?per_page=20';
+function betaUpdatesOn() {
+  try { return JSON.parse(fs.readFileSync(path.join(projectDir, 'settings.json'), 'utf8')).betaUpdates === true; } catch { return false; }
+}
 
 // The same comparison as 26-update-check.js's isNewer: the numbers first,
 // then a release is newer than a pre-release of it ("3.0.0" than
@@ -1933,14 +1962,38 @@ const UPDATE_API_URL = 'https://api.github.com/repos/vemboy200/ClassDash/release
 function isNewer(a, b) {
   const split = (s) => {
     const [core, ...pre] = String(s).replace(/^v/, '').split('+')[0].split('-');
-    return { parts: core.split('.').map((p) => parseInt(p, 10) || 0), pre: pre.length > 0 };
+    return { parts: core.split('.').map((p) => parseInt(p, 10) || 0), pre: pre.join('-') };
   };
   const [va, vb] = [split(a), split(b)];
   for (let i = 0; i < Math.max(va.parts.length, vb.parts.length); i++) {
     const x = va.parts[i] || 0, y = vb.parts[i] || 0;
     if (x !== y) return x > y;
   }
-  return !va.pre && vb.pre;
+  if (!va.pre || !vb.pre) return !va.pre && !!vb.pre;
+  return comparePre(va.pre, vb.pre) > 0;
+}
+
+// Two pre-releases of the same version (betas): ranked the way semver does
+// ("beta.2" after "beta.1", "rc.1" after "beta.9"), except that a local
+// build ("dev.62+abc", build.sh) is older than any published pre-release of
+// the same version, so a beta is still offered to someone running one.
+function comparePre(x, y) {
+  const dx = /^dev(\.|$)/.test(x), dy = /^dev(\.|$)/.test(y);
+  if (dx !== dy) return dx ? -1 : 1;
+  const ix = x.split('.'), iy = y.split('.');
+  for (let i = 0; i < Math.max(ix.length, iy.length); i++) {
+    if (ix[i] === undefined) return -1;
+    if (iy[i] === undefined) return 1;
+    const nx = /^\d+$/.test(ix[i]), ny = /^\d+$/.test(iy[i]);
+    if (nx && ny) {
+      if (Number(ix[i]) !== Number(iy[i])) return Number(ix[i]) > Number(iy[i]) ? 1 : -1;
+    } else if (nx !== ny) {
+      return nx ? -1 : 1;
+    } else if (ix[i] !== iy[i]) {
+      return ix[i] > iy[i] ? 1 : -1;
+    }
+  }
+  return 0;
 }
 
 function readUpdateStatusFile() {
@@ -1999,18 +2052,21 @@ function rateLimitedText(retryAt) {
     `ClassDash will check again later; a check after ${time} should work.`;
 }
 
-function checkForUpdates(manual) {
+// `done`: once the check has finished, whatever it found (Settings' beta
+// switch redraws the page then, checkUpdates).
+function checkForUpdates(manual, done) {
   const currentVersion = app.getVersion();
   const existing = readUpdateStatusFile() || {};
   const headers = { 'User-Agent': `ClassDash/${currentVersion}` };
   if (existing.etag && existing.latestVersion) headers['If-None-Match'] = existing.etag;
-  const req = https.get(UPDATE_API_URL, { headers, timeout: 15000 }, (res) => {
+  const beta = betaUpdatesOn();
+  const req = https.get(beta ? UPDATE_LIST_URL : UPDATE_API_URL, { headers, timeout: 15000 }, (res) => {
     let body = '';
     res.on('data', (chunk) => { body += chunk; });
     res.on('end', () => {
       if (res.statusCode === 304) {
         applyRelease(manual, currentVersion, {
-          latestVersion: existing.latestVersion, releaseURL: existing.url, downloadURL: existing.downloadURL, etag: existing.etag,
+          latestVersion: existing.latestVersion, releaseURL: existing.url, downloadURL: existing.downloadURL, etag: existing.etag, notes: existing.notes,
         });
         return;
       }
@@ -2023,6 +2079,11 @@ function checkForUpdates(manual) {
       let obj;
       try {
         obj = JSON.parse(body);
+        // The list: the newest release in it, betas included.
+        if (beta && Array.isArray(obj)) {
+          obj = obj.filter((r) => r && !r.draft && typeof r.tag_name === 'string')
+            .reduce((best, r) => (!best || isNewer(r.tag_name, best.tag_name) ? r : best), null) || {};
+        }
       } catch {
         writeUpdateStatusFields({ error: "unexpected response from GitHub", checkedAt: new Date().toISOString() });
         if (manual) dialog.showErrorBox("Couldn't check for updates", "Unexpected response from GitHub");
@@ -2040,19 +2101,24 @@ function checkForUpdates(manual) {
         releaseURL: obj.html_url || 'https://github.com/vemboy200/ClassDash/releases/latest',
         downloadURL: asset ? asset.browser_download_url : undefined,
         etag: res.headers.etag,
+        // What's new, for the update's page in Settings (Markdown).
+        notes: String(obj.body || '').slice(0, 20000),
       });
     });
   });
   req.on('error', (err) => {
     writeUpdateStatusFields({ error: err.message, checkedAt: new Date().toISOString() });
     if (manual) dialog.showErrorBox("Couldn't check for updates", err.message);
+    if (done) done();
   });
+  // Added after the answer's own handler, so this runs after it.
+  if (done) req.on('response', (res) => res.on('end', done));
   req.on('timeout', () => req.destroy(new Error('timed out')));
 }
 
 // What a check found (fresh, or unchanged since last time: a 304), written
 // down and, for a manual check, said.
-function applyRelease(manual, currentVersion, { latestVersion, releaseURL, downloadURL, etag }) {
+function applyRelease(manual, currentVersion, { latestVersion, releaseURL, downloadURL, etag, notes }) {
   const updateAvailable = isNewer(latestVersion, currentVersion);
   const existing = readUpdateStatusFile() || {};
   const fields = {
@@ -2062,6 +2128,7 @@ function applyRelease(manual, currentVersion, { latestVersion, releaseURL, downl
   };
   if (downloadURL) fields.downloadURL = downloadURL;
   if (etag) fields.etag = etag;
+  fields.notes = notes || '';
   if (existing.dismissedVersion) fields.dismissedVersion = existing.dismissedVersion;
   // Carry a still-matching in-progress/ready download forward — same
   // "only for the version it was recorded against" rule
@@ -2088,7 +2155,11 @@ function applyRelease(manual, currentVersion, { latestVersion, releaseURL, downl
   }
 }
 
-function offerToDownload(latestVersion) {
+// `ask`: false when the person already said so, with Install on the update's
+// page in Settings (installUpdate); the install is still confirmed by
+// maybeShowInstallPrompt().
+function offerToDownload(latestVersion, ask = true) {
+  if (!ask) { downloadWithProgress(latestVersion); return; }
   dialog.showMessageBox(win, {
     type: 'question',
     message: `ClassDash ${latestVersion} is available`,

@@ -143,18 +143,43 @@ function writeFields(fields) {
 /** The comparison both apps use for "is a newer than b": the numbers first
  *  ("1.10.0" is newer than "1.9.0"), and with the same numbers, a release is
  *  newer than a pre-release of it ("3.0.0" than "3.0.0-dev.57+e27cf92", a
- *  local build heading to it; see build.sh), so the release is offered. */
+ *  local build heading to it; see build.sh), so the release is offered.
+ *  Two pre-releases: comparePre below. */
 function isNewer(a, b) {
   const split = (s) => {
     const [core, ...pre] = String(s).replace(/^v/, '').split('+')[0].split('-');
-    return { parts: core.split('.').map((p) => parseInt(p, 10) || 0), pre: pre.length > 0 };
+    return { parts: core.split('.').map((p) => parseInt(p, 10) || 0), pre: pre.join('-') };
   };
   const [va, vb] = [split(a), split(b)];
   for (let i = 0; i < Math.max(va.parts.length, vb.parts.length); i++) {
     const x = va.parts[i] || 0, y = vb.parts[i] || 0;
     if (x !== y) return x > y;
   }
-  return !va.pre && vb.pre;
+  if (!va.pre || !vb.pre) return !va.pre && !!vb.pre;
+  return comparePre(va.pre, vb.pre) > 0;
+}
+
+// Two pre-releases of the same version (betas): ranked the way semver does
+// ("beta.2" after "beta.1", "rc.1" after "beta.9"), except that a local
+// build ("dev.62+abc", build.sh) is older than any published pre-release of
+// the same version, so a beta is still offered to someone running one.
+function comparePre(x, y) {
+  const dx = /^dev(\.|$)/.test(x), dy = /^dev(\.|$)/.test(y);
+  if (dx !== dy) return dx ? -1 : 1;
+  const ix = x.split('.'), iy = y.split('.');
+  for (let i = 0; i < Math.max(ix.length, iy.length); i++) {
+    if (ix[i] === undefined) return -1;
+    if (iy[i] === undefined) return 1;
+    const nx = /^\d+$/.test(ix[i]), ny = /^\d+$/.test(iy[i]);
+    if (nx && ny) {
+      if (Number(ix[i]) !== Number(iy[i])) return Number(ix[i]) > Number(iy[i]) ? 1 : -1;
+    } else if (nx !== ny) {
+      return nx ? -1 : 1;
+    } else if (ix[i] !== iy[i]) {
+      return ix[i] > iy[i] ? 1 : -1;
+    }
+  }
+  return 0;
 }
 
 /**
@@ -351,4 +376,19 @@ function downloadUpdate() {
   return { ok: true, started: true };
 }
 
-module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, recordRunningVersion, isNewer, FILE };
+/**
+ * Beta versions (settings.betaUpdates): which release to offer from
+ * GitHub's list of them (/releases, newest first, pre-releases included).
+ * The newest that isn't a draft, by isNewer; null for none. The apps do
+ * the same (16-summary.swift, electron/main.js); this one is for the tests.
+ */
+function newestRelease(releases) {
+  let best = null;
+  for (const r of Array.isArray(releases) ? releases : []) {
+    if (!r || r.draft || typeof r.tag_name !== 'string') continue;
+    if (!best || isNewer(r.tag_name, best.tag_name)) best = r;
+  }
+  return best;
+}
+
+module.exports = { readUpdateStatus, dismissUpdate, downloadUpdate, recordRunningVersion, isNewer, newestRelease, FILE };

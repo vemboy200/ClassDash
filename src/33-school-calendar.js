@@ -273,8 +273,14 @@ function saveIcsError(url, why, now = new Date()) {
 /**
  * Reads the feed again, through its service (services/calendar/), and saves
  * what came back: { ok, events } or { ok: false, why }.
+ *
+ * `isNew`: a link just typed into Settings → Calendar, which is tested
+ * before it's saved (Home Assistant's test-before-configure): one that
+ * doesn't read isn't kept, and the feed that was there before stays. A
+ * saved link failing is still remembered, with why, so its once-a-day
+ * read doesn't retry it every check.
  */
-async function refreshFeed(url = (readCalendar().ics || {}).url) {
+async function refreshFeed(url = (readCalendar().ics || {}).url, { isNew = false } = {}) {
   const services = require('./61-services.js');
   const feed = services.load('calendar');
   if (!feed) return { ok: false, why: 'the calendar feed service is missing' };
@@ -283,7 +289,7 @@ async function refreshFeed(url = (readCalendar().ics || {}).url) {
     saveIcs(url, events);
     return { ok: true, events: events.length };
   } catch (e) {
-    saveIcsError(url, e.message);
+    if (!isNew) saveIcsError(url, e.message);
     return { ok: false, why: e.message };
   }
 }

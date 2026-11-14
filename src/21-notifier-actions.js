@@ -338,8 +338,8 @@ function calendarPayload(store) {
 }
 
 /** Fetches the calendar feed and saves its events (or why it failed), then redraws. */
-function refreshIcs(url) {
-  return require('./33-school-calendar.js').refreshFeed(url).then(result => {
+function refreshIcs(url, options) {
+  return require('./33-school-calendar.js').refreshFeed(url, options).then(result => {
     if (!result.ok) logAction(`  calendar feed not read: ${result.why}`);
     redraw();
     return result;
@@ -631,6 +631,107 @@ function syncAct(action, arg) {
   }
 }
 
+/** The config action's save, after any tests (see case 'config'). */
+function applyConfig(action, arg, failed = []) {
+  const { applyBatch } = require('./19-settings.js');
+  const classLinks = require('./29-class-links.js');
+  const linksBefore = classLinks.readLinks();
+  const result = applyBatch(arg, { skip: failed.flatMap(f => f.keys) });
+  for (const f of failed) {
+    // The reason only: a test never puts a token in it.
+    logAction(`  ${f.name} settings not saved, they didn't work: ${f.why}`);
+    result.rejected = (result.rejected || []).concat(`${f.name}: ${f.why}`);
+  }
+  if (!result.ok) {
+    // Two different failures share this branch: the chunk didn't
+    // parse at all (result.why), or it parsed and every key in it
+    // was refused (result.rejected). Both get logged as they are.
+    console.error('settings not applied:', result.why || result.rejected);
+    logAction(`  NOT APPLIED: ${result.why || JSON.stringify(result.rejected)}`);
+    return { ok: false, action, why: result.why, rejected: result.rejected };
+  }
+  logAction(`  applied: ${result.accepted.join(', ')}` +
+    (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
+
+  // SAVING NEVER STARTS A COLLECTION ITSELF.
+  //
+  // Most of what's on the settings panel only changes how ALREADY-
+  // COLLECTED data gets displayed — treatUndatedAsUrgent is a
+  // bucket a redraw already re-sorts existing items into,
+  // showEmptyClasses is a rendering choice about the class list,
+  // language has worked this way since redraw() was first written.
+  // None of that needs Classroom or Canvas read again, so none of
+  // it needs a browser launched — which is also the ONLY reason
+  // saving settings needs the App Management permission at all.
+  //
+  // Two settings do change what gets FETCHED: exclusions (a class has
+  // to stop being read, and its old data purged — see the
+  // diffWithPrevious comment on EXCLUDED CLASSES for why that
+  // specifically needs a real pass) and canvas (a different data
+  // source entirely). They used to start a quick collection right
+  // here, which meant closing the settings panel could launch a
+  // browser and purge a class's data on an accidental click. Now they
+  // just wait: the page shows a "some settings need a fresh check"
+  // notice (see pendingFetchKeys in 19-settings.js) and the next
+  // collection — that button, a manual check, or an automatic one —
+  // picks them up, since it reads settings.json when it starts.
+
+  // apiLan changes where a whole separate background process listens,
+  // which 17-api.js decides once, at its own startup — orthogonal to
+  // needsFetch above (it doesn't touch Classroom/Canvas at all), so
+  // it's handled alongside that check, not instead of it. Stopping
+  // first, then starting fresh, rebinds it.
+  if (result.changed.includes('apiLan')) {
+    const { apiLan } = require('./19-settings.js').read();
+    stopApiServer();
+    startApiServer(apiLan);
+    logAction(`  API server restarted (${apiLan ? 'home network too' : 'this computer only'})`);
+  }
+
+  // AI just turned on: the announcements already here are the backlog,
+  // not new, so the automatic scan after each check leaves them alone
+  // (Settings → AI can scan any of them on purpose).
+  if (result.changed.includes('aiProvider')) {
+    const { aiProvider } = require('./19-settings.js').read();
+    if (aiProvider && aiProvider !== 'none') {
+      const n = require('./38-announcement-scan.js').seedKnown();
+      logAction(`  AI on: ${n} announcements already here won't be scanned automatically`);
+    }
+  }
+
+  // Fewer announcement photos (or none): cleared now, not at the next
+  // check. More are downloaded at the next check.
+  if (result.changed.includes('announcementPhotos')) {
+    const deleted = require('./services/classroom/39-announcement-photos.js').pruneSaved();
+    logAction(`  announcement photos: ${deleted} deleted`);
+  }
+
+  // Reminders saved under a link's name follow it when it's renamed or
+  // removed (see renamesAfter() in 29-class-links.js).
+  if (result.changed.includes('classLinks')) {
+    const renames = classLinks.renamesAfter(linksBefore, classLinks.readLinks());
+    const moved = require('./24-virtual-assignments.js').renameClasses(renames);
+    if (moved) logAction(`  reminders moved to renamed classes: ${moved}`);
+  }
+
+  // Ticking a filter or folding the sidebar saves on every click, and those
+  // are already showing on the page that did it.
+  const PAGE_MEMORY = ['filterUnchecked', 'filterShowHidden', 'filterShowRemoved', 'navCollapsed', 'dashHidden', 'showClientCount'];
+  if (result.changed.length && result.changed.every(key => PAGE_MEMORY.includes(key))) redrawCards();
+  else redraw();
+  const pending = require('./19-settings.js').pendingFetchKeys();
+  logAction(pending.length
+    ? `  redrawn; waiting for a fresh check to apply: ${pending.join(', ')}`
+    : '  redrawn');
+  // mode stays for pages generated before this changed, which read it
+  // to decide how long to wait before reloading; 'redraw' is the short
+  // wait, and it's now always the right one.
+  return {
+    ok: true, action, accepted: result.accepted, rejected: result.rejected,
+    pending, mode: 'redraw',
+  };
+}
+
 function act(action, arg) {
   if (action.startsWith('sync')) return syncAct(action, arg);
   // A settings save carries every setting, the Canvas access token and the
@@ -640,99 +741,17 @@ function act(action, arg) {
   // Nor a question to the Grades center's AI or the workspace's.
   logAction(action === 'config' || action === 'saveGradesPassword' || action === 'gradesAsk' || action === 'workspaceAsk' ? `${action} (payload not logged)` : `${action} ${arg}`);
   switch (action) {
+    // TEST BEFORE SAVING (Home Assistant's test-before-configure rule): a
+    // save that changes a service's own settings (Canvas's address or token)
+    // first asks the service whether they work (testsFor in 61-services.js).
+    // One that doesn't keeps that service's settings as they were, and says
+    // why the way a refused setting does, while the rest of the save goes
+    // through. Only a save with something to test answers later.
     case 'config': {
-      const { applyBatch } = require('./19-settings.js');
-      const classLinks = require('./29-class-links.js');
-      const linksBefore = classLinks.readLinks();
-      const result = applyBatch(arg);
-      if (!result.ok) {
-        // Two different failures share this branch: the chunk didn't
-        // parse at all (result.why), or it parsed and every key in it
-        // was refused (result.rejected). Both get logged as they are.
-        console.error('settings not applied:', result.why || result.rejected);
-        logAction(`  NOT APPLIED: ${result.why || JSON.stringify(result.rejected)}`);
-        return { ok: false, action, why: result.why, rejected: result.rejected };
-      }
-      logAction(`  applied: ${result.accepted.join(', ')}` +
-        (result.rejected.length ? ` | refused: ${result.rejected.join('; ')}` : ''));
-
-      // SAVING NEVER STARTS A COLLECTION ITSELF.
-      //
-      // Most of what's on the settings panel only changes how ALREADY-
-      // COLLECTED data gets displayed — treatUndatedAsUrgent is a
-      // bucket a redraw already re-sorts existing items into,
-      // showEmptyClasses is a rendering choice about the class list,
-      // language has worked this way since redraw() was first written.
-      // None of that needs Classroom or Canvas read again, so none of
-      // it needs a browser launched — which is also the ONLY reason
-      // saving settings needs the App Management permission at all.
-      //
-      // Two settings do change what gets FETCHED: exclusions (a class has
-      // to stop being read, and its old data purged — see the
-      // diffWithPrevious comment on EXCLUDED CLASSES for why that
-      // specifically needs a real pass) and canvas (a different data
-      // source entirely). They used to start a quick collection right
-      // here, which meant closing the settings panel could launch a
-      // browser and purge a class's data on an accidental click. Now they
-      // just wait: the page shows a "some settings need a fresh check"
-      // notice (see pendingFetchKeys in 19-settings.js) and the next
-      // collection — that button, a manual check, or an automatic one —
-      // picks them up, since it reads settings.json when it starts.
-
-      // apiLan changes where a whole separate background process listens,
-      // which 17-api.js decides once, at its own startup — orthogonal to
-      // needsFetch above (it doesn't touch Classroom/Canvas at all), so
-      // it's handled alongside that check, not instead of it. Stopping
-      // first, then starting fresh, rebinds it.
-      if (result.changed.includes('apiLan')) {
-        const { apiLan } = require('./19-settings.js').read();
-        stopApiServer();
-        startApiServer(apiLan);
-        logAction(`  API server restarted (${apiLan ? 'home network too' : 'this computer only'})`);
-      }
-
-      // AI just turned on: the announcements already here are the backlog,
-      // not new, so the automatic scan after each check leaves them alone
-      // (Settings → AI can scan any of them on purpose).
-      if (result.changed.includes('aiProvider')) {
-        const { aiProvider } = require('./19-settings.js').read();
-        if (aiProvider && aiProvider !== 'none') {
-          const n = require('./38-announcement-scan.js').seedKnown();
-          logAction(`  AI on: ${n} announcements already here won't be scanned automatically`);
-        }
-      }
-
-      // Fewer announcement photos (or none): cleared now, not at the next
-      // check. More are downloaded at the next check.
-      if (result.changed.includes('announcementPhotos')) {
-        const deleted = require('./services/classroom/39-announcement-photos.js').pruneSaved();
-        logAction(`  announcement photos: ${deleted} deleted`);
-      }
-
-      // Reminders saved under a link's name follow it when it's renamed or
-      // removed (see renamesAfter() in 29-class-links.js).
-      if (result.changed.includes('classLinks')) {
-        const renames = classLinks.renamesAfter(linksBefore, classLinks.readLinks());
-        const moved = require('./24-virtual-assignments.js').renameClasses(renames);
-        if (moved) logAction(`  reminders moved to renamed classes: ${moved}`);
-      }
-
-      // Ticking a filter or folding the sidebar saves on every click, and those
-      // are already showing on the page that did it.
-      const PAGE_MEMORY = ['filterUnchecked', 'filterShowHidden', 'filterShowRemoved', 'navCollapsed', 'dashHidden', 'showClientCount'];
-      if (result.changed.length && result.changed.every(key => PAGE_MEMORY.includes(key))) redrawCards();
-      else redraw();
-      const pending = require('./19-settings.js').pendingFetchKeys();
-      logAction(pending.length
-        ? `  redrawn; waiting for a fresh check to apply: ${pending.join(', ')}`
-        : '  redrawn');
-      // mode stays for pages generated before this changed, which read it
-      // to decide how long to wait before reloading; 'redraw' is the short
-      // wait, and it's now always the right one.
-      return {
-        ok: true, action, accepted: result.accepted, rejected: result.rejected,
-        pending, mode: 'redraw',
-      };
+      const services = require('./61-services.js');
+      const due = services.testsFor(require('./19-settings.js').previewBatch(arg));
+      if (!due.length) return applyConfig(action, arg);
+      return services.runTests(due).then(failed => applyConfig(action, arg, failed));
     }
     case 'quiet':
       appendLine(QUIET_FILE, arg);
@@ -805,9 +824,10 @@ function act(action, arg) {
       if (result.ok) redraw();
       return { ...result, action, schedule: schedule.schedulePayload() };
     }
-    // The calendar feed (ICS): setCalendarIcs saves its link and fetches it
-    // at once (an empty link removes the feed), refreshCalendarIcs fetches it
-    // again. Both answer later, like importCalendarPdf.
+    // The calendar feed (ICS): setCalendarIcs fetches a link and saves it if
+    // it read (an empty link removes the feed; a new one that doesn't read
+    // isn't saved, test before saving), refreshCalendarIcs fetches it again.
+    // Both answer later, like importCalendarPdf.
     case 'setCalendarIcs':
     case 'refreshCalendarIcs': {
       const store = require('./33-school-calendar.js');
@@ -817,7 +837,8 @@ function act(action, arg) {
         redraw();
         return { ok: true, action, calendar: calendarPayload(store) };
       }
-      return refreshIcs(url).then(result => ({ ...result, action, calendar: calendarPayload(store) }));
+      const isNew = url !== (store.readCalendar().ics || {}).url;
+      return refreshIcs(url, { isNew }).then(result => ({ ...result, action, calendar: calendarPayload(store) }));
     }
     // Settings → AI's Test button beside one AI, its id the argument, with
     // its settings as saved (the page saves first, so no key ever travels
@@ -1098,6 +1119,11 @@ function act(action, arg) {
     // update check doing it directly.
     case 'dismissUpdate':
       require('./26-update-check.js').dismissUpdate(arg);
+      redraw();
+      return { ok: true, action };
+    // The app's update check (checkUpdates, from Settings' beta switch)
+    // finished: the page's Updates card and count show what it found.
+    case 'updateChecked':
       redraw();
       return { ok: true, action };
     // Starts the actual download — see 26-update-check.js's own header

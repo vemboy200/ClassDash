@@ -210,6 +210,53 @@ function savedFor(domain) {
   return SAVED_ELSEWHERE[domain] ? SAVED_ELSEWHERE[domain]() : {};
 }
 
+/**
+ * Test before saving, Home Assistant's test-before-configure rule: settings
+ * that don't work aren't saved. A service takes part with two things in its
+ * index.js:
+ *
+ *   fields        the settings that are its own (Canvas: its address, token
+ *                 and the two ways' switches)
+ *   test(bridge)  with bridge.settings as they'd be saved, whether they
+ *                 work: { ok: true }, or { ok: false, why } in words for
+ *                 Settings. Only looks, and never puts a password or token
+ *                 in its why.
+ *
+ * testsFor says which services a save (previewBatch in 19-settings.js)
+ * needs to test: one of their fields changed, and they'd be on afterwards
+ * (turning a service off, or emptying its address, has nothing to test).
+ */
+function testsFor(preview, dir) {
+  if (!preview || !preview.ok || !preview.changed.length) return [];
+  const due = [];
+  for (const manifest of list(dir)) {
+    const service = load(manifest.domain, dir);
+    if (!service || typeof service.test !== 'function' || !Array.isArray(service.fields)) continue;
+    if (!service.fields.some(k => preview.changed.includes(k))) continue;
+    const bridge = { domain: manifest.domain, settings: preview.next };
+    try { if (service.enabled && !service.enabled(bridge)) continue; } catch { continue; }
+    due.push({ manifest, service, bridge });
+  }
+  return due;
+}
+
+/**
+ * Runs them. A test that throws hasn't passed either.
+ * @returns {Promise<{domain, name, keys, why}[]>} the ones that didn't pass,
+ *   with `keys` the settings of theirs not to save
+ */
+async function runTests(due) {
+  const failed = [];
+  for (const { manifest, service, bridge } of due) {
+    let r;
+    try { r = await service.test(bridge); } catch (e) { r = { ok: false, why: e.message }; }
+    if (!r || r.ok !== true) {
+      failed.push({ domain: manifest.domain, name: nameOf(manifest), keys: service.fields.slice(), why: (r && r.why) || 'its test didn\'t pass' });
+    }
+  }
+  return failed;
+}
+
 /** A service's logo (brand/icon.png in its folder) as base64, or null. */
 function iconOf(manifest) {
   try { return fs.readFileSync(path.join(manifest.dir, 'brand', 'icon.png')).toString('base64'); } catch { return null; }
@@ -220,4 +267,4 @@ function nameOf(manifest, language = 'en') {
   return typeof manifest.name === 'string' ? manifest.name : (manifest.name[language] || manifest.name.en);
 }
 
-module.exports = { list, load, result, savedFor, nameOf, iconOf, problems, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES, SIGN_INS };
+module.exports = { list, load, result, savedFor, nameOf, iconOf, problems, testsFor, runTests, SERVICES_DIR, CUSTOM_DIR, CATEGORIES, COMMUNICATION_CLASSES, BROWSER_CLASSES, SIGN_INS };

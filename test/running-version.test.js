@@ -19,7 +19,8 @@ ok(!U.isNewer('2.8.0', '3.0.0-dev.57+e27cf92') && U.isNewer('3.0.1', '3.0.0-dev.
 {
   const main = fs.readFileSync(path.join(T.REPO, 'electron', 'main.js'), 'utf8');
   const swift = fs.readFileSync(path.join(T.REPO, 'mac', '16-summary.swift'), 'utf8');
-  ok(/return !va\.pre && vb\.pre;/.test(main) && /return !va\.pre && vb\.pre/.test(swift), 'both apps rank a release above its pre-release too');
+  ok(/return !va\.pre && !!vb\.pre;/.test(main) && /return va\.pre == nil && vb\.pre != nil/.test(swift) &&
+    /function comparePre\(/.test(main) && /static func comparePre\(/.test(swift), 'both apps rank a release above its pre-release too, and betas among themselves');
 }
 
 // ── no file: nothing to change, nothing created ──

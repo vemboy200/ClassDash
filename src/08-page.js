@@ -97,6 +97,8 @@ const ICON_CALENDAR_B64 = readIcon('calendar-icon.png');
 const ICON_NAV_OPEN_B64 = readIcon('nav-open-icon.png');
 const ICON_NAV_CLOSE_B64 = readIcon('nav-close-icon.png');
 const ICON_SIGN_IN_B64 = readIcon('sign-in-icon.png');
+// The app's own icon, in colour: the Updates card's row for ClassDash.
+const ICON_APP_B64 = readIcon('app-icon.png');
 const ICON_SCHEDULE_B64 = readIcon('schedule-icon.png');
 const ICON_DISPLAY_B64 = readIcon('display-icon.png');
 // The connection bar (watchConnection): this computer's monitor, a line, and
@@ -468,6 +470,116 @@ function syncOfferBanner() {
      </div>`;
 }
 
+/**
+ * The top of Settings, like Home Assistant's: a Repairs card (67-repairs.js:
+ * what's broken that only you can fix, each opening where to fix it) and an
+ * Updates card (a newer ClassDash, from 26-update-check.js, with its
+ * release and Skip). Neither shows when it has nothing.
+ */
+function appUpdate() {
+  const u = readUpdateStatus();
+  return u && u.updateAvailable && u.latestVersion !== u.dismissedVersion ? u : null;
+}
+function settingsNotices() {
+  const repairs = require('./67-repairs.js').list({ language: currentLanguage() });
+  const update = appUpdate();
+  const bridge = require('./61-services.js');
+  const logo = domain => {
+    const m = bridge.list().find(x => x.domain === domain);
+    return m ? brandIcon(bridge.iconOf(m), domain) : '';
+  };
+  const title = r => r.kind === 'signedOut' ? t('repairSignedOut', r.name)
+    : r.kind === 'qRejected' ? t('repairQRejected')
+    : r.kind === 'qNewPassword' ? t('repairQNewPassword') : t('repairCanvasToken');
+  const repairRow = r => {
+    const icon = r.kind === 'signedOut' && r.domain === 'google'
+      ? '<span class="svc-logo pixel-icon icon-sign-in" aria-hidden="true"></span>' : logo(r.domain);
+    const sub = [`<span class="notice-${r.severity}">${escapeHtml(t(r.severity === 'error' ? 'repairError' : 'repairWarning'))}</span>`,
+      r.at ? escapeHtml(checkStatusWhen({ at: r.at })) : '',
+      r.by.length ? escapeHtml(t('repairBy', r.by.join(', '))) : ''].filter(Boolean).join(' · ');
+    return `        <button type="button" class="notice-row" data-repair="${escapeHtml(r.id)}" onclick="showSettingsSection('${escapeHtml(r.open)}')">` +
+      `<span class="notice-icon">${icon}</span><span class="settings-row-text"><span class="notice-title">${escapeHtml(title(r))}</span>` +
+      `<span class="settings-row-desc">${sub}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>`;
+  };
+  const repairsCard = !repairs.length ? '' : `      <div class="notice-card" id="repairs-card">
+        <div class="notice-head">${escapeHtml(t('repairsCount', repairs.length))}</div>
+${repairs.map(repairRow).join('\n')}
+      </div>`;
+  const updatesCard = !update ? '' : `      <div class="notice-card" id="updates-card">
+        <div class="notice-head">${escapeHtml(t('updatesCount', 1))}</div>
+        <button type="button" class="notice-row" data-update="${escapeHtml(update.latestVersion)}" onclick="showSettingsSection('update')"><span class="notice-icon"><img class="svc-logo app-logo" src="data:image/png;base64,${ICON_APP_B64}" alt="" aria-hidden="true"></span>` +
+        `<span class="settings-row-text"><span class="notice-title">${escapeHtml(t('updateAppName'))}</span>` +
+        `<span class="settings-row-desc">v${escapeHtml(update.latestVersion)}${update.currentVersion ? ` · ${escapeHtml(t('updateRunning', update.currentVersion))}` : ''}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>
+      </div>`;
+  return repairsCard + updatesCard;
+}
+
+/**
+ * A release's notes, as GitHub has them (Markdown), drawn simply: headings,
+ * bullet lists, paragraphs, **bold**, `code` and links. Everything is
+ * escaped first, so nothing in them can be HTML of its own.
+ */
+function releaseNotesHtml(md) {
+  const inline = text => escapeHtml(text)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const out = [];
+  let list = false, para = [];
+  const flush = () => {
+    if (para.length) { out.push(`<p>${para.map(inline).join(' ')}</p>`); para = []; }
+    if (list) { out.push('</ul>'); list = false; }
+  };
+  for (const raw of String(md || '').replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    const head = /^(#{1,6})\s+(.*)$/.exec(line);
+    const item = /^[-*]\s+(.*)$/.exec(line);
+    if (!line) { flush(); continue; }
+    if (head) { flush(); out.push(`<h4>${inline(head[2])}</h4>`); continue; }
+    if (item) {
+      if (para.length) { out.push(`<p>${para.map(inline).join(' ')}</p>`); para = []; }
+      if (!list) { out.push('<ul>'); list = true; }
+      out.push(`<li>${inline(item[1])}</li>`);
+      continue;
+    }
+    if (list) { out.push('</ul>'); list = false; }
+    para.push(line);
+  }
+  flush();
+  return out.join('\n');
+}
+
+/**
+ * The update's own page in Settings, opened from the Updates card, like
+ * Home Assistant's update dialog: what's new, Install, the release on
+ * GitHub, and Skip. Install hands over to the app (installUpdate in
+ * 16-summary.swift and electron/main.js): its download with progress, then
+ * its own "Install & Relaunch?", which only the app can say yes to.
+ */
+function updatePage() {
+  const update = appUpdate();
+  if (!update) return `<p class="hint">${escapeHtml(t('updateNone'))}</p>`;
+  const notes = String(update.notes || '').trim();
+  return `<div class="update-page">
+        <div class="update-head"><img class="svc-logo app-logo" src="data:image/png;base64,${ICON_APP_B64}" alt="" aria-hidden="true">
+          <span class="settings-row-text"><span class="notice-title">ClassDash v${escapeHtml(update.latestVersion)}${/-/.test(update.latestVersion) ? ` <span class="update-beta">${escapeHtml(t('updateBeta'))}</span>` : ''}</span>
+          <span class="settings-row-desc">${update.currentVersion ? escapeHtml(t('updateRunning', update.currentVersion)) : ''}</span></span></div>
+        <div class="update-notes">${notes ? releaseNotesHtml(notes) : `<p class="hint">${escapeHtml(t('updateNoNotes'))}</p>`}</div>
+        <div class="update-actions">
+          <button type="button" class="mini-btn update-install" id="update-install" onclick="installUpdate(this)">${escapeHtml(t('updateInstall'))}</button>
+          ${update.url ? `<a class="mini-btn" href="${escapeHtml(update.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateReleaseNotes'))}</a>` : ''}
+          <button type="button" class="mini-btn" data-version="${escapeHtml(update.latestVersion)}" onclick="skipUpdate(this)">${escapeHtml(t('updateSkip'))}</button>
+        </div>
+        <p class="hint" id="update-install-note" hidden></p>
+      </div>`;
+}
+
+/** How many there are, on the sidebar's Settings, like Home Assistant's. */
+function settingsBadge() {
+  const n = require('./67-repairs.js').list({ language: currentLanguage() }).length + (appUpdate() ? 1 : 0);
+  return n ? `<span class="nav-badge">${n}</span>` : '';
+}
+
 function dashPieces(updatedAt, now) {
   const time = updatedAt.toLocaleString(locale(), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   return {
@@ -477,6 +589,9 @@ function dashPieces(updatedAt, now) {
     updated: `<div class="nav-updated">${escapeHtml(t('updated'))} ${escapeHtml(time)}</div>`,
     bannersTop: setupAndSignInBanners(),
     bannersBelow: pendingScheduleAndUpdateBanners(now),
+    notices: settingsNotices(),
+    updatePage: updatePage(),
+    settingsBadge: settingsBadge(),
     grades: gradesSection(),
     qStatus: qStatusLine(),
     ...Object.fromEntries(Object.entries(serviceStatusLines()).map(([id, html]) => [`svc-${id}`, html])),
@@ -1755,8 +1870,17 @@ ${field('freshCheckAsleepMinutes', t('settingsFreshCheckAsleep'), String(s.fresh
         <input type="checkbox" class="toggle" data-bool-key="freshCheckOnlyWhenCharging"${s.freshCheckOnlyWhenCharging ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsFreshCheckChargingHint'))}</span>
       </label>` },
+    // The update's page (updatePage), opened from the Updates card at the
+    // top, not a row of the menu.
+    { id: 'update', notInMenu: true, label: t('updatePageTitle'), body: `
+${livePiece('updatePage', updatePage())}` },
     { id: 'advanced', label: t('settingsAdvanced'), desc: t('settingsDescAdvanced'), body: `
 ${versionRow()}
+      <label class="setting-row">
+        <span class="field-name">${escapeHtml(t('settingsBeta'))}</span>
+        <input type="checkbox" class="toggle" data-bool-key="betaUpdates" onchange="betaToggled()"${s.betaUpdates ? ' checked' : ''}>
+        <span class="field-hint">${escapeHtml(t('settingsBetaHint'))}</span>
+      </label>
 ${field('classTimeoutMs', t('settingsClassTimeout'), String(s.classTimeoutMs), t('settingsClassTimeoutHint'))}
 ${field('emptyTimeoutMs', t('settingsEmptyTimeout'), String(s.emptyTimeoutMs), t('settingsEmptyTimeoutHint'))}
 ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('settingsPassLimitHint'))}
@@ -1775,7 +1899,7 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
   sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
   const ROW_ICONS = { services: 'icon-cloud-filled', 'sign-ins': 'icon-sign-in', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', sync: 'icon-server', api: 'icon-api', advanced: 'icon-settings' };
-  const menuRows = sections.filter(sec => !sec.parent).map(sec =>
+  const menuRows = sections.filter(sec => !sec.parent && !sec.notInMenu).map(sec =>
     `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
     `<span class="settings-row-icon${ROW_ICONS[sec.id] ? ' pixel-icon ' + ROW_ICONS[sec.id] : ''}" aria-hidden="true"></span>` +
     `<span class="settings-row-text"><span class="settings-row-name">${escapeHtml(sec.label)}</span>` +
@@ -1789,6 +1913,7 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
   return `  <div class="settings-panel" id="settings-panel" hidden>
       <div class="settings-menu" id="settings-menu">
       <div class="settings-section-head"><h2>${escapeHtml(t('settingsTitle'))}</h2></div>
+${livePiece('notices', settingsNotices())}
 ${menuRows}
         <form class="settings-signout" id="settings-signout" method="post" action="/logout" hidden>
           <button type="submit" class="settings-row"><span class="settings-row-icon pixel-icon icon-back" aria-hidden="true"></span><span class="settings-row-text"><span class="settings-row-name">${escapeHtml(t('settingsSignOut'))}</span><span class="settings-row-desc">${escapeHtml(t('settingsSignOutDesc'))}</span></span></button>
@@ -1826,7 +1951,7 @@ function appNav(gradesCenter, actions) {
 ${item('dashboard', 'nav-dashboard', t('navDashboard'), ' aria-current="page"')}</button>
 ${item('workspace', 'workspace-button', t('wsTitle'), ` style="display: none" title="${escapeHtml(t('wsButtonTitle'))}"`)}</button>
 ${gradesCenter ? `${item('grades', 'nav-grades', t('gcTitle'))}</button>\n` : ''}  <span class="nav-spacer"></span>
-${item('settings', 'settings-button', t('settingsTitle'))}<span class="settings-status" id="settings-status"></span></button>
+${item('settings', 'settings-button', t('settingsTitle'))}${livePiece('settingsBadge', settingsBadge())}<span class="settings-status" id="settings-status"></span></button>
   <div class="nav-actions">
   ${actions}
   </div>
@@ -2502,27 +2627,11 @@ function setupAndSignInBanners() {
   return noInternetBanner + setupBanner + signInBanner + syncOfferBanner();
 }
 
-/** The banners under them: a setting waiting for a check, schedule heads-ups, an update. */
+/** The banners under them: a setting waiting for a check, schedule heads-ups. */
 function pendingScheduleAndUpdateBanners(now) {
   const setupSettings = readSettings();
-  // Dismissable per-VERSION, not per-session: dismissedVersion (see
-  // 26-update-check.js) only matches the exact version it was recorded
-  // against, so dismissing v1.3.0's banner today doesn't silently
-  // swallow v1.4.0's whenever that ships later — the comparison here is
-  // deliberately == the latest version, not "was dismissed at all".
-  const updateStatus = readUpdateStatus();
-  const updateBanner = (updateStatus && updateStatus.updateAvailable &&
-                         updateStatus.latestVersion !== updateStatus.dismissedVersion)
-    ? `  <div class="warn update-banner" id="update-banner">
-       <span>${escapeHtml(t('updateAvailable'))} <b>v${escapeHtml(updateStatus.latestVersion)}</b>
-       (${escapeHtml(t('updateCurrentlyRunning'))} v${escapeHtml(updateStatus.currentVersion)}).
-       <a href="${escapeHtml(updateStatus.url)}" target="_blank" rel="noopener">${escapeHtml(t('updateViewRelease'))}</a></span>
-       <button type="button" class="update-dismiss" data-version="${escapeHtml(updateStatus.latestVersion)}"
-               onclick="dismissUpdateBanner(this)"
-               title="${escapeHtml(t('updateDismiss'))}">&times;</button>
-     </div>`
-    : '';
-
+  // An app update isn't a banner here any more: it's in Settings' Updates
+  // card (settingsNotices), with the sidebar's Settings counting it.
 
   // Saved settings that only a collection can apply (which classes are
   // read, the Canvas address) sit in settings.json until the next check
@@ -2551,7 +2660,7 @@ ${headsUps.map(h => `       <div class="schedule-heads-up"><span><b>${escapeHtml
      </div>`
     : '';
 
-  return pendingBanner + scheduleBanner + updateBanner;
+  return pendingBanner + scheduleBanner;
 }
 
 /** The page without its data: what the server sends, /api/dashboard filling it in. */
@@ -3182,19 +3291,8 @@ ${cardHtml[id]}
   .acting-bar { position: fixed; top: 0; left: 0; height: 3px; width: 30%; z-index: 1001; background: var(--new); display: none; }
   body.acting .acting-bar { display: block; animation: acting-sweep 1.1s steps(12) infinite; }
   @keyframes acting-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-  .update-banner, .setup-banner, .sign-in-banner, .pending-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .update-banner a, .setup-banner a, .sign-in-banner a, .pending-banner a { color: inherit; text-decoration: underline; }
-  /* A REAL, PRE-EXISTING BUG, CAUGHT DURING WINDOWS TESTING — every
-     other hideable element here (.post, section, .settings-panel,
-     .settings-section) already has its own [hidden] { display: none; }
-     counter-rule; this one never did. Without it, dismissUpdateBanner()
-     setting .hidden = true had zero visual effect: an ordinary author
-     rule like the plain "display: flex" above always beats the
-     browser's own [hidden] default, regardless of specificity — same
-     cascade tier, source order decides, and this rule came first. Not
-     Electron-specific; would misbehave identically on the Mac app too,
-     just apparently never actually clicked on there. */
-  .update-banner[hidden] { display: none; }
+  .setup-banner, .sign-in-banner, .pending-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .setup-banner a, .sign-in-banner a, .pending-banner a { color: inherit; text-decoration: underline; }
   /* A collection is running. Filled in whole 8px blocks with a 2px gap
      between them, snapped by the page script — a smooth bar would be the
      one thing on this page that isn't drawn in pixels. */
@@ -3385,6 +3483,42 @@ ${cardHtml[id]}
   .icon-sign-in { -webkit-mask-image: var(--icon-sign-in); mask-image: var(--icon-sign-in); }
   .icon-schedule { -webkit-mask-image: var(--icon-schedule); mask-image: var(--icon-schedule); }
   .icon-display { -webkit-mask-image: var(--icon-display); mask-image: var(--icon-display); }
+  /* The top of Settings, like Home Assistant's: Repairs, then Updates
+     (settingsNotices), each a card of rows that open where to fix it. */
+  .notice-card { border: 2px solid var(--line); margin-bottom: 14px; padding: 4px 0; }
+  .notice-card[hidden] { display: none; }
+  .notice-head { font-size: 15px; font-weight: 600; padding: 8px 12px 4px; }
+  .notice-row {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    background: none; border: none; text-align: left; color: var(--text); font: inherit; padding: 8px 12px; cursor: pointer;
+  }
+  .notice-row:hover, .notice-row:focus-visible { background: var(--line); }
+  .notice-update { cursor: default; }
+  .notice-link { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; color: inherit; text-decoration: none; }
+  .notice-icon { flex: 0 0 32px; display: flex; align-items: center; justify-content: center; }
+  .notice-icon .svc-logo { width: 28px; height: 28px; margin: 0; }
+  .notice-icon .svc-logo.pixel-icon { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; color: var(--dim); }
+  .notice-icon .app-logo { width: 32px; height: 32px; image-rendering: pixelated; }
+  .notice-title { font-size: 14px; }
+  .notice-error { color: var(--hot); }
+  .notice-warning { color: var(--warn); }
+  /* The update's page (updatePage): what's new, then Install. */
+  .update-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .update-head .app-logo { width: 32px; height: 32px; image-rendering: pixelated; }
+  .update-notes { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 4px 0; margin-bottom: 12px; max-height: 50vh; overflow: auto; }
+  .update-notes h4 { margin: 10px 0 4px; }
+  .update-notes ul { margin: 4px 0; padding-left: 22px; }
+  .update-notes p { margin: 6px 0; }
+  .update-notes a { color: var(--new); }
+  .update-beta { color: var(--warn); font-size: 12px; font-weight: 700; text-transform: uppercase; margin-left: 6px; }
+  /* Install is the one this page is for. */
+  .update-actions .update-install { color: var(--new); font-weight: 700; }
+  .update-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .update-actions a.mini-btn { text-decoration: none; color: inherit; }
+  /* How many repairs and updates, on the sidebar's Settings. */
+  .nav-badge { margin-left: auto; min-width: 20px; padding: 0 5px; background: var(--hot); color: #fff; font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; }
+  .app-nav.collapsed .nav-item { position: relative; }
+  .app-nav.collapsed .nav-badge { position: absolute; top: 0; right: 6px; min-width: 16px; line-height: 16px; font-size: 11px; padding: 0 3px; }
   .settings-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
   .settings-row-name { font-size: 15px; font-weight: 600; }
   .settings-row-desc { font-size: 13px; color: var(--dim); }
@@ -4273,6 +4407,8 @@ const WORDS = ${JSON.stringify({
   calendarPages: t('calendarPages'),
   calendarIcsStatus: t('calendarIcsStatusNow'),
   calendarIcsFailed: t('calendarIcsFailed'),
+  updateInstallAppOnly: t('updateInstallAppOnly'),
+  updateInstallStarted: t('updateInstallStarted'),
   calendarIcsMeanings: t('calendarIcsMeanings'),
   calendarPageLabel: t('calendarPageLabel'),
   calendarNoLegend: t('calendarNoLegend'),
@@ -5444,11 +5580,37 @@ function dismissHeadsUp(btn) {
   if (banner && !banner.querySelector('.schedule-heads-up')) banner.hidden = true;
 }
 
-function dismissUpdateBanner(btn) {
-  var version = btn.getAttribute('data-version');
-  dispatchAction('dismissUpdate', version);
-  var banner = document.getElementById('update-banner');
-  if (banner) banner.hidden = true;
+// Updates card: Skip this version (dismissUpdate, 26-update-check.js). A
+// newer one than it is offered again.
+function skipUpdate(btn) {
+  dispatchAction('dismissUpdate', btn.getAttribute('data-version'));
+  var card = document.getElementById('updates-card');
+  if (card) card.hidden = true;
+  if (btn.closest('[data-section="update"]')) showSettingsMenu();
+}
+
+// Settings → Advanced → Beta versions: saved at once, then the app checks
+// again with it (checkUpdates), and redraws when that's done.
+function betaToggled() {
+  saveSettings(function () { if (hasNativeBridge()) dispatchAction('checkUpdates', ''); });
+}
+
+// The update's page: Install. The app downloads it with its own progress
+// panel and asks before it installs (installUpdate there); a plain browser
+// tab can't, and says where it can.
+function installUpdate(btn) {
+  var note = document.getElementById('update-install-note');
+  if (!hasNativeBridge()) {
+    if (note) { note.textContent = WORDS.updateInstallAppOnly; note.hidden = false; }
+    return;
+  }
+  btn.disabled = true;
+  dispatchAction('installUpdate', '', function (res) {
+    btn.disabled = false;
+    if (!note) return;
+    note.textContent = res && res.ok ? WORDS.updateInstallStarted : (res && res.why) || '';
+    note.hidden = !note.textContent;
+  });
 }
 
 // The banner itself isn't dismissable (see its own comment above, in
@@ -6608,7 +6770,9 @@ function calendarFeedAction(action, arg, button) {
       renderCalendar();
     }
     var ics = res.calendar && res.calendar.ics;
-    status.textContent = !ics ? '' : res.ok
+    // A new link that didn't read wasn't saved, so there may be no feed at
+    // all: why still shows, under the link that's still typed in.
+    status.textContent = !ics && res.ok ? '' : res.ok
       ? WORDS.calendarIcsStatus.split('{n}').join(String(ics.events.length))
       : WORDS.calendarIcsFailed + ' ' + (res.why || '');
     status.classList.toggle('calendar-error', !res.ok);

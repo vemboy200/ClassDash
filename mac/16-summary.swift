@@ -2050,6 +2050,38 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
                 chooseCustomBrowser { finish() }
             }
             return true
+        case "checkUpdates":
+            // Settings → Advanced's beta switch: check now, with the switch
+            // as just saved, and redraw the page once it's done so the
+            // Updates card shows what it found. Answered at once.
+            deliver(requestId: requestId, resultJSON: "{\"ok\":true}")
+            checkForUpdates(manual: false) { [weak self] in
+                self?.runAction("updateChecked", "") { _ in }
+            }
+            return true
+        case "installUpdate":
+            // Install on the update's page in Settings: the same download
+            // (with its progress panel) and the same "Install & Relaunch?"
+            // as Check for Updates…, only without asking to download first.
+            // Answered at once; the rest happens in the app's own windows.
+            let status = readUpdateStatusFile() ?? [:]
+            guard (status["updateAvailable"] as? Bool) == true,
+                  let latest = status["latestVersion"] as? String else {
+                deliver(requestId: requestId, resultJSON: "{\"ok\":false,\"why\":\"no update to install\"}")
+                return true
+            }
+            deliver(requestId: requestId, resultJSON: "{\"ok\":true}")
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                logWindow("settings: install v\(latest) asked for")
+                if (status["readyToInstall"] as? Bool) == true, (status["readyVersion"] as? String) == latest {
+                    self.declinedInstallVersion = nil
+                    self.maybeShowInstallPrompt()
+                } else {
+                    self.offerToDownload(latestVersion: latest, ask: false)
+                }
+            }
+            return true
         case "setupSignIn", "signIn":
             // The page says which sign-in (a row of Settings → Sign-ins);
             // empty opens every one, as before there was a choice.
@@ -2846,11 +2878,18 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         "https://api.github.com/repos/vemboy200/ClassDash/releases/latest")!
     private static let updateReleasesURL =
         "https://github.com/vemboy200/ClassDash/releases/latest"
+    // With beta versions on (Settings → Advanced, betaUpdates): every
+    // release, pre-releases included, and the newest of them is offered.
+    private static let updateListURL = URL(string:
+        "https://api.github.com/repos/vemboy200/ClassDash/releases?per_page=20")!
 
-    private func checkForUpdates(manual: Bool) {
+    // `done`: once the check has finished, whatever it found (Settings'
+    // beta switch redraws the page then, checkUpdates below).
+    private func checkForUpdates(manual: Bool, done: (() -> Void)? = nil) {
         let currentVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
 
-        var request = URLRequest(url: Self.updateAPIURL)
+        let beta = (readSettingsFile(in: projectDir)["betaUpdates"] as? Bool) == true
+        var request = URLRequest(url: beta ? Self.updateListURL : Self.updateAPIURL)
         // No auth needed for a public repo's releases — GitHub's
         // unauthenticated rate limit (60/hour per IP) is nowhere close
         // to what a once-a-day-plus-occasional-manual-click check needs.
@@ -2860,6 +2899,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         request.timeoutInterval = 15
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            defer { if let done = done { DispatchQueue.main.async(execute: done) } }
             guard let self = self else { return }
             if let error = error {
                 let reason = error.localizedDescription
@@ -2894,8 +2934,17 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
                     return
                 }
             }
-            guard let data = data,
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            // The list (beta versions on): the newest release in it.
+            let parsed = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+            let picked: [String: Any]? = beta
+                ? (parsed as? [[String: Any]] ?? [])
+                    .filter { ($0["draft"] as? Bool) != true && $0["tag_name"] is String }
+                    .reduce(nil as [String: Any]?) { best, r in
+                        guard let b = best else { return r }
+                        return Self.isNewer(r["tag_name"] as! String, than: b["tag_name"] as! String) ? r : b
+                    }
+                : parsed as? [String: Any]
+            guard let obj = picked,
                   let tagName = obj["tag_name"] as? String else {
                 logWindow("update check: couldn't parse GitHub's response")
                 self.recordCheckError("unexpected response from GitHub")
@@ -2923,8 +2972,12 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
             logWindow("update check: running \(currentVersion), latest is \(latestVersion)" +
                             (updateAvailable ? " — update available" : "") +
                             (downloadURL == nil ? " (no .dmg asset found)" : ""))
+            // What's new, for the update's page in Settings (its release
+            // notes, as GitHub has them: Markdown).
+            let notes = String(((obj["body"] as? String) ?? "").prefix(20000))
             self.writeUpdateStatus(currentVersion: currentVersion, latestVersion: latestVersion,
-                                    url: releaseURL, downloadURL: downloadURL, updateAvailable: updateAvailable)
+                                    url: releaseURL, downloadURL: downloadURL, updateAvailable: updateAvailable,
+                                    notes: notes)
 
             if manual {
                 DispatchQueue.main.async {
@@ -2976,13 +3029,18 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // instead of waiting for maybeShowInstallPrompt()'s 60-second poll.
     // Closing the panel only hides the progress; the download carries on.
     @MainActor
-    private func offerToDownload(latestVersion: String) {
-        let alert = NSAlert()
-        alert.messageText = "ClassDash \(latestVersion) is available"
-        alert.informativeText = "Download it now? You'll be asked to confirm again before it's actually installed."
-        alert.addButton(withTitle: "Download")
-        alert.addButton(withTitle: "Not Now")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+    // `ask`: false when the person already said so, with Install on the
+    // update's page in Settings (installUpdate); the install itself is
+    // still confirmed by maybeShowInstallPrompt().
+    private func offerToDownload(latestVersion: String, ask: Bool = true) {
+        if ask {
+            let alert = NSAlert()
+            alert.messageText = "ClassDash \(latestVersion) is available"
+            alert.informativeText = "Download it now? You'll be asked to confirm again before it's actually installed."
+            alert.addButton(withTitle: "Download")
+            alert.addButton(withTitle: "Not Now")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
         logWindow("menu: starting download of v\(latestVersion)")
 
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 90),
@@ -3098,7 +3156,8 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // download is now stale — carrying readyToInstall forward would
     // offer to install a version that's no longer the latest one.
     private func writeUpdateStatus(currentVersion: String, latestVersion: String,
-                                    url: String, downloadURL: String?, updateAvailable: Bool) {
+                                    url: String, downloadURL: String?, updateAvailable: Bool,
+                                    notes: String = "") {
         let path = projectDir + "/update-status.json"
         var dismissedVersion: String? = nil
         var readyToInstall = false
@@ -3124,6 +3183,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
             "updateAvailable": updateAvailable,
             "downloading": false,
             "readyToInstall": readyToInstall,
+            "notes": notes,
         ]
         if let downloadURL = downloadURL { status["downloadURL"] = downloadURL }
         if let dismissedVersion = dismissedVersion { status["dismissedVersion"] = dismissedVersion }
@@ -3140,19 +3200,43 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // of it ("3.0.0" than "3.0.0-dev.57+e27cf92", a local build heading to
     // it; see build.sh), so the release is offered.
     private static func isNewer(_ a: String, than b: String) -> Bool {
-        func split(_ s: String) -> (parts: [Int], pre: Bool) {
+        func split(_ s: String) -> (parts: [Int], pre: String?) {
             var v = s.hasPrefix("v") ? String(s.dropFirst()) : s
             if let plus = v.firstIndex(of: "+") { v = String(v[..<plus]) }
             let core = v.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
             let parts = core[0].split(separator: ".").map { Int($0.prefix(while: { $0.isNumber })) ?? 0 }
-            return (parts, core.count > 1)
+            return (parts, core.count > 1 ? String(core[1]) : nil)
         }
         let (va, vb) = (split(a), split(b))
         for i in 0..<max(va.parts.count, vb.parts.count) {
             let (x, y) = (i < va.parts.count ? va.parts[i] : 0, i < vb.parts.count ? vb.parts[i] : 0)
             if x != y { return x > y }
         }
-        return !va.pre && vb.pre
+        guard let pa = va.pre, let pb = vb.pre else { return va.pre == nil && vb.pre != nil }
+        return comparePre(pa, pb) > 0
+    }
+
+    // Two pre-releases of the same version (betas), as comparePre in
+    // 26-update-check.js: semver's order, except a local build ("dev.62")
+    // is older than any published pre-release of the same version.
+    private static func comparePre(_ x: String, _ y: String) -> Int {
+        func isDev(_ s: String) -> Bool { s == "dev" || s.hasPrefix("dev.") }
+        if isDev(x) != isDev(y) { return isDev(x) ? -1 : 1 }
+        let ix = x.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        let iy = y.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        for i in 0..<max(ix.count, iy.count) {
+            if i >= ix.count { return -1 }
+            if i >= iy.count { return 1 }
+            let nx = Int(ix[i]), ny = Int(iy[i])
+            if let a = nx, let b = ny {
+                if a != b { return a > b ? 1 : -1 }
+            } else if (nx == nil) != (ny == nil) {
+                return nx != nil ? -1 : 1
+            } else if ix[i] != iy[i] {
+                return ix[i] > iy[i] ? 1 : -1
+            }
+        }
+        return 0
     }
 
     // MARK: - Update download & install

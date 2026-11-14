@@ -121,6 +121,9 @@ const DEFAULTS = {
   // 16-summary.swift). Off unless they turn it on: an app opening itself
   // at every sign-in is something to choose, not to find.
   openAtLogin: false,
+  // Beta versions: the apps' update check offers pre-releases too
+  // (16-summary.swift, electron/main.js).
+  betaUpdates: false,
 
   // Whether the API server (17-api.js) also answers the home network, not
   // just this computer. The server itself always runs: the app's own window
@@ -370,7 +373,7 @@ const TYPES = {
   passLimitMs: 'number', apiPort: 'number',
   freshCheckAwakeMinutes: 'freshCheckInterval', freshCheckAsleepMinutes: 'freshCheckInterval',
   freshCheckOnlyWhenCharging: 'boolean', edpuzzleEnabled: 'boolean', classroomEnabled: 'boolean',
-  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean', showClientCount: 'boolean', openAtLogin: 'boolean',
+  canvasApiEnabled: 'boolean', canvasSsoEnabled: 'boolean', showKeyHints: 'boolean', showClientCount: 'boolean', openAtLogin: 'boolean', betaUpdates: 'boolean',
   summaryHours: 'numbers', exclusions: 'strings', browserPath: 'string',
   diagnosticsForwardUrl: 'string', diagnosticsForwardToken: 'string',
   filterShowHidden: 'boolean', filterShowRemoved: 'boolean',
@@ -788,7 +791,7 @@ function writeExample() {
  * shell command can't be smuggled in through it. Parsing happens here,
  * where real JSON exists for that, not in AppleScript.
  */
-function applyBatch(chunk) {
+function planBatch(chunk) {
   let parsed;
   try {
     // base64url -> regular base64: "+" and "/" mean something in a URL,
@@ -806,7 +809,7 @@ function applyBatch(chunk) {
   const changed = [];
   const rejected = [];
   const current = read();
-  seedApplied(current);
+  const values = {};
 
   for (const [key, value] of Object.entries(parsed)) {
     const v = validate(key, value);
@@ -823,14 +826,39 @@ function applyBatch(chunk) {
     // ===, because these can be arrays (exclusions) where two separate
     // instances with the same contents are never === in JS.
     if (JSON.stringify(current[key]) !== JSON.stringify(v.value)) changed.push(key);
-    current[key] = v.value;
+    values[key] = v.value;
   }
+  return { ok: true, accepted, changed, rejected, current, values, next: { ...current, ...values } };
+}
 
+/**
+ * What a save would do, without doing it: { ok, changed, next } (`next`
+ * the settings as they'd be afterwards), or { ok: false, why }. For testing
+ * a service's settings before they're saved (testsFor in 61-services.js).
+ */
+function previewBatch(chunk) {
+  const plan = planBatch(chunk);
+  return plan.ok ? { ok: true, changed: plan.changed, next: plan.next } : plan;
+}
+
+/**
+ * Saves a chunk of settings from the page. `skip`: keys left as they were,
+ * neither saved nor refused here (the caller says why: a service whose
+ * settings didn't pass their test).
+ */
+function applyBatch(chunk, { skip = [] } = {}) {
+  const plan = planBatch(chunk);
+  if (!plan.ok) return plan;
+  const { current, values, rejected } = plan;
+  seedApplied(current);
+  const accepted = plan.accepted.filter(k => !skip.includes(k));
+  const changed = plan.changed.filter(k => !skip.includes(k));
+  for (const key of accepted) current[key] = values[key];
   if (accepted.length) fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
   return { ok: accepted.length > 0, accepted, changed, rejected };
 }
 
-module.exports = { read, write, validate, writeExample, applyBatch,
+module.exports = { read, write, validate, writeExample, applyBatch, previewBatch,
                    markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
                    DEFAULTS, TYPES, FILE, DASH_CARDS };
 
