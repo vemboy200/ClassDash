@@ -48,7 +48,27 @@ trap 'rm -rf "$TMPDIR_"' EXIT
 # `--always` covers a repo with no tags at all yet, falling back to just
 # the short hash; the final `|| echo` covers no git history at all
 # (a zip download, not a clone).
-VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")}"
+#
+# Between releases, a local build is named after the version it's heading
+# to, NEXT_VERSION: "3.0.0-dev.57+e27cf92" (57 commits since the last tag,
+# then the commit, ".dirty" with uncommitted changes), not "2.8.0-57-g…",
+# which read as an old version. The "-dev" part makes it older than the
+# real 3.0.0 to the update check (isNewer in 26-update-check.js and both
+# apps), so that release is still offered to it. Bump NEXT_VERSION after
+# each release.
+NEXT_VERSION="3.0.0"
+if [ -z "$VERSION" ]; then
+  DESCRIBED="$(git describe --tags --long --always --dirty 2>/dev/null || true)"
+  if [[ "$DESCRIBED" =~ ^v?([0-9.]+)-([0-9]+)-g([0-9a-f]+)(-dirty)?$ ]]; then
+    if [ "${BASH_REMATCH[2]}" = "0" ] && [ -z "${BASH_REMATCH[4]}" ]; then
+      VERSION="${BASH_REMATCH[1]}"          # exactly on a release tag
+    else
+      VERSION="$NEXT_VERSION-dev.${BASH_REMATCH[2]}+${BASH_REMATCH[3]}${BASH_REMATCH[4]:+.dirty}"
+    fi
+  else
+    VERSION="$NEXT_VERSION-dev${DESCRIBED:++$DESCRIBED}"
+  fi
+fi
 VERSION="${VERSION#v}"
 
 echo "Project: $PROJ"

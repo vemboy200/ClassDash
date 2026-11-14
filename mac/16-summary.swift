@@ -3134,23 +3134,25 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         try? data.write(to: URL(fileURLWithPath: path))
     }
 
-    // Plain numeric version comparison — "1.10.0" is newer than "1.9.0",
-    // not older, which a naive string compare would get wrong. No
-    // pre-release/build-metadata handling (a real release tag is always
-    // clean X.Y.Z here — see build.sh's own VERSION comment for why a
-    // local dev build's messier `git describe` output is never what
-    // ships as a tagged release), and missing components pad with 0 so
-    // "1.2" vs "1.2.0" compares equal instead of erroring.
+    // The same comparison as 26-update-check.js's isNewer: numbers first
+    // ("1.10.0" is newer than "1.9.0", which a string compare gets wrong;
+    // missing parts count as 0), then a release is newer than a pre-release
+    // of it ("3.0.0" than "3.0.0-dev.57+e27cf92", a local build heading to
+    // it; see build.sh), so the release is offered.
     private static func isNewer(_ a: String, than b: String) -> Bool {
-        func parts(_ s: String) -> [Int] {
-            s.split(separator: ".").map { Int($0.prefix(while: { $0.isNumber })) ?? 0 }
+        func split(_ s: String) -> (parts: [Int], pre: Bool) {
+            var v = s.hasPrefix("v") ? String(s.dropFirst()) : s
+            if let plus = v.firstIndex(of: "+") { v = String(v[..<plus]) }
+            let core = v.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            let parts = core[0].split(separator: ".").map { Int($0.prefix(while: { $0.isNumber })) ?? 0 }
+            return (parts, core.count > 1)
         }
-        let (pa, pb) = (parts(a), parts(b))
-        for i in 0..<max(pa.count, pb.count) {
-            let (x, y) = (i < pa.count ? pa[i] : 0, i < pb.count ? pb[i] : 0)
+        let (va, vb) = (split(a), split(b))
+        for i in 0..<max(va.parts.count, vb.parts.count) {
+            let (x, y) = (i < va.parts.count ? va.parts[i] : 0, i < vb.parts.count ? vb.parts[i] : 0)
             if x != y { return x > y }
         }
-        return false
+        return !va.pre && vb.pre
     }
 
     // MARK: - Update download & install

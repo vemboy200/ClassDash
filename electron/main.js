@@ -1927,14 +1927,20 @@ function setupAutoFreshCheck() {
 // actual running app instance.
 const UPDATE_API_URL = 'https://api.github.com/repos/vemboy200/ClassDash/releases/latest';
 
+// The same comparison as 26-update-check.js's isNewer: the numbers first,
+// then a release is newer than a pre-release of it ("3.0.0" than
+// "3.0.0-dev.57+e27cf92").
 function isNewer(a, b) {
-  const parts = (s) => s.split('.').map((p) => parseInt(p, 10) || 0);
-  const [pa, pb] = [parts(a), parts(b)];
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || 0, y = pb[i] || 0;
+  const split = (s) => {
+    const [core, ...pre] = String(s).replace(/^v/, '').split('+')[0].split('-');
+    return { parts: core.split('.').map((p) => parseInt(p, 10) || 0), pre: pre.length > 0 };
+  };
+  const [va, vb] = [split(a), split(b)];
+  for (let i = 0; i < Math.max(va.parts.length, vb.parts.length); i++) {
+    const x = va.parts[i] || 0, y = vb.parts[i] || 0;
     if (x !== y) return x > y;
   }
-  return false;
+  return !va.pre && vb.pre;
 }
 
 function readUpdateStatusFile() {

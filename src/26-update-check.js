@@ -140,17 +140,21 @@ function writeFields(fields) {
   } catch { /* not fatal — status just won't reflect this step */ }
 }
 
-/** The comparison both apps use for "is a newer than b" (dots, numbers
- *  only, so "0.0.0-dev.abc123" counts as older than any real release —
- *  which is why a dev build is always offered the latest release). */
+/** The comparison both apps use for "is a newer than b": the numbers first
+ *  ("1.10.0" is newer than "1.9.0"), and with the same numbers, a release is
+ *  newer than a pre-release of it ("3.0.0" than "3.0.0-dev.57+e27cf92", a
+ *  local build heading to it; see build.sh), so the release is offered. */
 function isNewer(a, b) {
-  const parts = (s) => String(s).split('.').map((p) => parseInt(p, 10) || 0);
-  const [pa, pb] = [parts(a), parts(b)];
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || 0, y = pb[i] || 0;
+  const split = (s) => {
+    const [core, ...pre] = String(s).replace(/^v/, '').split('+')[0].split('-');
+    return { parts: core.split('.').map((p) => parseInt(p, 10) || 0), pre: pre.length > 0 };
+  };
+  const [va, vb] = [split(a), split(b)];
+  for (let i = 0; i < Math.max(va.parts.length, vb.parts.length); i++) {
+    const x = va.parts[i] || 0, y = vb.parts[i] || 0;
     if (x !== y) return x > y;
   }
-  return false;
+  return !va.pre && vb.pre;
 }
 
 /**
