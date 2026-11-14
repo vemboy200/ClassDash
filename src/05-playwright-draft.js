@@ -314,8 +314,11 @@ const CANVAS_NEEDS_BROWSER = CANVAS_ENABLED && CANVAS.browserNeeded(CANVAS_BRIDG
 
 // Google Classroom can be turned off (see classroomEnabled in
 // 19-settings.js), which — with Edpuzzle off and Canvas on a token — leaves
-// nothing that needs a browser.
-const CLASSROOM_ENABLED = SETTINGS.classroomEnabled !== false;
+// nothing that needs a browser. Asked through the bridge, like Canvas
+// (services/classroom/index.js); reading it is still done here.
+const CLASSROOM = SERVICES.load('classroom');
+const CLASSROOM_BRIDGE = { domain: 'classroom', settings: SETTINGS };
+const CLASSROOM_ENABLED = !!CLASSROOM && CLASSROOM.enabled(CLASSROOM_BRIDGE);
 
 /**
  * Does this pass have anything to read that needs a browser?
@@ -332,7 +335,7 @@ const CLASSROOM_ENABLED = SETTINGS.classroomEnabled !== false;
  * sign into.
  */
 function browserNeeded(withEdpuzzle) {
-  return CLASSROOM_ENABLED || withEdpuzzle ||
+  return (CLASSROOM_ENABLED && CLASSROOM.browserNeeded(CLASSROOM_BRIDGE)) || withEdpuzzle ||
          CANVAS_NEEDS_BROWSER;
 }
 
@@ -340,7 +343,7 @@ function browserNeeded(withEdpuzzle) {
  *  browserNeeded(): a fallback session has to be signed in too, even while
  *  a working token means it isn't used. */
 function signInNeeded() {
-  return CLASSROOM_ENABLED || EDPUZZLE_ENABLED || (CANVAS_ENABLED && CANVAS.signInNeeded(CANVAS_BRIDGE));
+  return (CLASSROOM_ENABLED && CLASSROOM.signInNeeded(CLASSROOM_BRIDGE)) || EDPUZZLE_ENABLED || (CANVAS_ENABLED && CANVAS.signInNeeded(CANVAS_BRIDGE));
 }
 
 // Same module-level reasoning as CANVAS_ENABLED above: needed both when
@@ -438,7 +441,7 @@ async function login() {
   require('./63-browser-health.js').note('the sign-in window opened');
   if (CLASSROOM_ENABLED) {
     const classroomPage = await ctx.newPage();
-    await classroomPage.goto('https://classroom.google.com/');
+    await classroomPage.goto(CLASSROOM.SITE);
   }
 
   // A second tab for Edpuzzle, opened in the same persistent profile.
@@ -1320,7 +1323,7 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // with it off there is no page to open for them.
   if (CLASSROOM_ENABLED && ctx) try {
     const probePage = await ctx.newPage();
-    await probePage.goto('https://classroom.google.com/', { waitUntil: 'domcontentloaded', timeout: 15000 })
+    await probePage.goto(CLASSROOM.SITE, { waitUntil: 'domcontentloaded', timeout: 15000 })
       .catch(() => {});
     multiplier = await measureNetwork(probePage);
 
@@ -2399,7 +2402,7 @@ if (require.main !== module) return;
   // and the page says why (see 60-network-check.js).
   const networkCheck = require('./60-network-check.js');
   const places = [
-    ...(CLASSROOM_ENABLED ? ['https://classroom.google.com/'] : []),
+    ...(CLASSROOM_ENABLED ? CLASSROOM.addresses(CLASSROOM_BRIDGE) : []),
     ...(CANVAS_ENABLED ? CANVAS.addresses(CANVAS_BRIDGE) : []),
     ...(EDPUZZLE_ENABLED && process.argv.includes('--full') ? EDPUZZLE.addresses(EDPUZZLE_BRIDGE) : []),
   ];

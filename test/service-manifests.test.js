@@ -71,7 +71,7 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
 {
   const canvas = bridge.load('canvas');
   ok(canvas && typeof canvas.read === 'function' && typeof canvas.enabled === 'function', 'Canvas loads through the bridge');
-  ok(bridge.load('classroom') === null && bridge.load('nothing-like-this') === null, 'a service without an index.js yet, or none at all, is null');
+  ok(bridge.load('nothing-like-this') === null, 'a service that isn\'t there is null');
   const b = settings => ({ settings });
   const site = 'https://school.example.test';
   ok(!canvas.enabled(b({ canvas: '' })) && canvas.addresses(b({ canvas: '' })).length === 0, 'no address: off, and nowhere to reach');
@@ -130,3 +130,13 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
   ok(!/require\([^)]*11-edpuzzle\.js/.test(collector), 'the check never reaches into 11-edpuzzle.js itself');
 })();
+
+// Classroom: its questions go through the bridge (reading it doesn't yet).
+{
+  const cr = bridge.load('classroom');
+  ok(cr && cr.enabled({ settings: {} }) && cr.browserNeeded({ settings: {} }) && cr.signInNeeded({ settings: {} }), 'Classroom is on unless switched off, and needs the browser');
+  ok(!cr.enabled({ settings: { classroomEnabled: false } }) && cr.addresses({ settings: { classroomEnabled: false } }).length === 0, 'off: nothing to reach');
+  ok(cr.addresses({ settings: {} })[0] === 'https://classroom.google.com/', 'its address, while on');
+  const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
+  ok(!/SETTINGS\.classroomEnabled !==/.test(collector), 'the check asks the bridge whether Classroom is on');
+}
