@@ -275,16 +275,60 @@ const write = (f, v) => fs.writeFileSync(path.join(proj, f), JSON.stringify(v, n
     fs.writeFileSync(path.join(fresh, 'messages.json'), JSON.stringify(many));
     let asks = 0;
     const answer = async () => { asks++; return { ok: true, text: '[]' }; };
-    let r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, settings: { ...local, aiScanMinFreeGb: 0 }, host: { asleep: false } });
+    // LM Studio's command line, stood in for: the copy is "loaded" from the first call on.
+    let copyIn = false;
+    const lms = async args => { if (args[0] === 'load') copyIn = true; return args[0] === 'ps' ? JSON.stringify(copyIn ? [{ identifier: 'classdash-scan', modelKey: 'm' }] : []) : ''; };
+    let r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, lms, settings: { ...local, aiScanMinFreeGb: 0 }, host: { asleep: false } });
     ok('the automatic scan with the screen on asks nothing, and says why', asks === 0 && r.scanned === 0 && /screen to be off/.test(r.held || ''), JSON.stringify(r));
     let awake = 0;
     const host = { get asleep() { return awake++ < 1; } };
-    r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, settings: { ...local, aiScanMinFreeGb: 0 }, host });
+    r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, lms, settings: { ...local, aiScanMinFreeGb: 0 }, host });
     ok('someone coming back stops it between announcements', r.scanned === 1 && asks === 1 && r.held, JSON.stringify(r));
-    r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, settings: { ...local, aiScanMinFreeGb: 0 }, host: { asleep: true } });
+    r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, lms, settings: { ...local, aiScanMinFreeGb: 0 }, host: { asleep: true } });
     ok('...and the rest are read on a later check', r.scanned === 2 && asks === 3 && !r.held, JSON.stringify(r));
-    r = await scanner.scan({ ids: ['h1'] }, { complete: answer, settings: { ...local }, host: { asleep: false }, freeGb: () => 0.1 });
+    r = await scanner.scan({ ids: ['h1'] }, { complete: answer, lms, settings: { ...local }, host: { asleep: false }, freeGb: () => 0.1 });
     ok('a scan someone starts by hand isn\'t held', r.scanned === 1 && asks === 4, JSON.stringify(r));
+  }
+
+  // ── LM Studio: the scan's own small copy of the model ──
+  {
+    const calls = [];
+    let loaded = [];
+    const lms = async args => {
+      calls.push(args.join(' '));
+      if (args[0] === 'ps') return JSON.stringify(loaded);
+      if (args[0] === 'load') loaded = [{ identifier: 'classdash-scan', modelKey: args[1] }];
+      if (args[0] === 'unload') loaded = [];
+      return '';
+    };
+    const lm = { aiProvider: 'lmstudio', aiModel: 'nvidia/made-up-4b' };
+    let c = await sc.scanCopy(lm, { lms });
+    ok('LM Studio: the scan asks its own copy', c.settings && c.settings.aiModel === 'classdash-scan' && c.settings.aiProvider === 'lmstudio');
+    ok('...loaded small, one at a time, unloading itself', calls.some(x => x === 'load nvidia/made-up-4b --context-length 8192 --parallel 1 --identifier classdash-scan --ttl 300 -y'), calls.join(' | '));
+    calls.length = 0;
+    c = await sc.scanCopy(lm, { lms });
+    ok('...and one already loaded is reused, not loaded again', c.settings && !calls.some(x => x.startsWith('load')));
+    calls.length = 0;
+    c = await sc.scanCopy({ ...lm, aiModel: 'other/model' }, { lms });
+    ok('a copy of a model picked before is swapped for the new one', calls[1] === 'unload classdash-scan' && calls[2].startsWith('load other/model'), calls.join(' | '));
+    c = await sc.scanCopy(lm, { lms: async () => { throw new Error('made-up: no such model'); } });
+    ok('when it can\'t be loaded, it says why instead of loading the big one', !c.settings && /small copy.*made-up: no such model/.test(c.why), c.why);
+    calls.length = 0;
+    ok('other providers are left as they are', (await sc.scanCopy({ aiProvider: 'ollama', aiModel: 'm' }, { lms })).settings.aiModel === 'm' && !calls.length);
+    ok('as is LM Studio on another computer', (await sc.scanCopy({ ...lm, aiLocalUrl: 'http://192.168.1.50:1234/v1' }, { lms })).settings.aiModel === 'nvidia/made-up-4b' && !calls.length);
+    ok('and no model picked', (await sc.scanCopy({ aiProvider: 'lmstudio' }, { lms })).settings.aiModel === undefined && !calls.length);
+
+    // Memory counts until the copy is in, not after: it's the copy's own.
+    const many = [1, 2, 3].map(i => ann('m' + i, 'Made-up Math', 'Read chapter ' + i + '.'));
+    const fresh = T.makeProject({ 'settings.json': { language: 'en', ...lm }, 'messages.json': [] });
+    const scanner = require(path.join(fresh, '38-announcement-scan.js'));
+    scanner.seedKnown();
+    fs.writeFileSync(path.join(fresh, 'messages.json'), JSON.stringify(many));
+    loaded = [];
+    let free = 6;
+    const answer = async () => { free = 1; return { ok: true, text: '[]' }; };
+    const r = await scanner.scan({ newOnly: true }, { now: Date.now(), complete: answer, lms, settings: lm, host: { asleep: true }, freeGb: () => free, tight: () => false });
+    ok('the model taking memory doesn\'t stop the scan on itself', r.scanned === 3 && !r.held, JSON.stringify(r));
   }
 
   // ── a check starts the scan ──

@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **With LM Studio, the announcement scan loads its own small copy of your model** (8,192 tokens, one conversation at a time, unloaded 5 minutes after it's done) instead of the model with its full context, so your chats keep their big context and the scan takes about half the memory (2.1 GB instead of 4.8 GB for Nemotron 3 Nano 4B on a Mac). The memory check now only applies before that copy loads.
 - **With a model on this computer (Ollama, LM Studio…), the automatic announcement scan waits until the screen is off and at least 4 GB of memory is free**, so it can't slow the computer to a crawl while you're using it. It stops between announcements if you come back, and reads the rest after a later check. Both are in Settings → AI → Announcements; the button by an announcement still scans right away.
 - **A browser that won't start no longer stops the whole check.** Classroom (and Edpuzzle) show the problem and keep what they last had, while Canvas on an access token still updates and Q grades still get checked. Before, nothing updated at all until the browser was fixed.
 - **Settings → Sync tests an away-from-home address before saving it**, and says what's wrong if it doesn't reach the computer you're following, so a typo or a broken tunnel doesn't wait until you're away to show up.

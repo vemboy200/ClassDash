@@ -61,6 +61,7 @@ grades.json
 canvas-grades.json
 classroom-grades.json
 grades.lock
+service-*.lock
 grades-secret.json
 grades-chat.json
 grade-history.json

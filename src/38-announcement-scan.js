@@ -410,13 +410,16 @@ function memoryTight() {
  * scan someone starts themselves (the button by an announcement) isn't held.
  * `deps` stands in for the computer in tests.
  */
-function mayScanNow(settings, deps = {}) {
+function mayScanNow(settings, deps = {}, { memory = true } = {}) {
   const provider = require('./37-ai.js').PROVIDERS[settings.aiProvider];
   if (!provider || !provider.local) return { ok: true };
   if (settings.aiScanOnlyIdle !== false) {
     const host = deps.host !== undefined ? deps.host : require('./52-check-schedule.js').readHostState();
     if (!host || !host.asleep) return { ok: false, why: 'waiting for the screen to be off' };
   }
+  // Once the scan's own copy of the model is loaded (scanCopy), the memory it
+  // takes is the model's own: asking again would stop the scan on itself.
+  if (!memory) return { ok: true };
   // Missing (settings from before this existed) is the usual 4 GB, not "don't check".
   const minGb = settings.aiScanMinFreeGb === undefined ? 4 : Number(settings.aiScanMinFreeGb);
   if (minGb > 0) {
@@ -425,6 +428,61 @@ function mayScanNow(settings, deps = {}) {
     if (free !== null && free < minGb) return { ok: false, why: `only ${free.toFixed(1)} GB of memory free, ${minGb} GB needed` };
   }
   return { ok: true };
+}
+
+// ── LM Studio: a small copy of the model, just for the scan ──
+//
+// LM Studio loads a model for the API with its own defaults, which for some
+// models is their whole context: Nemotron 3 Nano 4B came in at 226,816 tokens
+// with room for 4 conversations at once, 4.8GB, on a 16GB Mac. The scan needs
+// a few thousand tokens and one conversation. So it loads a copy of its own
+// with its own name, through LM Studio's own command line (lms, which comes
+// with it): 8,192 tokens, one at a time, unloaded by LM Studio itself 5
+// minutes after its last use. That came in at 2.1GB. The person's chats keep
+// using the model by its usual name, with whatever context they set.
+const SCAN_COPY = 'classdash-scan';
+const SCAN_COPY_CONTEXT = 8192;
+const SCAN_COPY_TTL_S = 300;
+
+/** Runs LM Studio's command line: its stdout, or throws. */
+function lms(args) {
+  const os = require('os');
+  const bin = path.join(os.homedir(), '.lmstudio', 'bin', process.platform === 'win32' ? 'lms.exe' : 'lms');
+  return new Promise((resolve, reject) => {
+    require('child_process').execFile(bin, args, { timeout: 180000, windowsHide: true }, (e, stdout, stderr) => {
+      if (e) reject(new Error(String(stderr || e.message).trim().split('\n').pop() || 'lms failed'));
+      else resolve(String(stdout));
+    });
+  });
+}
+
+/**
+ * The settings to scan with: for LM Studio on this computer with a model
+ * picked, the same settings pointed at the scan's own copy, loaded first if it
+ * isn't. { settings } or { why } when it couldn't be loaded (the scan then
+ * doesn't run, rather than loading the model with its full context).
+ * Anything else: unchanged. `deps.lms` stands in for LM Studio's command line
+ * in tests.
+ */
+async function scanCopy(settings, deps = {}) {
+  const model = String(settings.aiModel || '').trim();
+  if (settings.aiProvider !== 'lmstudio' || !model || model === SCAN_COPY) return { settings };
+  const url = require('./37-ai.js').configFrom(settings).url;
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(url)) return { settings };
+  const run = deps.lms || lms;
+  const pointed = { ...settings, aiModel: SCAN_COPY };
+  try {
+    const loaded = JSON.parse((await run(['ps', '--json'])) || '[]');
+    const copy = loaded.find(m => m.identifier === SCAN_COPY);
+    if (copy && copy.modelKey === model) return { settings: pointed };
+    // A copy of a model picked before: out, so the new one can take its name.
+    if (copy) await run(['unload', SCAN_COPY]);
+    await run(['load', model, '--context-length', String(SCAN_COPY_CONTEXT), '--parallel', '1',
+      '--identifier', SCAN_COPY, '--ttl', String(SCAN_COPY_TTL_S), '-y']);
+    return { settings: pointed };
+  } catch (e) {
+    return { why: `couldn't load a small copy of the model in LM Studio (${e.message})` };
+  }
 }
 
 async function scan({ ids, newOnly } = {}, deps = {}) {
@@ -441,7 +499,10 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
   }
   if (!takeLock()) return { ok: false, why: 'a scan is already running' };
   try {
-    const complete = deps.complete || ((ask) => require('./37-ai.js').complete(ask, settings));
+    // The settings the model is asked with: LM Studio's are pointed at the
+    // scan's own small copy once it's loaded (scanCopy), before the first ask.
+    let asking = null;
+    const complete = deps.complete || ((ask) => require('./37-ai.js').complete(ask, asking || settings));
     const linkedName = require('./29-class-links.js').linkedName;
     const virtual = require('./24-virtual-assignments.js');
     const state = readState();
@@ -453,10 +514,16 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
     const result = { ok: true, scanned: 0, kept: [], dropped: 0, failed: 0 };
     const others = existing();
     for (const a of todo) {
-      // The automatic scan steps aside between announcements (mayScanNow).
+      // The automatic scan steps aside between announcements (mayScanNow);
+      // memory only counts until its own copy of the model is in.
       if (newOnly) {
-        const may = mayScanNow(settings, deps);
+        const may = mayScanNow(settings, deps, { memory: !asking });
         if (!may.ok) { result.held = may.why; break; }
+      }
+      if (!asking) {
+        const copy = await scanCopy(settings, deps);
+        if (!copy.settings) { result.held = copy.why; result.why = copy.why; break; }
+        asking = copy.settings;
       }
       const className = linkedName(a.class);
       const answer = await complete({ system: systemFor(settings), prompt: promptFor(a, className), maxTokens: 600 });
@@ -505,7 +572,7 @@ async function scan({ ids, newOnly } = {}, deps = {}) {
   }
 }
 
-module.exports = { mayScanNow, freeMemoryGb, SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, STATE_FILE };
+module.exports = { mayScanNow, freeMemoryGb, scanCopy, SCAN_COPY, SYSTEM, SKIP_CLASSWORK, systemFor, NEW_MAX_AGE_DAYS, NEW_MAX_PER_RUN, readState, seedKnown, pendingNew, promptFor, SAME_SYSTEM, compareList, sameWork, parseItems, resolveWhen, nextMeetingDue, grounded, similar, conflict, scan, STATE_FILE };
 
 // `node 38-announcement-scan.js --new`: the automatic scan after a check.
 // Redraws the page when it added reminders, so they show at once.
