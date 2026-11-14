@@ -702,6 +702,11 @@ const DICTIONARIES = {
     signInsNone: 'Ни один включённый сервис не входит через браузер. Токены и пароли вводятся в настройках самого сервиса',
     signInUsedBy: names => `Нужен для: ${names}`,
     signInOut: 'Вход истёк',
+    signInIn: 'Вход выполнен',
+    signInUnknown: 'Ещё не проверялся',
+    svcSignInRow: name => `Вход: ${name}`,
+    svcSignInContinue: 'Я уже вошёл',
+    svcSetupSignInFirst: 'Сначала войдите: этот сервис читается через браузер ClassDash. Остальные настройки появятся здесь после этого',
     browserOwnBrave: 'Brave (установлен ClassDash)',
     browserSystemChrome: 'Google Chrome (системный)',
 
@@ -1565,6 +1570,11 @@ const DICTIONARIES = {
     signInsNone: "No service that's on signs in through the browser. Tokens and passwords go in the service's own settings",
     signInUsedBy: names => `Used by ${names}`,
     signInOut: 'Signed out',
+    signInIn: 'Signed in',
+    signInUnknown: 'Not checked yet',
+    svcSignInRow: name => `${name} sign-in`,
+    svcSignInContinue: 'Already signed in',
+    svcSetupSignInFirst: "Sign in first: this service is read through ClassDash's browser. The rest of its setup shows up here after that",
     browserOwnBrave: "Brave (installed by ClassDash)",
     browserSystemChrome: 'Google Chrome (system)',
 

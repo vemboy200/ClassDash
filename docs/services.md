@@ -56,7 +56,7 @@ A service can have more than one: Canvas is read with its access token (own fiel
 ## Adding and turning off services
 
 - Settings → **Services** has a card for each service that's on: its name, how its last check went, and badges. The cloud with ↑ means ClassDash asks it on a schedule (polling). The browser badge says what it takes: a hidden browser in the background, a browser with a face for a visible browser window (Edpuzzle), or a browser with a ? when it depends on how it's set up (Canvas).
-- Click a card for that service's settings. **+ Add service** turns one on, and **Turn off** on a service's page turns it off again. Turning one off keeps what you typed for it, in case you turn it back on.
+- Click a card for that service's settings. **+ Add service** turns one on, and **Turn off** on a service's page turns it off again. A service read through ClassDash's browser asks you to sign in first (Google for Google Classroom, Edpuzzle's own for Edpuzzle), and shows the rest of its setup after that. Already signed in? **Already signed in** skips the window. Turning one off keeps what you typed for it, in case you turn it back on.
 - **A service ClassDash doesn't have?** You can add your own as a [custom service](custom-services.md): a folder of code in your project, like a Home Assistant custom integration.
 - **Only use Canvas?** Pick **Only Canvas** and an access token in the first-run setup (or turn off everything but Canvas, and Canvas's Google sign-in), and ClassDash never opens a browser at all.
 

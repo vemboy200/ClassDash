@@ -330,15 +330,58 @@ function signInsBody(settings) {
   return `
       <p class="hint">${escapeHtml(t('signInsHint'))}</p>
 ${rows.map(r => {
-    const out = signIns.signedOut(r, status);
     return `      <div class="setting-row" data-sign-in="${escapeHtml(r.id)}">
         <span class="field-name">${escapeHtml(r.name)}</span>
         <span class="field-with-value" data-native-only>
           <button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(r.id)}')">${escapeHtml(t('settingsSetupSignInButton'))}</button>
         </span>
-        <span class="field-hint">${out ? `<b class="sign-in-out">${escapeHtml(t('signInOut'))}</b> · ` : ''}${escapeHtml(t('signInUsedBy', r.usedBy.join(', ')))}</span>
+        <span class="field-hint">${liveSpan(`signin-${r.id}`, signInStateWords(signIns.state(r.id, status)))} · ${escapeHtml(t('signInUsedBy', r.usedBy.join(', ')))}</span>
       </div>`;
   }).join('\n')}`;
+}
+
+/** A sign-in's state as the last checks saw it (64-sign-ins.js state()). */
+function signInStateWords(state) {
+  return state === 'out' ? `<b class="sign-in-out">${escapeHtml(t('signInOut'))}</b>`
+    : state === 'in' ? escapeHtml(t('signInIn')) : escapeHtml(t('signInUnknown'));
+}
+
+/** Every browser sign-in's state, as live pieces (signin-<id>): it changes
+ *  with a check, so it's sent with the data rather than drawn into the page,
+ *  which would have to reload for it. */
+function signInStatePieces() {
+  const signIns = require('./64-sign-ins.js');
+  const ids = new Set(require('./61-services.js').list().flatMap(m => signIns.stepsFor(m).map(st => st.id)));
+  const status = checkStatus();
+  return Object.fromEntries([...ids].map(id => [`signin-${id}`, signInStateWords(signIns.state(id, status))]));
+}
+
+/**
+ * The sign-in step at the top of a service's page: a row for each browser
+ * sign-in it uses (64-sign-ins.js stepsFor), with its state and Sign In….
+ * Added with + Add service, the page starts "setting up" (addService): what
+ * comes after the step (.svc-after-sign-in) stays hidden until Sign In… is
+ * clicked, or "Already signed in" for someone who is.
+ */
+function signInStep(domain) {
+  const bridge = require('./61-services.js');
+  const signIns = require('./64-sign-ins.js');
+  const manifest = bridge.list().find(m => m.domain === domain);
+  const steps = manifest ? signIns.stepsFor(manifest, currentLanguage()) : [];
+  if (!steps.length) return '';
+  const status = checkStatus();
+  return `
+      <div class="svc-sign-in-step">
+        <p class="hint svc-setup-note">${escapeHtml(t('svcSetupSignInFirst'))}</p>
+${steps.map(st => `        <div class="setting-row" data-sign-in-step="${escapeHtml(st.id)}">
+          <span class="field-name">${escapeHtml(t('svcSignInRow', st.name))}</span>
+          <span class="field-with-value">
+            <span data-native-only><button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(st.id)}'); continueSetup(this)">${escapeHtml(t('settingsSetupSignInButton'))}</button></span>
+            <button type="button" class="mini-btn svc-continue" onclick="continueSetup(this)">${escapeHtml(t('svcSignInContinue'))}</button>
+          </span>
+          <span class="field-hint">${liveSpan(`signin-${st.id}`, signInStateWords(signIns.state(st.id, status)))}</span>
+        </div>`).join('\n')}
+      </div>`;
 }
 
 function serviceStatusLines() {
@@ -411,6 +454,7 @@ function dashPieces(updatedAt, now) {
     grades: gradesSection(),
     qStatus: qStatusLine(),
     ...Object.fromEntries(Object.entries(serviceStatusLines()).map(([id, html]) => [`svc-${id}`, html])),
+    ...signInStatePieces(),
   };
 }
 
@@ -1464,6 +1508,7 @@ ${SERVICES.filter(v => !v.custom).map(v => `          <button type="button" clas
     classroom: s.classroomEnabled !== false,
     canvas: s.canvasSsoEnabled !== false || s.canvasApiEnabled !== false,
     canvasApi: s.canvasApiEnabled !== false,
+    canvasSso: s.canvasSsoEnabled !== false,
     // The browser is used by Classroom, Edpuzzle and Canvas's Google sign-in.
     browser: s.classroomEnabled !== false || !!s.edpuzzleEnabled || s.canvasSsoEnabled !== false,
   };
@@ -1478,9 +1523,12 @@ ${SERVICES.filter(v => !v.custom).map(v => `          <button type="button" clas
     { id: 'svc-classroom', parent: 'services', label: 'Google Classroom', body: `
       <p class="hint">${escapeHtml(t('settingsClassroomEnabledHint'))}</p>
       <input type="checkbox" data-bool-key="classroomEnabled"${needs.classroom ? ' checked' : ''} hidden>
+${signInStep('classroom')}
+      <div class="svc-after-sign-in">
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
 ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
-${offButton('classroom')}` },
+${offButton('classroom')}
+      </div>` },
     { id: 'svc-canvas', parent: 'services', label: 'Canvas', body: `
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
 ${toggleRow('canvasSsoEnabled', 'settingsCanvasSsoEnabled', 'settingsCanvasSsoEnabledHint', s.canvasSsoEnabled !== false)}
@@ -1488,17 +1536,22 @@ ${toggleRow('canvasApiEnabled', 'settingsCanvasApiEnabled', 'settingsCanvasApiEn
       <div data-needs="canvasApi"${needs.canvasApi ? '' : ' hidden'}>
 ${field('canvasToken', t('settingsCanvasToken'), s.canvasToken, t('settingsCanvasTokenHint'), true)}
       </div>
+      <div data-needs="canvasSso"${needs.canvasSso ? '' : ' hidden'}>${signInStep('canvas')}
+      </div>
 ${offButton('canvas')}` },
     { id: 'svc-edpuzzle', parent: 'services', label: 'Edpuzzle', body: `
       <p class="hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</p>
       <input type="checkbox" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''} hidden>
-${offButton('edpuzzle')}` },
+${signInStep('edpuzzle')}
+      <div class="svc-after-sign-in">
+${offButton('edpuzzle')}
+      </div>` },
     { id: 'svc-q', parent: 'services', label: 'Aequitas Q', body: `${qSettings(s, field)}
 ${offButton('q')}` },
     // A page for each custom service: what it is and where it lives. It has
     // no settings of its own here; it's turned off by removing its folder.
     ...bridge.list().filter(m => m.custom).map(m => ({ id: `svc-${m.domain}`, parent: 'services', label: bridge.nameOf(m, currentLanguage()), body: `
-      <p class="hint">${escapeHtml(t('svcCustomHint', m.version, `custom_services/${m.domain}`))}</p>${/^https:\/\//.test(m.documentation) ? `
+      <p class="hint">${escapeHtml(t('svcCustomHint', m.version, `custom_services/${m.domain}`))}</p>${signInStep(m.domain)}${/^https:\/\//.test(m.documentation) ? `
       <p class="hint"><a href="${escapeHtml(m.documentation)}" target="_blank" rel="noopener">${escapeHtml(t('svcCustomDocs'))}</a></p>` : ''}` })),
     { id: 'services', label: t('settingsSectionAccount'), desc: t('settingsDescServices'), body: `${servicesBody()}
       <div class="setup-group" data-needs="browser" data-native-only${needs.browser ? '' : ' hidden'}>
@@ -3289,6 +3342,12 @@ ${cardHtml[id]}
   /* Settings → Services: a card per service, like Home Assistant's integrations. */
   .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 12px; }
   .svc-card[hidden], .svc-add-menu[hidden] { display: none; }
+  /* A service's page while it's being set up (addService): the sign-in
+     step first, the rest once it's done. */
+  .svc-setup-note, .svc-continue { display: none; }
+  .svc-setting-up .svc-setup-note { display: block; }
+  .svc-setting-up .svc-continue { display: inline-block; }
+  .svc-setting-up .svc-after-sign-in { display: none; }
   .svc-card {
     display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
     background: var(--bg); color: var(--text); font: inherit; padding: 12px 14px; cursor: pointer;
@@ -5812,14 +5871,26 @@ function setService(id, on) {
   else if (id === 'q') { document.querySelector('[data-key="gradesProvider"]').value = on ? 'q' : 'none'; updateGradesRows(); }
   updateSourceRows();
 }
+// A service added here that signs in through ClassDash's browser asks for
+// that first: its page starts "setting up", with what comes after the
+// sign-in step hidden until Sign In… (or "Already signed in") is clicked.
+// Opened from its card later, the page is all there, the step included.
 function addService(id) {
   toggleAddService(false);
   if (id === 'calendar') { showSettingsSection('calendar'); return; }
   setService(id, true);
+  var section = document.querySelector('[data-section="svc-' + id + '"]');
+  if (section && section.querySelector('.svc-sign-in-step')) section.classList.add('svc-setting-up');
   showSettingsSection('svc-' + id);
+}
+function continueSetup(button) {
+  var section = button.closest('[data-section]');
+  if (section) section.classList.remove('svc-setting-up');
 }
 function removeService(id) {
   setService(id, false);
+  var section = document.querySelector('[data-section="svc-' + id + '"]');
+  if (section) section.classList.remove('svc-setting-up');
   showSettingsSection('services');
 }
 
@@ -5881,6 +5952,7 @@ function updateSourceRows() {
   };
   var needs = {
     canvasApi: on('canvasApiEnabled'),
+    canvasSso: on('canvasSsoEnabled'),
     browser: on('classroomEnabled') || on('edpuzzleEnabled') || on('canvasSsoEnabled')
   };
   var rows = document.querySelectorAll('[data-needs]');
@@ -8389,15 +8461,20 @@ function dashRedrawChoices() {
 function dashApplyPieces() {
   var pieces = dashView.pieces || {};
   for (var name in pieces) {
-    var box = document.querySelector('[data-piece="' + name + '"]');
-    if (!box || box.dashHtml === pieces[name]) continue;
-    // The status panel may be open: it stays open.
-    var panel = name === 'statusPanel' && document.getElementById('check-status-panel');
-    var open = panel && !panel.hidden;
-    box.innerHTML = pieces[name];
-    box.dashHtml = pieces[name];
-    if (open) document.getElementById('check-status-panel').hidden = false;
-    if (name === 'status') showStatusKeyHint();
+    // A piece can show in more than one place (a sign-in's state is on
+    // Settings → Sign-ins and on each service's page that uses it).
+    var boxes = document.querySelectorAll('[data-piece="' + name + '"]');
+    for (var b = 0; b < boxes.length; b++) {
+      var box = boxes[b];
+      if (box.dashHtml === pieces[name]) continue;
+      // The status panel may be open: it stays open.
+      var panel = name === 'statusPanel' && document.getElementById('check-status-panel');
+      var open = panel && !panel.hidden;
+      box.innerHTML = pieces[name];
+      box.dashHtml = pieces[name];
+      if (open) document.getElementById('check-status-panel').hidden = false;
+      if (name === 'status') showStatusKeyHint();
+    }
   }
 }
 

@@ -140,6 +140,41 @@ const field = d => d.querySelector('[data-key="browserPath"]');
   ok(s.d.getElementById('browser-current').textContent === 'Vivaldi' && field(s.d).value.endsWith('Vivaldi'), 'a saved custom path is shown by name');
   s.w.close();
 
+  // + Add service asks for the browser sign-in first (step 3 of sign-ins).
+  render({ language: 'en', classroomEnabled: false, edpuzzleEnabled: false, canvas: '' });
+  s = await open({ bridge: true });
+  {
+    const { w, d } = s;
+    const shownStyle = el => w.getComputedStyle(el).display !== 'none';
+    const page = id => d.querySelector('[data-section="svc-' + id + '"]');
+    w.addService('classroom');
+    const cr = page('classroom');
+    ok(cr.classList.contains('svc-setting-up') && !shownStyle(cr.querySelector('.svc-after-sign-in')), 'adding Classroom: its fields wait for the sign-in');
+    ok(shownStyle(cr.querySelector('.svc-setup-note')) && /Google sign-in/.test(cr.querySelector('[data-sign-in-step="google"]').textContent), 'and says to sign in to Google first');
+    cr.querySelector('[data-sign-in-step="google"] [onclick*="setupSignIn"]').click();
+    const saveAt = s.sent.length - 1;
+    ok(s.sent[saveAt].action === 'config', 'its Sign In… saves Classroom being on first (the sign-in reads it from disk)');
+    s.answer(saveAt, { ok: true });
+    await sleep(50);
+    const last = s.sent[s.sent.length - 1];
+    ok(last && last.action === 'setupSignIn' && last.arg === 'google', 'then opens Google\'s sign-in: ' + (last && last.action + ' ' + last.arg));
+    ok(!cr.classList.contains('svc-setting-up') && shownStyle(cr.querySelector('.svc-after-sign-in')), 'then the rest of its setup shows');
+    w.addService('edpuzzle');
+    const ed = page('edpuzzle');
+    ok(ed.classList.contains('svc-setting-up') && /Edpuzzle sign-in/.test(ed.textContent), 'adding Edpuzzle asks for its own sign-in');
+    ed.querySelector('.svc-continue').click();
+    ok(!ed.classList.contains('svc-setting-up'), '"Already signed in" goes on without opening a window');
+    w.addService('q');
+    ok(!page('q').classList.contains('svc-setting-up'), 'Q, signed into with its own fields, has no sign-in step');
+    const cv = page('canvas');
+    ok(cv.querySelector('[data-needs="canvasSso"] [data-sign-in-step="google"]'), 'Canvas\'s Google sign-in step sits under its Google way');
+    d.querySelector('[data-bool-key="canvasSsoEnabled"]').checked = false; w.updateSourceRows();
+    ok(cv.querySelector('[data-needs="canvasSso"]').hidden, 'and goes away with only the token way on');
+    w.removeService('classroom');
+    ok(!page('classroom').classList.contains('svc-setting-up'), 'turning a service off leaves nothing half set up');
+    s.w.close();
+  }
+
   // Russian
   render({ language: 'ru' });
   const html = fs.readFileSync('summary.html', 'utf8');

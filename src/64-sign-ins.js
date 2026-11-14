@@ -80,21 +80,47 @@ function pagesFor(id, settings) {
 }
 
 /**
- * Whether the last checks found a sign-in signed out, from each service's
- * status (25-check-status.js): Classroom landing on Google's sign-in page,
- * Canvas stuck on its sign-in, Edpuzzle refusing with a 401.
+ * What the last checks say about a sign-in, from the status of the services
+ * that use it (25-check-status.js):
+ *   'out'      one landed on a sign-in page: Classroom on Google's, Canvas
+ *              stuck on its own, Edpuzzle refusing with a 401
+ *   'in'       one that can only be read signed in worked
+ *   'unknown'  neither, yet
+ * Canvas working proves nothing about Google: it may have used its token.
  */
 const SIGNED_OUT = {
   classroom: /cookies expired/,
   canvas: /stuck on sign-in/,
   edpuzzle: /responded 401\b/,
 };
-function signedOut(row, status) {
-  return row.usedBy.length > 0 && Object.entries(SIGNED_OUT).some(([domain, pattern]) => {
-    const s = status[domain];
-    const usesIt = row.id === 'google' ? ['classroom', 'canvas'].includes(domain) : row.id === domain;
-    return usesIt && s && s.status === 'problem' && pattern.test(s.detail || '');
-  });
+const NOT_PROOF = ['canvas'];
+
+/** The services a sign-in is for: every one whose manifest has Google for
+ *  "google", or the service itself for its own sign-in. */
+function domainsFor(id) {
+  return id === 'google' ? services.list().filter(m => m.sign_in.includes('google')).map(m => m.domain) : [id];
 }
 
-module.exports = { list, pagesFor, signedOut, GOOGLE_START };
+function state(id, status) {
+  const domains = domainsFor(id);
+  const s = d => status[d] || {};
+  if (domains.some(d => SIGNED_OUT[d] && s(d).status === 'problem' && SIGNED_OUT[d].test(s(d).detail || ''))) return 'out';
+  if (domains.some(d => !NOT_PROOF.includes(d) && ['ok', 'fallback'].includes(s(d).status))) return 'in';
+  return 'unknown';
+}
+
+/** Whether the last checks found this row's sign-in signed out. */
+const signedOut = (row, status) => state(row.id, status) === 'out';
+
+/**
+ * The sign-ins a service uses, from its manifest, whether or not it's on
+ * yet (its setup asks for them first): [{ id, name }].
+ */
+function stepsFor(manifest, language = 'en') {
+  const out = [];
+  if (manifest.sign_in.includes('google')) out.push({ id: 'google', name: 'Google' });
+  if (manifest.sign_in.includes('browser')) out.push({ id: manifest.domain, name: services.nameOf(manifest, language) });
+  return out;
+}
+
+module.exports = { list, pagesFor, signedOut, state, stepsFor, GOOGLE_START };

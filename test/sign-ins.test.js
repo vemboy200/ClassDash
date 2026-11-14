@@ -43,6 +43,13 @@ const ask = (settings, code) => {
   ok(ask({}, `s.signedOut(s.list(settings)[1], { edpuzzle: { status: 'problem', detail: 'Edpuzzle responded 401 to https://edpuzzle.com/api' } })`) === true, 'Edpuzzle refusing with 401: Edpuzzle is signed out');
 }
 
+{
+  ok(ask({}, `s.state('google', { classroom: { status: 'ok' } })`) === 'in', 'Classroom read fine: Google is signed in');
+  ok(ask({}, `s.state('google', { canvas: { status: 'ok' } })`) === 'unknown', 'Canvas reading fine proves nothing (it may have used its token)');
+  ok(ask({}, `s.state('edpuzzle', {})`) === 'unknown', 'never checked: not known yet');
+  ok(JSON.stringify(ask({}, `s.stepsFor(require('./61-services.js').list().find(m => m.domain === 'canvas'))`)) === '[{"id":"google","name":"Google"}]', 'Canvas\'s setup step is the Google sign-in (its token is a field)');
+}
+
 // --login with a sign-in nothing uses says so and opens no browser.
 {
   const r = cp.spawnSync(process.execPath, ['05-playwright-draft.js', '--login', 'nope'], { cwd: proj, encoding: 'utf8', timeout: 30000 });
