@@ -337,7 +337,7 @@ const DEFAULTS = {
   // class names stay), for when someone's looking over your shoulder.
   // Remembered here so it stays hidden across reloads; the API ignores it.
   gradesHidden: false,
-  // The page's sidebar folded down to its icons (its ☰ button). Remembered
+  // The page's sidebar folded down to its icons (its fold button). Remembered
   // here, like gradesHidden, so a reload doesn't unfold it.
   navCollapsed: false,
   // Cards taken off the dashboard in its edit mode (DASH_CARDS below);

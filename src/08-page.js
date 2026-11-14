@@ -92,6 +92,11 @@ const ICON_API_B64 = readIcon('api-icon.png');
 const ICON_CLASSES_B64 = readIcon('classes-icon.png');
 const ICON_FETCHING_B64 = readIcon('fetching-icon.png');
 const ICON_CALENDAR_B64 = readIcon('calendar-icon.png');
+// The sidebar's fold (three bars and a thin arrow: out to open it, back in
+// to close it) and the user's own sign-in icon for Settings → Sign-ins' row.
+const ICON_NAV_OPEN_B64 = readIcon('nav-open-icon.png');
+const ICON_NAV_CLOSE_B64 = readIcon('nav-close-icon.png');
+const ICON_SIGN_IN_B64 = readIcon('sign-in-icon.png');
 const ICON_SCHEDULE_B64 = readIcon('schedule-icon.png');
 const ICON_DISPLAY_B64 = readIcon('display-icon.png');
 // The connection bar (watchConnection): this computer's monitor, a line, and
@@ -336,7 +341,7 @@ function signInsBody(settings) {
       </div>
 ${rows.map(r => {
     return `      <div class="setting-row" data-sign-in="${escapeHtml(r.id)}">
-        <span class="field-name">${brandIcon(logoOf(r.id))}${escapeHtml(r.name)}</span>
+        <span class="field-name">${brandIcon(logoOf(r.id), r.id)}${escapeHtml(r.name)}</span>
         <span class="field-with-value" data-native-only>
           <button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(r.id)}')">${escapeHtml(t('settingsSetupSignInButton'))}</button>
         </span>
@@ -352,9 +357,13 @@ function logoOf(domain) {
   return m ? bridge.iconOf(m) : null;
 }
 
-/** A service's logo (61-services.js iconOf), or nothing when it has none. */
-function brandIcon(base64) {
-  return base64 ? `<img class="svc-logo" src="data:image/png;base64,${base64}" alt="" aria-hidden="true">` : '';
+/** A service's logo (61-services.js iconOf), or nothing when it has none.
+ *  The calendar isn't a brand: it gets the app's own calendar icon, painted
+ *  in the text's colour like the other pixel icons. */
+const STENCIL_LOGOS = { calendar: 'icon-calendar' };
+function brandIcon(base64, domain) {
+  if (base64) return `<img class="svc-logo" src="data:image/png;base64,${base64}" alt="" aria-hidden="true">`;
+  return STENCIL_LOGOS[domain] ? `<span class="svc-logo pixel-icon ${STENCIL_LOGOS[domain]}" aria-hidden="true"></span>` : '';
 }
 
 /** A sign-in's state as the last checks saw it (64-sign-ins.js state()). */
@@ -1496,7 +1505,7 @@ function settingsPanel() {
   }));
   const badge = ([icon, words]) => `<span class="svc-badge pixel-icon ${icon}" title="${escapeHtml(t(words))}"></span>`;
   const card = v => `        <button type="button" class="svc-card" data-svc-card="${v.id}" onclick="showSettingsSection('${v.opens || 'svc-' + v.id}')"${v.id === 'calendar' && !ics ? ' hidden' : ''}>
-          <span class="svc-head">${brandIcon(v.icon)}<span class="svc-name">${escapeHtml(v.name)}</span></span>
+          <span class="svc-head">${brandIcon(v.icon, v.id)}<span class="svc-name">${escapeHtml(v.name)}</span></span>
           ${liveSpan(`svc-${v.id}`, statusLines[v.id])}
           <span class="svc-badges">${badge(['icon-cloud-polling', 'svcPolling'])}${v.browser ? badge(BADGE[v.browser]) : ''}</span>
         </button>`;
@@ -1505,7 +1514,7 @@ function settingsPanel() {
   const foundBox = !found.length ? '' : `
       <div class="svc-found">
 ${found.map(m => `        <div class="setting-row" data-svc-found="${m.domain}">
-          <span class="field-name">${brandIcon(bridge.iconOf(m))}${escapeHtml(t('svcFound', bridge.nameOf(m, currentLanguage())))}</span>
+          <span class="field-name">${brandIcon(bridge.iconOf(m), m.domain)}${escapeHtml(t('svcFound', bridge.nameOf(m, currentLanguage())))}</span>
           <span class="field-with-value">
             <button type="button" class="mini-btn" onclick="setUpFound('${m.domain}')">${escapeHtml(t('svcFoundSetUp'))}</button>
             <button type="button" class="mini-btn" onclick="ignoreFound(this, '${m.domain}')">${escapeHtml(t('svcFoundIgnore'))}</button>
@@ -1765,7 +1774,7 @@ ${field('passLimitMs', t('settingsPassLimit'), String(s.passLimitMs), t('setting
   const ORDER = ['services', 'sign-ins', 'ai', 'classes', 'schedule', 'calendar', 'grades', 'fetching', 'display', 'sync', 'api', 'advanced'];
   sections.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
-  const ROW_ICONS = { services: 'icon-cloud-filled', 'sign-ins': 'icon-browser', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', sync: 'icon-server', api: 'icon-api', advanced: 'icon-settings' };
+  const ROW_ICONS = { services: 'icon-cloud-filled', 'sign-ins': 'icon-sign-in', ai: 'icon-ai', classes: 'icon-classes', schedule: 'icon-schedule', calendar: 'icon-calendar', grades: 'icon-grades', fetching: 'icon-fetching', display: 'icon-display', sync: 'icon-server', api: 'icon-api', advanced: 'icon-settings' };
   const menuRows = sections.filter(sec => !sec.parent).map(sec =>
     `        <button type="button" class="settings-row" data-open="${sec.id}" onclick="showSettingsSection('${sec.id}')">` +
     `<span class="settings-row-icon${ROW_ICONS[sec.id] ? ' pixel-icon ' + ROW_ICONS[sec.id] : ''}" aria-hidden="true"></span>` +
@@ -1793,7 +1802,7 @@ ${sectionBlocks}
 }
 
 // The sidebar down the left, like Home Assistant's: ClassDash's name with
-// the ☰ that folds it down to its icons, the page's own parts, Settings at
+// the arrow that folds it down to its icons, the page's own parts, Settings at
 // the bottom, and under it Refresh, Fresh check and the check-status cloud
 // (actions: passed in as made for the header they used to sit in, with
 // their ids, so their click handlers and live updates are unchanged).
@@ -1811,7 +1820,7 @@ function appNav(gradesCenter, actions) {
   const collapsed = !!readSettings().navCollapsed;
   return `<nav class="app-nav${collapsed ? ' collapsed' : ''}" id="app-nav" aria-label="${escapeHtml(t('navLabel'))}">
   <div class="nav-head">
-    <button type="button" class="nav-toggle" id="nav-toggle" onclick="toggleNav()" aria-expanded="${!collapsed}" title="${escapeHtml(t(collapsed ? 'navExpand' : 'navCollapse'))}" data-collapse="${escapeHtml(t('navCollapse'))}" data-expand="${escapeHtml(t('navExpand'))}"><span class="nav-burger"></span></button>
+    <button type="button" class="nav-toggle" id="nav-toggle" onclick="toggleNav()" aria-expanded="${!collapsed}" title="${escapeHtml(t(collapsed ? 'navExpand' : 'navCollapse'))}" data-collapse="${escapeHtml(t('navCollapse'))}" data-expand="${escapeHtml(t('navExpand'))}"><span class="nav-fold pixel-icon" aria-hidden="true"></span></button>
     <span class="nav-brand">${escapeHtml(t('title'))}</span>
   </div>
 ${item('dashboard', 'nav-dashboard', t('navDashboard'), ' aria-current="page"')}</button>
@@ -2694,13 +2703,14 @@ ${cardHtml[id]}
   }
   .nav-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .nav-brand { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; }
-  /* ☰: three bars, drawn square so they stay pixel-crisp. */
+  /* The fold: the user's arrows, back in while open, out while folded. */
   .nav-toggle {
     flex: 0 0 36px; height: 32px; padding: 0; border: none; background: none;
     color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
   }
   .nav-toggle:hover { color: var(--text); background: var(--line); }
-  .nav-burger { width: 16px; height: 2px; background: currentColor; box-shadow: 0 -5px 0 currentColor, 0 5px 0 currentColor; }
+  .nav-toggle .nav-fold { width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; -webkit-mask-image: var(--icon-nav-close); mask-image: var(--icon-nav-close); }
+  .app-nav.collapsed .nav-toggle .nav-fold { -webkit-mask-image: var(--icon-nav-open); mask-image: var(--icon-nav-open); }
   /* Refresh, Fresh check and the status cloud: rows like the items above,
      not the framed header buttons they were (the frames are border-images,
      hence border-image: none for each state that sets one). */
@@ -3004,6 +3014,9 @@ ${cardHtml[id]}
     --icon-classes: url("data:image/png;base64,${ICON_CLASSES_B64}");
     --icon-fetching: url("data:image/png;base64,${ICON_FETCHING_B64}");
     --icon-calendar: url("data:image/png;base64,${ICON_CALENDAR_B64}");
+    --icon-nav-open: url("data:image/png;base64,${ICON_NAV_OPEN_B64}");
+    --icon-nav-close: url("data:image/png;base64,${ICON_NAV_CLOSE_B64}");
+    --icon-sign-in: url("data:image/png;base64,${ICON_SIGN_IN_B64}");
     --icon-schedule: url("data:image/png;base64,${ICON_SCHEDULE_B64}");
     --icon-display: url("data:image/png;base64,${ICON_DISPLAY_B64}");
     --icon-server: url("data:image/png;base64,${ICON_SERVER_B64}");
@@ -3369,6 +3382,7 @@ ${cardHtml[id]}
   .icon-classes { -webkit-mask-image: var(--icon-classes); mask-image: var(--icon-classes); }
   .icon-fetching { -webkit-mask-image: var(--icon-fetching); mask-image: var(--icon-fetching); }
   .icon-calendar { -webkit-mask-image: var(--icon-calendar); mask-image: var(--icon-calendar); }
+  .icon-sign-in { -webkit-mask-image: var(--icon-sign-in); mask-image: var(--icon-sign-in); }
   .icon-schedule { -webkit-mask-image: var(--icon-schedule); mask-image: var(--icon-schedule); }
   .icon-display { -webkit-mask-image: var(--icon-display); mask-image: var(--icon-display); }
   .settings-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
@@ -3404,6 +3418,9 @@ ${cardHtml[id]}
   /* A service's own logo, not pixel art: kept smooth at its size. */
   .svc-logo { width: 28px; height: 28px; object-fit: contain; flex: none; image-rendering: auto; }
   .field-name .svc-logo { width: 20px; height: 20px; vertical-align: -4px; margin-right: 8px; }
+  /* A pixel icon as a logo: at its drawn 32 (16 in a row), whole pixels. */
+  .svc-logo.pixel-icon { width: 32px; height: 32px; margin: -2px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
+  .field-name .svc-logo.pixel-icon { width: 16px; height: 16px; margin: 0 10px 0 2px; -webkit-mask-size: 16px 16px; mask-size: 16px 16px; vertical-align: -2px; }
   .svc-status { font-size: 13px; color: var(--dim); }
   .svc-badges { display: flex; gap: 6px; margin-top: 4px; color: var(--dim); }
   /* At their drawn size, like the sidebar's icons. */
@@ -5226,7 +5243,7 @@ function showPage(name) {
   routeApplying = wasApplying;
   syncPages();
 }
-// The ☰: folds the sidebar down to its icons and back. Remembered as a
+// The arrow at the top: folds the sidebar down to its icons and back. Remembered as a
 // setting (navCollapsed), fire-and-forget like the grades' Hide: it's
 // already done on screen.
 function toggleNav() {
@@ -5249,7 +5266,7 @@ function toggleDashEdit(on) {
   button.querySelector('.dash-edit-label').textContent = button.getAttribute(editing ? 'data-done' : 'data-edit');
 }
 // Edit mode's Hide / Show on a card: the card greys out or comes back at
-// once, and dashHidden is remembered, fire-and-forget like the ☰. Hiding
+// once, and dashHidden is remembered, fire-and-forget like the sidebar's fold. Hiding
 // the filters resets them first, so no box left unchecked keeps hiding
 // assignments with nothing to show why. Esc ends edit mode, like Done.
 function dashHiddenNow() {
