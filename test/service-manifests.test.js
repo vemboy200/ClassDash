@@ -140,3 +140,44 @@ ok(bridge.nameOf(all.find(m => m.domain === 'calendar'), 'ru') === 'Календ
   const collector = fs.readFileSync(path.join(T.REPO, 'src', '05-playwright-draft.js'), 'utf8');
   ok(!/SETTINGS\.classroomEnabled !==/.test(collector), 'the check asks the bridge whether Classroom is on');
 }
+
+// Classroom's read(), in a project of its own (it reads and writes classes.json).
+{
+  const proj = T.makeProject({
+    'settings.json': { language: 'en', email: 'a@example.test' },
+    'classes.json': [{ id: 'c1', name: 'Class One' }, { id: 'c2', name: 'Class Two' }],
+  });
+  const script = `
+    const cr = require('./services/classroom/index.js');
+    const settings = require('./19-settings.js').read();
+    const out = {};
+    const run = async (name, extra) => {
+      const seen = { started: null, done: [] };
+      const r = await cr.read({ settings, log: () => {}, previous: [], nonEmptyClasses: new Set(),
+        started: s => { seen.started = s; }, done: p => seen.done.push(p), ...extra });
+      out[name] = { r, seen };
+    };
+    (async () => {
+      console.log = console.error = console.warn = () => {};
+      const broken = new Error('made-up launch failure');
+      await run('noBrowser', { browserFailed: broken, openPage: async () => { throw new Error('not called'); } });
+      let opened = 0;
+      const page = () => { opened++; const no = async () => { throw new Error('made-up page failure'); };
+        return { goto: no, evaluate: no, waitForSelector: no, waitForTimeout: no, url: () => '', close: async () => { opened--; } }; };
+      await run('pagesFail', { browserFailed: null, openPage: async () => page() });
+      out.leftOpen = opened;
+      process.stdout.write(JSON.stringify(out));
+    })();`;
+  const res = require('child_process').spawnSync(process.execPath, ['-e', script], { cwd: proj, encoding: 'utf8' });
+  let out = {};
+  try { out = JSON.parse(res.stdout); } catch { ok(false, 'Classroom read() ran: ' + res.stderr.slice(-400)); }
+  const nb = out.noBrowser || { r: { sources: [], status: {} }, seen: { done: [] } };
+  ok(nb.seen.started && nb.seen.started.map(c => c.id).join() === 'c1,c2', 'no browser: the classes from memory are still announced');
+  ok(nb.r.sources.length === 2 && nb.r.sources.every(p => !p.ok && p.noBrowser) && nb.seen.done.length === 2, 'and each one fails as "no browser", reported as it goes');
+  ok(nb.r.status.ok === false && nb.r.status.detail === 'made-up launch failure', 'Classroom\'s dot says why, not one class\'s name: ' + JSON.stringify(nb.r.status));
+  const pf = out.pagesFail || { r: { sources: [], status: {} } };
+  ok(pf.r.sources.length === 2 && pf.r.sources.every(p => !p.ok && !p.noBrowser && /made-up page failure/.test(p.error)), 'a class whose page fails is that class failing, with its reason');
+  ok(/^Class One: /.test(pf.r.status.detail || ''), 'and the dot names the class: ' + pf.r.status.detail);
+  ok(out.leftOpen === 0, 'every tab it opened is closed again');
+  ok(bridge.result({ sources: [{ id: 'x' }] }).sources.length === 1 && bridge.result({}).sources.length === 0, 'result() passes sources through, empty when left out');
+}

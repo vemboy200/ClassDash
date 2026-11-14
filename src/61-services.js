@@ -121,6 +121,10 @@ function load(domain, dir = SERVICES_DIR) {
  *                  /api/check-status. `fallback` is a yellow dot: it worked,
  *                  but not the way it was set up to (Canvas's token failing
  *                  over to the sign-in).
+ *   sources        optional, for a service read in parts that can fail on
+ *                  their own (Classroom: one per class): [{ id, name, ok,
+ *                  error, items, announcements }]. A part with ok: false keeps
+ *                  its items from memory instead of losing them.
  *
  * A read() that fails throws instead; the check turns that into a red dot.
  */
@@ -133,6 +137,7 @@ function result(raw = {}) {
     grades: list('grades'),
     events: list('events'),
     status: { ok: status.ok !== false, detail: status.detail || null, fallback: !!status.fallback },
+    sources: list('sources'),
   };
 }
 

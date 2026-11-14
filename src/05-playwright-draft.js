@@ -189,7 +189,7 @@ const { writePage, daysUntil, headsUpText } = require('./08-page.js');
 // the only file of it this calls, with CANVAS_BRIDGE (see below).
 const SERVICES = require('./61-services.js');
 const CANVAS = SERVICES.load('canvas');
-const { collectFeed, setFeedEmail } = require('./services/classroom/12-feed.js');
+const { setFeedEmail } = require('./services/classroom/12-feed.js');
 const { t, locale } = require('./18-language.js');
 const SETTINGS = require('./19-settings.js').read();
 
@@ -212,7 +212,7 @@ require('./27-diagnostics-forward.js').install();
 //   3. channel: 'chrome' — if neither of those exist.
 // Details, and why this matters at all, are in 20-browser.js.
 const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-browser.js');
-const { isClassStale, recordActivity } = require('./22-class-activity.js');
+const { recordActivity } = require('./22-class-activity.js');
 const { record: recordCheckStatus } = require('./25-check-status.js');
 const live = require('./28-live-state.js');
 const schoolCalendar = require('./33-school-calendar.js');
@@ -237,11 +237,6 @@ const STREAM_FILE = path.join(PROJECT_ROOT, 'messages.json');
 // to sit down.
 const DIGEST_HOURS = SETTINGS.summaryHours;
 
-// Account index in Google's multi-login.
-// In a normal Chrome the user's school account is the second one (/u/2/),
-// but here the profile is dedicated and has exactly one account, hence 0.
-const U = SETTINGS.account;
-
 // ── The class list ────────────────────────────────────────────
 //
 // Read, along with everything else about reading Classroom, in
@@ -250,8 +245,8 @@ const U = SETTINGS.account;
 // classes changes both.
 const {
   AUTHUSER, EXCLUSIONS, RENAMED, classRenames,
-  detectErrorPage, scrapeClassChecked, readInstructions, readClassroomTeachers,
-  classesNeedingTeacher, saveClassroomTeachers, classesFromMemory, resolveClasses, measureNetwork,
+  detectErrorPage, scrapeClassChecked, readInstructions,
+  classesNeedingTeacher, saveClassroomTeachers, resolveClasses,
   teacherNamesFromPeoplePage, withKnownTeachers, flippedFromTurnedIn, looksMisread, keepTurnedIn,
   TURNED_IN_THRESHOLD, TURNED_IN_LOG, readInstructionsInPage,
 } = require('./services/classroom/15-classroom.js');
@@ -333,34 +328,6 @@ const EDPUZZLE_VISIBLE = SERVICES.list().some(m => m.domain === 'edpuzzle' && m.
 // Caught on August 24th: last successful collection at 6pm, sign-in page
 // after that.
 let COOKIES_EXPIRED = false;
-
-// How long to wait for assignments to show up on a class page.
-//
-// Noted from day one: "Classroom renders in 25-40 seconds". A measurement
-// on August 11th showed otherwise: real classes come back in 3-4 seconds.
-// Probably a browser extension was slowing things down back then, not the
-// site. Margin is kept anyway: the site is slow and can hang.
-const TIMEOUT = SETTINGS.classTimeoutMs;
-
-// A separate, shorter timeout for classes that, as far as memory goes,
-// have NEVER had an assignment. A class like that used to wait out a full
-// minute for nothing every time — and on its own decided how long the
-// whole pass took, since branches run in parallel and the total time
-// equals the slowest one.
-//
-// Measured: AP World 3s, GUSD 4s, Edpuzzle 7s, Canvas 10s,
-//           empty class    61s ← the whole pass rode on this one.
-//
-// It was first set to 30 seconds, then the user rightly pointed out:
-// slowing down every single pass all year for the sake of a class that
-// never got a single assignment is a bad trade. Real classes come back in
-// 3-4 seconds, so eight is plenty of margin.
-//
-// Risk: if that class's first-ever assignment shows up right as the page
-// happens to be slow, it gets missed this time. Not a problem — it'll
-// show up ten minutes later on the next run, and from then on the class
-// counts as non-empty and gets the full minute.
-const EMPTY_TIMEOUT = SETTINGS.emptyTimeoutMs;
 
 // How long a single pass is allowed to run before it's treated as hung
 // and cut off.
@@ -655,48 +622,11 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     return ctx || (lateCtx = lateCtx || await launchForCollection(false, launchOptions));
   };
 
-  // Every class is read AT THE SAME TIME, each in its own tab.
-  //
-  // This used to be a sequential loop, and the total time was the sum:
-  // three classes at 25-60 seconds each is two and a half minutes, a
-  // whole minute of which was one empty class just waiting it out to
-  // honestly say "no assignments".
-  //
-  // Now the total time equals the slowest class, not the sum. The user's idea.
+  // Every source is read AT THE SAME TIME: Classroom (each class in its own
+  // tab, see its read()), Canvas and Edpuzzle. The total time is the slowest
+  // one's, not the sum. The user's idea.
   const startTime = Date.now();
   const completed = [];
-
-  // The network is measured BEFORE the other branches: their timeouts
-  // depend on it. It costs a couple seconds and pays for itself on bad
-  // internet. This whole part is guarded — not because anything here is
-  // especially fragile, but because failing here means never reaching
-  // the browser close, and Chrome with a locked profile folder would
-  // take down EVERY following run.
-  let multiplier = 1;
-  let classes = !CLASSROOM_ENABLED ? []
-    : classesFromMemory().filter(c => !EXCLUSIONS.includes(c.name) && !isClassStale(c.name));
-  // Measuring the network and listing the classes are both Classroom's:
-  // with it off there is no page to open for them.
-  if (CLASSROOM_ENABLED && ctx) try {
-    const probePage = await ctx.newPage();
-    await probePage.goto(CLASSROOM.SITE, { waitUntil: 'domcontentloaded', timeout: 15000 })
-      .catch(() => {});
-    multiplier = await measureNetwork(probePage);
-
-    // The class list is fetched with the same tab — it's already on
-    // Classroom, no reason to open a separate one. Done before the
-    // branches, because without the list it's unknown how many there
-    // will even be.
-    classes = await resolveClasses(probePage);
-    if (require('./services/classroom/15-classroom.js').cookiesHaveExpired()) COOKIES_EXPIRED = true;
-    // A renamed class had assignments under its old name.
-    for (const [old, now] of RENAMED) if (nonEmptyClasses.has(old)) nonEmptyClasses.add(now);
-    try { await probePage.close(); } catch { /* already closed — no big deal */ }
-  } catch (e) {
-    console.warn(`couldn't open a tab to measure (${e.message}) — ` +
-                 `using the class list from memory and timeouts with margin`);
-    multiplier = 4;
-  }
 
   // Every source: Classroom classes plus Canvas as one extra line.
   // Canvas is read via its API and finishes in seconds, so it doesn't add
@@ -715,12 +645,14 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // of an honest "Canvas is off".
   if (!CANVAS_ENABLED) console.log('Canvas is off: no address set in settings, or both ways of reading it are switched off');
 
-  const sources = [...classes,
+  // Classroom's classes are added at the front once its read() has listed
+  // them (started, below).
+  const sources = [
     ...(CANVAS_ENABLED ? [{ id: 'canvas', name: 'Canvas' }] : []),
     ...(withEdpuzzle ? [{ id: 'edpuzzle', name: 'Edpuzzle' }] : [])];
 
-  // Now the total is known: the page's progress bar goes from "starting"
-  // to a real 0 of N. Canvas and Edpuzzle count as a step each, since
+  // The page's progress bar goes from "starting" to a real 0 of N (and N
+  // grows by Classroom's classes once they're listed). Canvas and Edpuzzle count as a step each, since
   // they take real time; the bar is honest about the work, not just about
   // how many classes there are.
   live.setProgress(0, sources.length);
@@ -788,83 +720,36 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     return result;
   })();
 
-  const teacherDue = new Set(classesNeedingTeacher(classes).map(c => c.id));
-  const teachersFound = new Map();
-  // Grades, from each class's "View your work" (44-classroom-grades.js), an
-  // hour apart per class.
-  const classroomGrades = require('./services/classroom/44-classroom-grades.js');
-  const gradesDue = new Set(classroomGrades.classesDue(classes).map(c => c.id));
-  const gradesFound = new Map();
-
   // Last pass's memory, for catching turned-in work that reads as not
-  // turned in (scrapeClassChecked).
+  // turned in, and for the instructions kept between passes.
   let previousItems = [];
   try { previousItems = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
 
-  const classTasks = classes.map(async (cls) => {
-    console.log(`Reading: ${cls.name}`);
-    // A class that's never had an assignment gets less time.
-    //
-    // There was an attempt to always wait the full amount during full
-    // checks (8:00, 18:00, the button) — to cover the start of the school
-    // year, when every class is empty. The user rejected that: a minute
-    // is too expensive, it should always be fast.
-    //
-    // The trade-off is a deliberate one: if a newly-empty class's first
-    // assignment doesn't render in time within 8 seconds, it'll show up
-    // on the next run ten minutes later. The cost is a delay, not a loss.
-    const timeoutMs = (nonEmptyClasses.has(cls.name) ? TIMEOUT : EMPTY_TIMEOUT) * multiplier;
-    let page = null;
-    let result;
+  // Classroom, through the bridge (services/classroom/index.js): it lists the
+  // classes, then reads every one AT THE SAME TIME, each in its own tab, and
+  // reports each class as it finishes. One class failing is that class
+  // failing: its part says so and the rest are read.
+  const classroomTask = !CLASSROOM_ENABLED ? null : (async () => {
+    const asPart = p => ({ cls: { id: p.id, name: p.name }, items: p.items, announcements: p.announcements,
+                           ok: p.ok, error: p.error, noBrowser: p.noBrowser });
+    let parts = [];
     try {
-      page = await newPage();
-      let items = await scrapeClassChecked(page, cls, timeoutMs, previousItems);
-      // Still on the class's Classwork: its instructions, before the feed.
-      try {
-        items = await readInstructions(page, items, previousItems);
-      } catch (e) {
-        console.warn(`  instructions for ${cls.name}: ${e.message}`);
-      }
-
-      // The same class's feed — teacher announcements. Read with the same
-      // tab right after the assignments: no reason to open a separate
-      // one, and it only takes three seconds.
-      let announcements = [];
-      try {
-        announcements = await collectFeed(page, cls, U);
-      } catch (e) {
-        console.warn(`  feed for ${cls.name}: ${e.message}`);
-      }
-
-      if (teacherDue.has(cls.id)) {
-        try {
-          teachersFound.set(cls.id, await readClassroomTeachers(page, cls));
-        } catch (e) {
-          console.warn(`  teachers for ${cls.name}: ${e.message}`);
-        }
-      }
-
-      if (gradesDue.has(cls.id)) {
-        try {
-          gradesFound.set(cls.id, { name: cls.name, entries: await classroomGrades.readClassroomWork(page, cls, { U, timeout: TIMEOUT }) });
-        } catch (e) {
-          console.warn(`  grades for ${cls.name}: ${e.message}`);
-        }
-      }
-
-      result = { cls, items, announcements, ok: true };
+      const r = SERVICES.result(await CLASSROOM.read({
+        ...CLASSROOM_BRIDGE, openPage: newPage, browserFailed: launchFailed, log: console.log,
+        previous: previousItems, nonEmptyClasses,
+        started: classes => { sources.unshift(...classes); live.setProgress(completed.length, sources.length); },
+        done: part => reportProgress(asPart(part)),
+      }));
+      parts = r.sources;
     } catch (e) {
-      if (/cookies expired/.test(e.message)) COOKIES_EXPIRED = true;
-      console.error(`  error on ${cls.name}: ${e.message}`);
-      // ok: false is NOT "the class is empty", it's "the class didn't
-      // load". The difference matters — see diffWithPrevious.
-      result = { cls, items: [], ok: false, error: e.message, noBrowser: e === launchFailed };
-    } finally {
-      if (page) { try { await page.close(); } catch {} }
+      // read() handles each class's failure itself; this is it failing as a
+      // whole, which leaves every class as it was.
+      console.error(`  error on Classroom: ${e.message}`);
     }
-    reportProgress(result);
-    return result;
-  });
+    const cr = require('./services/classroom/15-classroom.js');
+    if (cr.cookiesHaveExpired() || parts.some(p => /cookies expired/.test(p.error || ''))) COOKIES_EXPIRED = true;
+    return parts.map(asPart);
+  })();
 
   // THE BROWSER CLOSES NO MATTER WHAT.
   //
@@ -885,8 +770,8 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
   // stays exactly that — one source failing.
   let results;
   try {
-    results = await Promise.all(
-      [...classTasks, canvasTask, edpuzzleTask].filter(Boolean));
+    results = (await Promise.all(
+      [classroomTask, canvasTask, edpuzzleTask].filter(Boolean))).flat();
   } finally {
     for (const open of [ctx, lateCtx]) {
       try {
@@ -897,19 +782,6 @@ async function collect(onProgress, nonEmptyClasses = new Set(), withEdpuzzle = f
     }
   }
   console.log(`Read in ${Math.round((Date.now() - startTime) / 1000)}s`);
-
-  try {
-    saveClassroomTeachers(teachersFound);
-    if (teachersFound.size) console.log(`Teachers looked up: ${[...teachersFound.values()].join(' | ')}`);
-  } catch (e) {
-    console.warn('failed to save teachers:', e.message);
-  }
-  try {
-    classroomGrades.save(gradesFound);
-    if (gradesFound.size) console.log(`Classroom grades read: ${gradesFound.size} class${gradesFound.size === 1 ? '' : 'es'}`);
-  } catch (e) {
-    console.warn('failed to save Classroom grades:', e.message);
-  }
 
   return {
     all: results.flatMap(r => r.items),

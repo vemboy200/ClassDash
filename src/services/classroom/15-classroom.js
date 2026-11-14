@@ -15,7 +15,9 @@ const { PROJECT_ROOT } = require('../../00-project-root.js');
 const SETTINGS = require('../../19-settings.js').read();
 const { isClassStale } = require('../../22-class-activity.js');
 
-// Account index in Google's multi-login (see the collector's own U).
+// Account index in Google's multi-login.
+// In a normal Chrome the user's school account is the second one (/u/2/),
+// but here the profile is dedicated and has exactly one account, hence 0.
 const U = SETTINGS.account;
 
 // How long to wait for a class's assignments to show up (see the
