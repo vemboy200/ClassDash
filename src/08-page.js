@@ -1441,7 +1441,7 @@ function aiSettings(s, field) {
     const age = p.minAge === 13 ? t('aiAge13', p.company) : id === 'claudecode' ? t('aiAgeClaudeCode') : p.company === 'Anthropic' ? t('aiAgeAnthropic') : t('aiAgeGemini');
     const agree = (p.minAge === 13 ? t('aiAgree13', p.company) : t('aiAgree18', p.company)) + (p.grayZone ? ' ' + t('aiAgreeGrayZone') : '');
     return `          <div class="warn ai-notice">
-${p.grayZone ? `            <p class="ai-gray">${escapeHtml(t('aiGrayZone'))}</p>\n` : ''}            <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
+${p.grayZone ? `            <p class="ai-gray">${escapeHtml(t('aiGrayZone'))}</p>\n` : ''}${p.chatOnly ? `            <p>${escapeHtml(t('aiChatOnly'))}</p>\n` : ''}            <p>${escapeHtml(t('aiCloudPrivacy', p.company))}</p>
 ${p.freeTierTraining ? `            <p>${escapeHtml(t('aiGeminiFreeTier'))}</p>\n` : ''}            <p>${escapeHtml(age)} ${link(p.terms, t('aiTerms'))} · ${link(p.privacy, t('aiPrivacy'))}</p>
             <p>${escapeHtml(t('aiForSomeoneElse'))}</p>
             <label class="check-row ai-agree"><input type="checkbox" data-key="aiAgreed" value="${id}"${agreed.includes(id) ? ' checked' : ''}><span class="label-text">${escapeHtml(agree)}</span></label>

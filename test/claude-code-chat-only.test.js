@@ -28,3 +28,8 @@ ok(/function startAnnouncementScan\(\)[^]{0,300}scanAllowed\(SETTINGS\.aiProvide
 // The scan's picker lists it, but greyed out with the reason.
 const picker = fs.readFileSync(path.join(proj, '51-model-picker.js'), 'utf8');
 ok(/opts\.which === 'scan'[^\n]*chatOnly[^\n]*why: 'chatOnly'/.test(picker) && /mpWhy_chatOnly/.test(picker), 'the announcement picker shows it as chats only');
+
+// Settings → AI: Claude Code's warning note says so too, and only its.
+T.redraw(proj);
+const html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
+ok((html.match(/Chats only: it can&#39;t read announcements|Chats only: it can't read announcements/g) || []).length === 1 && /Consumer Terms \(section 3\)/.test(html), 'Claude Code\'s note in Settings → AI says it\'s chats only, citing the terms');
