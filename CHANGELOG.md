@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Claude (Claude Code) is for chats only:** it can't be picked to read announcements any more, since that runs by itself after each check and Anthropic's terms don't allow automated use of a Claude plan (only with an API key). If it was picked, announcements just aren't read until you pick another AI; the Anthropic API with a key still works for it.
 - **Beta versions:** a switch in Settings → Advanced. Turned on, ClassDash offers test versions before they're released, marked as beta; a newer beta (beta.2 after beta.1) is now offered too.
 - **Repairs and updates in Settings:** like Home Assistant, Settings now starts with what needs you to fix it (a sign-in that ran out, Q turning down the password or wanting a new one, Canvas refusing the access token), each opening where to fix it, and then a newer ClassDash. Its page has the release notes, Install (the app downloads it and asks once more before installing), the release on GitHub, and Skip. The sidebar's Settings shows how many there are. A new version isn't a banner on the dashboard any more.
 - **Settings tried before they're saved:** Canvas's address and access token are tried when you save them, and a calendar link is read first. If they don't work, nothing of Canvas's (or the link) is saved, and Settings says why; the rest of the save still goes through.

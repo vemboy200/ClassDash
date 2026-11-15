@@ -64,6 +64,12 @@
  *              sees the login, like T3 Code, but the requests still use
  *              the person's plan and its rate limits indirectly, through
  *              Claude Code: gray, not clearly against the rules.
+ *              Chats only (chatOnly): never the announcement scan, which
+ *              runs by itself after each check. Anthropic's consumer terms
+ *              don't allow reaching its services "through automated or
+ *              non-human means" except with an API key, so a scan that
+ *              runs unattended on a Claude plan is out; a chat is someone
+ *              typing. The Anthropic API (a key) can still scan.
  *   openai,    their HTTP APIs with the person's own key.
  *   anthropic,
  *   gemini
@@ -93,7 +99,7 @@ const PROVIDERS = {
     terms: 'https://openai.com/policies/terms-of-use/', privacy: 'https://openai.com/policies/privacy-policy/',
   },
   claudecode: {
-    local: false, label: 'Claude (Claude Code)', company: 'Anthropic', minAge: 18, grayZone: true, model: 'haiku',
+    local: false, label: 'Claude (Claude Code)', company: 'Anthropic', minAge: 18, grayZone: true, chatOnly: true, model: 'haiku',
     terms: 'https://www.anthropic.com/legal/consumer-terms', privacy: 'https://www.anthropic.com/legal/privacy',
   },
   openai: {
@@ -133,6 +139,11 @@ function localAddress(raw) {
 }
 
 /** The settings that describe a provider choice, with defaults filled in. */
+/** Whether this AI may do the announcement scan (not a chatOnly one). */
+function scanAllowed(id) {
+  return !!PROVIDERS[id] && !PROVIDERS[id].chatOnly;
+}
+
 function configFrom(settings) {
   const id = settings.aiProvider || 'none';
   const p = PROVIDERS[id];
@@ -1160,7 +1171,7 @@ async function choices(settings = require('./19-settings.js').read(), deps = {})
   const chat = configFrom(chatSettings(settings));
   const one = async id => {
     const p = PROVIDERS[id];
-    const out = { id, label: p.label, local: !!p.local, ok: true, models: [], model: p.model || '' };
+    const out = { id, label: p.label, local: !!p.local, ok: true, models: [], model: p.model || '', ...(p.chatOnly ? { chatOnly: true } : {}) };
     const no = why => ({ ...out, ok: false, why });
     if (id === 'apple') return d.platform !== 'darwin' ? no('mac') : !found.apple ? no('notFound') : found.apple.ok ? out : { ...no('unavailable'), detail: found.apple.why };
     if (id === 'lmstudio' && found.lmstudio) return { ...out, url: found.lmstudio.url, ...await lmstudioModels(found.lmstudio, d) };
@@ -1205,4 +1216,4 @@ async function choices(settings = require('./19-settings.js').read(), deps = {})
   return { providers, current: shown(chat), scan: shown(scan) };
 }
 
-module.exports = { PROVIDERS, PROVIDER_IDS, EFFORTS, effortChoices, effortToSend, newestOf, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect, chatSettings, choices };
+module.exports = { PROVIDERS, PROVIDER_IDS, scanAllowed, EFFORTS, effortChoices, effortToSend, newestOf, localAddress, configFrom, ready, scrub, listModels, findCodex, findClaude, findFoundry, foundryAddress, appBinary, complete, test, detect, chatSettings, choices };

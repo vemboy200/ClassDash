@@ -2309,6 +2309,7 @@ function startBackgroundServices() {
 function startAnnouncementScan() {
   try {
     if (!SETTINGS.aiProvider || SETTINGS.aiProvider === 'none') return;
+    if (!require('./37-ai.js').scanAllowed(SETTINGS.aiProvider)) return;
     const scanner = require('./38-announcement-scan.js');
     if (fs.existsSync(scanner.STATE_FILE) && !scanner.pendingNew().length) return;
     const child = require('child_process').spawn(process.execPath, [path.join(__dirname, '38-announcement-scan.js'), '--new'],

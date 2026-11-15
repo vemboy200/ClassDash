@@ -56,7 +56,7 @@ Which AI is used is picked where it's used, with the same picker: the button und
 
 ## Announcements
 
-The announcement AI finds homework your teachers post as announcements instead of assignments. It's Off until you pick one under **Announcements** → **Read by**.
+The announcement AI finds homework your teachers post as announcements instead of assignments. It's Off until you pick one under **Announcements** → **Read by**. [Claude through Claude Code](ai/claude-code.md#known-limitations) can't be picked here, only for chats: Anthropic's terms don't allow automated use of a Claude plan.
 
 - After each check, new announcements are read, and the homework in them is added to your **Reminders** with its due date, marked "from an announcement" with a link to the post. When the announcement gives no date, it's due at 11:59 PM the night before that class next meets, if the class is in Settings → **Schedule**.
 - Work that's already an assignment or a reminder in that class is skipped: a similar title by plain logic, and the same work worded differently by asking the AI about each pair. Announcements from before you turned AI on are left alone.

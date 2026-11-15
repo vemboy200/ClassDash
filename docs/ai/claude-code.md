@@ -23,7 +23,7 @@ Uses your own Claude plan through Anthropic's Claude Code: the `claude` command,
 
 ## What it can do
 
-- Read announcements for homework, and answer in the AI pane and the Grades center.
+- Answer in the AI pane and the Grades center (not reading announcements: see [Known limitations](#known-limitations)).
 - Look up your assignments, instructions, announcements and PDFs by itself while answering.
 - See images.
 
@@ -37,6 +37,7 @@ Anthropic can also train its models on your Claude Code sessions. To turn that o
 
 ## Known limitations
 
+- **It can't read announcements, only chat.** The announcement AI runs by itself after each check, with nobody asking, and Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) (section 3, "Use of our Services", effective Oct 8, 2025) don't allow accessing its services "through automated or non-human means, whether through a bot, script, or otherwise", except with an Anthropic API key or where Anthropic explicitly allows it. A Claude plan is under those terms, so ClassDash doesn't use Claude Code for it: under **Announcements** → **Read by** it's greyed out, and if you'd picked it before this change, announcements aren't read until you pick another AI. A chat is you typing each question, so it stays. To have Claude read announcements, use the [Anthropic API](anthropic-api.md) with a key, which the terms allow.
 - It uses your plan's limits, shared with your own Claude use.
 - **It may use your 5-hour limit faster than Claude Code does by itself.** ClassDash runs Claude Code headless (`claude -p`), and an open issue, [anthropics/claude-code#97074](https://github.com/anthropics/claude-code/issues/97074), reports that headless use takes roughly 1.8 to 3 times as much of the 5-hour window for the same work. Some think the doubled 5-hour limits Anthropic gave Claude Code in May 2026, after its compute deal with SpaceX, weren't applied to headless use; Anthropic hasn't said. Weekly limits are reported as unaffected. On Ultra this hardly matters: a verified Ultra account has no 5-hour limit at all (an unverified one still has a temporary one), so only the weekly limit counts. ClassDash's default, Haiku, uses the least of your plan.
 

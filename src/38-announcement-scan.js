@@ -488,6 +488,8 @@ async function scanCopy(settings, deps = {}) {
 async function scan({ ids, newOnly } = {}, deps = {}) {
   const settings = deps.settings || require('./19-settings.js').read();
   if (!settings.aiProvider || settings.aiProvider === 'none') return { ok: false, why: 'AI is off' };
+  // Picked before it became chats only (Claude Code): not used here.
+  if (!require('./37-ai.js').scanAllowed(settings.aiProvider)) return { ok: false, why: 'that AI is for chats only' };
   // AI turned on before this existed, so nothing was recorded as known:
   // what's here is the backlog, and only what comes after is new.
   // Before any scan writes the state file, forced ones included: otherwise

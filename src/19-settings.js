@@ -526,6 +526,9 @@ function validate(key, raw) {
   if (kind === 'aiProvider') {
     const id = String(raw).trim();
     if (id !== 'none' && !require('./37-ai.js').PROVIDER_IDS.includes(id)) return { ok: false, why: `no such AI provider: ${id}` };
+    // aiProvider is the announcement scan's, which runs by itself: not one
+    // that's for chats only (Claude Code, 37-ai.js).
+    if (id !== 'none' && !require('./37-ai.js').scanAllowed(id)) return { ok: false, why: `${require('./37-ai.js').PROVIDERS[id].label} is for chats only, it can't read announcements by itself` };
     return { ok: true, value: id };
   }
   if (kind === 'aiEffort') {

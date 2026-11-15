@@ -26,7 +26,7 @@
  */
 const STRING_KEYS = ['mpTitle', 'mpDefault', 'mpMissing', 'mpSearch', 'mpUse', 'mpLooking', 'mpNoModels', 'mpOff', 'mpOffPick',
   'mpEffort', 'mpEffort_off', 'mpEffort_on', 'mpEffort_low', 'mpEffort_medium', 'mpEffort_high',
-  'mpWhy_notFound', 'mpWhy_signedOut', 'mpWhy_key', 'mpWhy_agree', 'mpWhy_mac'];
+  'mpWhy_notFound', 'mpWhy_signedOut', 'mpWhy_key', 'mpWhy_agree', 'mpWhy_mac', 'mpWhy_chatOnly'];
 
 const CSS = `
   .mp-host { position: relative; }
@@ -97,7 +97,11 @@ function modelPicker(host, opts) {
   }
   function load() {
     return Promise.resolve(opts.ask('aiChoices', '')).then(function (r) {
-      if (r && r.ok && r.providers) { data = r; showCurrent(); if (pop) draw(); }
+      if (!(r && r.ok && r.providers)) return;
+      // The announcement scan's picker: a chats-only AI (Claude Code) is
+      // listed but can't be picked, saying why.
+      if (opts.which === 'scan') r.providers = r.providers.map(function (p) { return p.chatOnly ? Object.assign({}, p, { ok: false, why: 'chatOnly' }) : p; });
+      data = r; showCurrent(); if (pop) draw();
     });
   }
   // The models to pick from: its list, or only its default. The one in

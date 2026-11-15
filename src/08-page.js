@@ -267,7 +267,7 @@ function dashboardView(data) {
     });
 
   // With AI on, a scanned announcement carries what the AI did.
-  const aiOn = !!settings.aiProvider && settings.aiProvider !== 'none';
+  const aiOn = !!settings.aiProvider && settings.aiProvider !== 'none' && require('./37-ai.js').scanAllowed(settings.aiProvider);
   const scanned = aiOn ? require('./38-announcement-scan.js').readState().scanned : {};
   const freshPosts = data.freshAnnouncements || new Set();
   const { PHOTO_PATH } = require('./services/classroom/39-announcement-photos.js');
