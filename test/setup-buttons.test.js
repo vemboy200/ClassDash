@@ -162,6 +162,8 @@ const field = d => d.querySelector('[data-key="browserPath"]');
     w.addService('edpuzzle');
     const ed = page('edpuzzle');
     ok(ed.classList.contains('svc-setting-up') && /Edpuzzle sign-in/.test(ed.textContent), 'adding Edpuzzle asks for its own sign-in');
+    const shownAll = el => { for (; el && el !== ed.parentNode; el = el.parentElement) if (el.hidden || !shownStyle(el)) return false; return true; };
+    ok(shownAll(ed.querySelector('.svc-off-row')), 'and Turn off shows before signing in, so a service added by mistake can be taken back');
     ed.querySelector('.svc-continue').click();
     ok(!ed.classList.contains('svc-setting-up'), '"Already signed in" goes on without opening a window');
     w.addService('q');

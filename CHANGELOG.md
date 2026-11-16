@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Turn off shows while a service is being set up:** after + Add service, its page hid Turn off until you signed in, so a service added by mistake couldn't be taken back. Turn off now stays visible.
 - **Fixed pairing through a tunnel:** an address like `classdash.example.com` in Settings → Sync was always tried on port 8734, which a tunnel like Cloudflare's can't pass on, so it said it couldn't reach it. A site's address now uses 443 like a browser, a home address (an IP, a `.local` name) still gets ClassDash's port, a port you type is kept, and if nothing answers it tries the other one. Pairing also gives up after 30 seconds instead of staying on Connecting, and the address hint shows a tunnel's address in full (`https://…`).
 - **Claude (Claude Code) is for chats only:** it can't be picked to read announcements any more, since that runs by itself after each check and Anthropic's terms don't allow automated use of a Claude plan (only with an API key). If it was picked, announcements just aren't read until you pick another AI; the Anthropic API with a key still works for it.
 - **Beta versions:** a switch in Settings → Advanced. Turned on, ClassDash offers test versions before they're released, marked as beta; a newer beta (beta.2 after beta.1) is now offered too.

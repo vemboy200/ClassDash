@@ -389,7 +389,8 @@ function signInStatePieces() {
  * sign-in it uses (64-sign-ins.js stepsFor), with its state and Sign In….
  * Added with + Add service, the page starts "setting up" (addService): what
  * comes after the step (.svc-after-sign-in) stays hidden until Sign In… is
- * clicked, or "Already signed in" for someone who is.
+ * clicked, or "Already signed in" for someone who is. Turn off stays out of it,
+ * so a service added by mistake can be taken back without signing in.
  */
 function signInStep(domain) {
   const bridge = require('./61-services.js');
@@ -1682,8 +1683,8 @@ ${signInStep('classroom')}
       <div class="svc-after-sign-in">
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
 ${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
-${offButton('classroom')}
-      </div>` },
+      </div>
+${offButton('classroom')}` },
     { id: 'svc-canvas', parent: 'services', label: 'Canvas', body: `
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
 ${toggleRow('canvasSsoEnabled', 'settingsCanvasSsoEnabled', 'settingsCanvasSsoEnabledHint', s.canvasSsoEnabled !== false)}
@@ -1698,9 +1699,7 @@ ${offButton('canvas')}` },
       <p class="hint">${escapeHtml(t('settingsEdpuzzleEnabledHint'))}</p>
       <input type="checkbox" data-bool-key="edpuzzleEnabled"${s.edpuzzleEnabled ? ' checked' : ''} hidden>
 ${signInStep('edpuzzle')}
-      <div class="svc-after-sign-in">
-${offButton('edpuzzle')}
-      </div>` },
+${offButton('edpuzzle')}` },
     { id: 'svc-q', parent: 'services', label: 'Aequitas Q', body: `${qSettings(s, field)}
 ${offButton('q')}` },
     // A page for each custom service: what it is and where it lives. It has
