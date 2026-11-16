@@ -343,7 +343,7 @@ function copyIfThere(from, to) {
 // ── Talking to the other computer ──
 
 /** How long pairing waits for the other computer to answer. */
-const REDEEM_TIMEOUT_MS = 15000;
+const REDEEM_TIMEOUT_MS = 30000;
 
 /** A certificate's fingerprint, written the way certFingerprint() writes it. */
 function fingerprintOf(pem) {
