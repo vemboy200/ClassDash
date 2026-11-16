@@ -200,7 +200,9 @@ async function until(what, test, ms = 12000) {
   ok(JSON.parse((await call(followerPort, '/api/sync/role')).body).role === 'follower', 'and a follower says so');
   const manifest = JSON.parse((await call(masterPort, '/api/sync/manifest', bearer)).body);
   ok(!JSON.stringify(manifest).includes('made-up-master-canvas-token'), 'the list has no token in it');
-  ok(!Object.keys(manifest.settings).some(k => /token|key|password|email|canvas$/i.test(k)), 'and no sign-in setting at all', Object.keys(manifest.settings).join());
+  // The school email and Canvas address are shared on purpose (the follower's
+  // Services page sets them on the master); what signs in never is.
+  ok(!Object.keys(manifest.settings).some(k => /token|key|password|username/i.test(k)), 'and no sign-in setting at all', Object.keys(manifest.settings).join());
 
   // ---- a change on the master arrives on its own ----
   fs.appendFileSync(path.join(masterDir, 'скрытые.txt'), 'from-master-1\n');

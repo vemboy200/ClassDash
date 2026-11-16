@@ -50,6 +50,12 @@ const COPIED_FILES = [
 const SHARED_SETTINGS = [
   'exclusions', 'classLinks', 'assignmentLinksSameClass', 'treatUndatedAsUrgent',
   'skipStaleClasses', 'staleMonths', 'hideInactiveClasses', 'showEmptyClasses', 'gradesWeights',
+  // Which services the master checks and the plain settings they're read with,
+  // so a follower's Services page is the master's and can change it. Not the
+  // sign-ins, the Canvas token or Q's username and password: those stay on the
+  // computer that checks (08-page.js greys them out on a follower).
+  'classroomEnabled', 'edpuzzleEnabled', 'canvasSsoEnabled', 'canvasApiEnabled',
+  'email', 'account', 'canvas', 'gradesProvider', 'gradesAddress',
 ];
 
 // How long the follower's last word is believed by other processes. It rewrites

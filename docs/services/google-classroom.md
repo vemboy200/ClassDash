@@ -18,7 +18,7 @@ ClassDash reads Google Classroom the way you see it: it opens each class's pages
 On its page in Settings → Services:
 
 - **School email**: used in assignment links, so they open under your school account. Without it, Google opens a class under your personal account and says "Class not found".
-- **Google account number**: if the browser has more than one Google account signed in, which one to use. Usually 0.
+- **Google account number** (in Settings → Sign-ins, on the Google row): if the browser has more than one Google account signed in, which one to use. Usually 0.
 
 Which classes get read is in Settings → **Classes**.
 
@@ -49,7 +49,7 @@ ClassDash reads the Classroom pages in a browser signed in to your school Google
 ## Troubleshooting
 
 - **Signed out:** Classroom's dot turns yellow and says it's waiting for sign-in, and on a Mac, ClassDash tells you once with a notification ("Google signed you out"), not on every check. Sign in again with **Settings → Sign-ins → Google → Sign In…**. Settings → Sign-ins also shows **Signed out** next to Google.
-- **Links say "Class not found":** fill in your **School email**, and check the **Google account number** if the browser has more than one Google account.
+- **Links say "Class not found":** fill in your **School email**, and check the **Google account number** in Settings → Sign-ins if the browser has more than one Google account.
 - **The status cloud shows Classroom failed:** click the cloud at the bottom of the sidebar to see what went wrong.
 
 ## Turning it off

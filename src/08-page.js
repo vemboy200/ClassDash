@@ -328,14 +328,18 @@ function qStatusLine(s = readSettings()) {
 
 /** Each service card's status line: how it went, and when. Changes with every check. */
 /** Settings → Sign-ins' rows: one per sign-in done in ClassDash's browser. */
-function signInsBody(settings) {
+function signInsBody(settings, field) {
   const signIns = require('./64-sign-ins.js');
   const rows = signIns.list(settings, currentLanguage());
   const status = checkStatus();
   if (!rows.length) return `
       <p class="hint">${escapeHtml(t('signInsNone'))}</p>`;
+  // Which of the browser's Google accounts is the school one: part of the
+  // Google sign-in, not of one service, and a plain setting a follower shares.
+  const account = rows.some(r => r.id === 'google') && field ? `
+${field('account', t('settingsAccount'), String(settings.account), t('settingsAccountHint'))}` : '';
   return `
-      <p class="hint">${escapeHtml(t('signInsHint'))}</p>
+      <p class="hint">${escapeHtml(t('signInsHint'))}</p>${masterOnly(`
       <div class="setting-row">
         <span class="field-name">${escapeHtml(t('signInsLookAgain'))}</span>
         <span class="field-with-value"><button type="button" class="mini-btn" onclick="lookAgain(this)">${escapeHtml(t('signInsLookAgainButton'))}</button></span>
@@ -349,7 +353,7 @@ ${rows.map(r => {
         </span>
         <span class="field-hint">${liveSpan(`signin-${r.id}`, signInStateWords(signIns.state(r.id, status)))} · ${escapeHtml(r.usedBy.length ? t('signInUsedBy', r.usedBy.join(', ')) : t('signInUsedByNone'))}</span>
       </div>`;
-  }).join('\n')}`;
+  }).join('\n')}`)}${account}`;
 }
 
 /** The logo of a service by its domain (none for Google's sign-in row). */
@@ -384,6 +388,28 @@ function signInStatePieces() {
   return Object.fromEntries([...ids].map(id => [`signin-${id}`, signInStateWords(signIns.state(id, status))]));
 }
 
+/** The master's name when this computer follows another (58-sync.js), or ''. */
+function masterName() {
+  const m = require('./58-sync.js').master();
+  return m ? (m.name || '?') : '';
+}
+
+/**
+ * On a follower, what only the computer that checks can do (its browser
+ * sign-ins, the Canvas token, Q's username and password, the browser it uses)
+ * is shown greyed out and can't be used, under a line saying where to do it.
+ * Settings that sync shares (58-sync.js SHARED_SETTINGS) stay editable and are
+ * sent to the master. Anywhere else, the HTML as it is.
+ */
+function masterOnly(html) {
+  const name = masterName();
+  if (!name) return html;
+  return `
+      <p class="hint on-master-note">${escapeHtml(t('onMasterNote', name))}</p>
+      <fieldset class="on-master" disabled>${html}
+      </fieldset>`;
+}
+
 /**
  * The sign-in step at the top of a service's page: a row for each browser
  * sign-in it uses (64-sign-ins.js stepsFor), with its state and Sign In….
@@ -399,7 +425,7 @@ function signInStep(domain) {
   const steps = manifest ? signIns.stepsFor(manifest, currentLanguage()) : [];
   if (!steps.length) return '';
   const status = checkStatus();
-  return `
+  return masterOnly(`
       <div class="svc-sign-in-step">
         <p class="hint svc-setup-note">${escapeHtml(t('svcSetupSignInFirst'))}</p>
 ${steps.map(st => `        <div class="setting-row" data-sign-in-step="${escapeHtml(st.id)}">
@@ -410,7 +436,7 @@ ${steps.map(st => `        <div class="setting-row" data-sign-in-step="${escapeH
           </span>
           <span class="field-hint">${liveSpan(`signin-${st.id}`, signInStateWords(signIns.state(st.id, status)))}</span>
         </div>`).join('\n')}
-      </div>`;
+      </div>`);
 }
 
 function serviceStatusLines() {
@@ -1165,6 +1191,7 @@ function qSettings(s, field) {
       <div data-grades-for="q"${hidden}>
 ${field('gradesAddress', t('gradesAddress'), s.gradesAddress, t('gradesAddressHint'))}
         <p class="field-hint calendar-error" id="grades-bare"${base && base.bare ? '' : ' hidden'}>${escapeHtml(t('gradesAddressBare'))}</p>
+${masterOnly(`
 ${field('gradesUsername', t('gradesUsername'), s.gradesUsername, t('gradesUsernameHint'))}
         <div class="setting-row">
           <span class="field-name">${escapeHtml(t('gradesPassword'))}</span>
@@ -1176,7 +1203,7 @@ ${field('gradesUsername', t('gradesUsername'), s.gradesUsername, t('gradesUserna
             <button type="button" class="mini-btn" onclick="saveGradesPassword(this)">${escapeHtml(t('gradesPasswordSave'))}</button>
           </span>
           <span class="field-hint">${escapeHtml(t(process.platform === 'darwin' ? 'gradesPasswordHintMac' : 'gradesPasswordHintOther'))} <span id="grades-password-status"></span></span>
-        </div>
+        </div>`)}
         <div class="setting-row">
           <span class="field-name">${escapeHtml(t('gradesCheck'))}</span>
           <span class="field-with-value">
@@ -1682,15 +1709,14 @@ ${SERVICES.filter(v => !v.custom).map(v => `          <button type="button" clas
 ${signInStep('classroom')}
       <div class="svc-after-sign-in">
 ${field('email', t('settingsEmail'), s.email, t('settingsEmailHint'), true)}
-${field('account', t('settingsAccount'), String(s.account), t('settingsAccountHint'))}
       </div>
 ${offButton('classroom')}` },
     { id: 'svc-canvas', parent: 'services', label: 'Canvas', body: `
 ${field('canvas', t('settingsCanvas'), s.canvas, t('settingsCanvasHint'), true)}
 ${toggleRow('canvasSsoEnabled', 'settingsCanvasSsoEnabled', 'settingsCanvasSsoEnabledHint', s.canvasSsoEnabled !== false)}
 ${toggleRow('canvasApiEnabled', 'settingsCanvasApiEnabled', 'settingsCanvasApiEnabledHint', s.canvasApiEnabled !== false)}
-      <div data-needs="canvasApi"${needs.canvasApi ? '' : ' hidden'}>
-${field('canvasToken', t('settingsCanvasToken'), s.canvasToken, t('settingsCanvasTokenHint'), true)}
+      <div data-needs="canvasApi"${needs.canvasApi ? '' : ' hidden'}>${masterOnly(`
+${field('canvasToken', t('settingsCanvasToken'), s.canvasToken, t('settingsCanvasTokenHint'), true)}`)}
       </div>
       <div data-needs="canvasSso"${needs.canvasSso ? '' : ' hidden'}>${signInStep('canvas')}
       </div>
@@ -1709,20 +1735,20 @@ ${offButton('q')}` },
       <p class="hint"><a href="${escapeHtml(m.documentation)}" target="_blank" rel="noopener">${escapeHtml(t('svcCustomDocs'))}</a></p>` : ''}` })),
     { id: 'services', label: t('settingsSectionAccount'), desc: t('settingsDescServices'), body: `${servicesBody()}
       <div class="setup-group" data-needs="browser" data-native-only${needs.browser ? '' : ' hidden'}>
-        <div class="settings-subhead">${escapeHtml(t('settingsSetup'))}</div>
+        <div class="settings-subhead">${escapeHtml(t('settingsSetup'))}</div>${masterOnly(`
         <div class="setting-row">
           <span class="field-name">${escapeHtml(t('settingsSetupBrowser'))}</span>
           <span class="field-with-value">
             <button type="button" class="mini-btn" onclick="setupBrowser()">${escapeHtml(t('settingsSetupBrowserButton'))}</button>
           </span>
           <span class="field-hint">${escapeHtml(t('settingsSetupBrowserNow'))}: <b id="browser-current">${escapeHtml(browserLabelFor(s.browserPath))}</b>. ${escapeHtml(t('settingsSetupBrowserHint'))}</span>
-        </div>
+        </div>`)}
       </div>` },
     // Settings → Sign-ins: each sign-in done in ClassDash's browser
     // (64-sign-ins.js), with what uses it and a Sign in button that opens
     // only its pages. The button drives a native window, so it's only there
     // inside the app.
-    { id: 'sign-ins', label: t('settingsSectionSignIns'), desc: t('settingsDescSignIns'), body: signInsBody(s) },
+    { id: 'sign-ins', label: t('settingsSectionSignIns'), desc: t('settingsDescSignIns'), body: signInsBody(s, field) },
     { id: 'display', label: t('settingsSectionDisplay'), desc: t('settingsDescDisplay'), body: `
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsLanguage'))}</span>
@@ -3542,6 +3568,8 @@ ${cardHtml[id]}
   .svc-setting-up .svc-setup-note { display: block; }
   .svc-setting-up .svc-continue { display: inline-block; }
   .svc-setting-up .svc-after-sign-in { display: none; }
+  fieldset.on-master { border: 0; padding: 0; margin: 0; min-width: 0; opacity: 0.5; }
+  fieldset.on-master button, fieldset.on-master input, fieldset.on-master select { cursor: not-allowed; }
   .svc-card {
     display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left;
     background: var(--bg); color: var(--text); font: inherit; padding: 12px 14px; cursor: pointer;
@@ -6110,7 +6138,9 @@ function addService(id) {
   if (id === 'calendar') { showSettingsSection('calendar'); return; }
   setService(id, true);
   var section = document.querySelector('[data-section="svc-' + id + '"]');
-  if (section && section.querySelector('.svc-sign-in-step')) section.classList.add('svc-setting-up');
+  // On a follower the sign-in is the master's to do, so nothing waits for it.
+  var step = section && section.querySelector('.svc-sign-in-step');
+  if (step && !step.closest('.on-master')) section.classList.add('svc-setting-up');
   showSettingsSection('svc-' + id);
 }
 // A service found after a sign-in: set up like + Add service, minus the
