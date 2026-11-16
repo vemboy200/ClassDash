@@ -342,21 +342,44 @@ function copyIfThere(from, to) {
 
 // ── Talking to the other computer ──
 
+/** How long pairing waits for the other computer to answer. */
+const REDEEM_TIMEOUT_MS = 15000;
+
 /** A certificate's fingerprint, written the way certFingerprint() writes it. */
 function fingerprintOf(pem) {
   const der = new crypto.X509Certificate(pem).raw;
   return crypto.createHash('sha256').update(der).digest('hex').replace(/(.{2})(?=.)/g, '$1:').toUpperCase();
 }
 
-/** Tidies an address someone typed: https only, and no path. Null if it isn't one. */
-function cleanUrl(given, defaultPort) {
+/** Whether a typed address says its port (":443" included, which URL drops). */
+function hasPort(given) {
+  let text = String(given || '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = 'https://' + text;
+  return /^[a-z][a-z0-9+.-]*:\/\/(\[[^\]]*\]|[^/:?#@]*):\d+/i.test(text);
+}
+
+/** Whether a host is on the home network: an IP, a .local/.lan/.home/.internal
+ *  name, or one word. Anything else is a site, like a tunnel's, on 443. */
+function homeHost(hostname) {
+  const h = String(hostname || '').replace(/^\[|\]$/g, '');
+  return require('net').isIP(h) !== 0 || !h.includes('.') || /\.(local|lan|home|internal|home\.arpa)$/i.test(h);
+}
+
+/**
+ * Tidies an address someone typed: https only, and no path. Null if it isn't
+ * one. With no port typed, a home address gets defaultPort (the server's own)
+ * and a site keeps https's 443: a tunnel like Cloudflare's only answers there.
+ * `other` gives the other of the two instead, to try when the first can't be
+ * reached.
+ */
+function cleanUrl(given, defaultPort, { other = false } = {}) {
   let text = String(given || '').trim();
   if (!text) return null;
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = 'https://' + text;
   let url;
   try { url = new URL(text); } catch { return null; }
   if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return null;
-  if (!url.port && defaultPort) url.port = String(defaultPort);
+  if (defaultPort && !hasPort(given) && homeHost(url.hostname) !== other) url.port = String(defaultPort);
   return url.origin;
 }
 
@@ -449,6 +472,8 @@ function redeem(url, code, name) {
       });
     });
     req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error('timed out')));
+    // Nothing answering (a port a tunnel drops) would otherwise wait forever.
+    req.setTimeout(REDEEM_TIMEOUT_MS, () => req.destroy(Object.assign(new Error('nothing answered'), { why: 'unreachable' })));
     req.on('error', e => reject(Object.assign(e, { why: e.why || 'unreachable' })));
     req.write(payload);
     req.end();
@@ -575,7 +600,7 @@ module.exports = {
   SYNC_FILE, STATUS_FILE, QUEUE_FILE, PROPOSAL_FILE, ASIDE_DIR, COPIED_FILES, SHARED_SETTINGS, STATUS_EVERY_MS,
   readSync, writeSync, master, isFollowing, role, readStatus, writeStatus, isConnected, checksHeldBack,
   accountKey, sameAccount, facts, manifest, isCopied, isWatched, applyManifest, setAside, restoreAside,
-  fingerprintOf, cleanUrl, tlsOptions, request, requestJson, redeem, leave,
+  fingerprintOf, cleanUrl, hasPort, tlsOptions, request, requestJson, redeem, leave,
   isCheckingHere, readProposal, writeProposal, clearProposal,
   RUNS_ON_MASTER, LOCAL_TOO, FORWARDED, isThroughMaster, queue, enqueue, forward, replayQueue, sharedConfigChange,
 };

@@ -402,14 +402,24 @@ async function syncPair(action, arg) {
   const given = decodeArg(arg) || {};
   if (sync.isFollowing()) return { ok: false, action, why: 'alreadyFollowing' };
   if (security.listDevices().some(d => d.follower)) return { ok: false, action, why: 'hasFollowers' };
-  const url = sync.cleanUrl(given.url, require('./19-settings.js').read().apiPort);
+  const port = require('./19-settings.js').read().apiPort;
+  let url = sync.cleanUrl(given.url, port);
   if (!url) return { ok: false, action, why: 'badAddress' };
   const me = sync.facts();
   let paired;
   try {
     paired = await sync.redeem(url, given.code, me.name);
   } catch (e) {
-    return { ok: false, action, why: e.why || 'unreachable' };
+    // No port typed and nothing there: the same address on the other port
+    // (the server's own, or a tunnel's 443).
+    const other = (e.why || 'unreachable') === 'unreachable' && !sync.hasPort(given.url) && sync.cleanUrl(given.url, port, { other: true });
+    if (!other || other === url) return { ok: false, action, why: e.why || 'unreachable' };
+    try {
+      paired = await sync.redeem(other, given.code, me.name);
+      url = other;
+    } catch (e2) {
+      return { ok: false, action, why: e2.why || 'unreachable' };
+    }
   }
   if (paired.fp === me.fingerprint) {
     // It just made itself a key; that key has nothing to do.

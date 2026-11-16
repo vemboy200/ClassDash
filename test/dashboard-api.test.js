@@ -111,7 +111,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < 100 && page.events.length === heardBefore; i++) await sleep(10);
   const heard = Date.now() - clicked;
   ok('...and the page hears quickly', page.events.length > heardBefore && heard < 400, `${heard} ms`);
-  const moved = page.events.slice(heardBefore).find(e => e.data.lists && e.data.lists.overdue);
+  // Something else can reach the page first on a slow machine (CI's macOS),
+  // so wait a little longer for the card's own change.
+  const findMoved = () => page.events.slice(heardBefore).find(e => e.data && e.data.lists && e.data.lists.overdue);
+  for (let i = 0; i < 200 && !findMoved(); i++) await sleep(10);
+  const moved = findMoved();
   ok('...with the card marked', !!moved && moved.data.lists.overdue.set.some(x => x.id === 'o1' && x.hidden));
   for (let i = 0; i < 40 && fs.statSync('summary.html').mtimeMs === diskBefore; i++) await sleep(100);
   ok('...and the copy on disk catches up', fs.statSync('summary.html').mtimeMs !== diskBefore);
