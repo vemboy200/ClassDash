@@ -56,6 +56,11 @@ const SHARED_SETTINGS = [
   // computer that checks (08-page.js greys them out on a follower).
   'classroomEnabled', 'edpuzzleEnabled', 'canvasSsoEnabled', 'canvasApiEnabled',
   'email', 'account', 'canvas', 'gradesProvider', 'gradesAddress',
+  // How the master's checks run (when by themselves, how long they wait on a
+  // page, how many photos they keep) and what they notify about, and which
+  // dashboard cards are hidden, which are the person's, not the screen's.
+  'announcementPhotos', 'freshCheckAwakeMinutes', 'freshCheckAsleepMinutes', 'freshCheckOnlyWhenCharging',
+  'classTimeoutMs', 'emptyTimeoutMs', 'passLimitMs', 'summaryHours', 'gradeAlerts', 'dashHidden',
 ];
 
 // How long the follower's last word is believed by other processes. It rewrites

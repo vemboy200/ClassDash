@@ -33,11 +33,12 @@ const greyed = el => !!el && !!el.closest('fieldset.on-master') && el.closest('f
 (async () => {
   // ── What sync shares ──
   const sync = require(path.join(PROJ, '58-sync.js'));
-  for (const key of ['classroomEnabled', 'edpuzzleEnabled', 'canvasSsoEnabled', 'canvasApiEnabled', 'email', 'account', 'canvas', 'gradesProvider', 'gradesAddress']) {
+  for (const key of ['classroomEnabled', 'edpuzzleEnabled', 'canvasSsoEnabled', 'canvasApiEnabled', 'email', 'account', 'canvas', 'gradesProvider', 'gradesAddress',
+    'announcementPhotos', 'freshCheckAwakeMinutes', 'freshCheckAsleepMinutes', 'freshCheckOnlyWhenCharging', 'classTimeoutMs', 'emptyTimeoutMs', 'passLimitMs', 'summaryHours', 'gradeAlerts', 'dashHidden']) {
     if (!sync.SHARED_SETTINGS.includes(key)) ok(false, `${key} is shared`);
   }
   ok(sync.SHARED_SETTINGS.includes('edpuzzleEnabled') && sync.SHARED_SETTINGS.includes('account'), 'which services are on, and their plain settings, are shared with the master');
-  ok(!['canvasToken', 'gradesUsername', 'browserPath'].some(k => sync.SHARED_SETTINGS.includes(k)), 'the Canvas token, Q\'s username and the browser are not');
+  ok(!['canvasToken', 'gradesUsername', 'browserPath', 'language', 'gradesHidden', 'navCollapsed', 'aiChatProvider', 'aiOpenaiKey', 'apiPort'].some(k => sync.SHARED_SETTINGS.includes(k)), 'logins, keys, the language, hidden grades, the chat AI and the computer\'s own settings are not');
 
   // ── Not following: everything as before ──
   let html = render();
