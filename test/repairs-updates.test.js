@@ -35,8 +35,8 @@ fs.writeFileSync(path.join(proj, 'update-status.json'), JSON.stringify({ current
 T.redraw(proj);
 let html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
 const menu = html.slice(html.indexOf('id="settings-menu"'), html.indexOf('data-open="services"'));
-ok(/1 repair/.test(menu) && /data-repair="signedOut:google"[^>]*showSettingsSection\('sign-ins'\)/.test(menu) && /Sign-in expired for Google/.test(menu) && /stops Google Classroom/.test(menu),
-  'Settings starts with "1 repair": Sign-in expired for Google, stops Google Classroom, opening Sign-ins');
+ok(/1 repair/.test(menu) && /data-repair="signedOut:google"[^>]*showSettingsSection\('sign-ins'\)/.test(menu) && /Sign-in failed for Google/.test(menu) && /stops Google Classroom/.test(menu),
+  'Settings starts with "1 repair": Sign-in failed for Google, stops Google Classroom, opening Sign-ins');
 ok(/1 update/.test(menu) && /v3\.1\.0/.test(menu) && /you have v3\.0\.0/.test(menu) && /data-update="3\.1\.0"[^>]*showSettingsSection\('update'\)/.test(menu),
   'then "1 update": ClassDash v3.1.0, opening its own page');
 const page = html.slice(html.indexOf('data-section="update"'), html.indexOf('data-section="advanced"'));

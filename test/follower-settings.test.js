@@ -48,6 +48,7 @@ const greyed = el => !!el && !!el.closest('fieldset.on-master') && el.closest('f
   ok(!!acct && !acct.disabled, 'it\'s under Sign-ins, with the Google sign-in');
   w.addService('edpuzzle');
   ok(section(d, 'svc-edpuzzle').classList.contains('svc-setting-up'), 'adding a service still waits for its sign-in');
+  ok(!!d.getElementById('ai-scan-pick') && !greyed(d.querySelector('[data-bool-key="aiSkipClasswork"]')), 'the announcement scan\'s AI can be picked');
   w.close();
 
   // ── Following a master called "Mac" ──
@@ -68,6 +69,8 @@ const greyed = el => !!el && !!el.closest('fieldset.on-master') && el.closest('f
   ok(greyed(section(d, 'svc-q').querySelector('[data-key="gradesUsername"]')) && greyed(d.getElementById('grades-password')), 'Q: username and password are greyed out');
   ok(!greyed(section(d, 'svc-q').querySelector('[data-key="gradesAddress"]')) && !greyed(section(d, 'svc-q').querySelector('[onclick*="checkGradesNow"]')), '...its address and Check now aren\'t (a check runs on the master)');
   ok(greyed(d.querySelector('[onclick="setupBrowser()"]')), 'the browser choice is greyed out');
+  ok(!d.getElementById('ai-scan-pick') && greyed(d.querySelector('[data-bool-key="aiSkipClasswork"]')) && greyed(d.querySelector('[data-key="aiScanMinFreeGb"]')), 'the announcement scan: no AI picker (it would list this computer\'s), and its settings greyed out');
+  ok(/Mac reads the announcements, so their AI is set up there\./.test(html), '...saying the master reads them');
   w.addService('edpuzzle');
   const ed = section(d, 'svc-edpuzzle');
   ok(!ed.classList.contains('svc-setting-up') && ed.querySelector('.svc-off-row') && !greyed(ed.querySelector('.svc-off-row button')), 'adding a service doesn\'t wait for a sign-in only the master can do, and Turn off works');

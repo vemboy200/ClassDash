@@ -401,11 +401,11 @@ function masterName() {
  * Settings that sync shares (58-sync.js SHARED_SETTINGS) stay editable and are
  * sent to the master. Anywhere else, the HTML as it is.
  */
-function masterOnly(html) {
+function masterOnly(html, noteKey = 'onMasterNote') {
   const name = masterName();
   if (!name) return html;
   return `
-      <p class="hint on-master-note">${escapeHtml(t('onMasterNote', name))}</p>
+      <p class="hint on-master-note">${escapeHtml(t(noteKey, name))}</p>
       <fieldset class="on-master" disabled>${html}
       </fieldset>`;
 }
@@ -1537,11 +1537,11 @@ function aiScanSection() {
   const s = readSettings();
   return `      <div id="ai-scan">
         <div class="settings-subhead">${escapeHtml(t('aiScanTitle'))}</div>
-        <p class="field-hint">${escapeHtml(t('aiScanHint'))}</p>
+        <p class="field-hint">${escapeHtml(t('aiScanHint'))}</p>${masterOnly(`${masterName() ? '' : `
         <div class="setting-row wide">
           <span class="field-name">${escapeHtml(t('aiScanWith'))}</span>
           <div id="ai-scan-pick"></div>
-        </div>
+        </div>`}
         <label class="setting-row">
           <span class="field-name">${escapeHtml(t('aiSkipClasswork'))}</span>
           <input type="checkbox" class="toggle" data-bool-key="aiSkipClasswork"${s.aiSkipClasswork ? ' checked' : ''}>
@@ -1556,7 +1556,7 @@ function aiScanSection() {
           <span class="field-name">${escapeHtml(t('aiScanMinFreeGb'))}</span>
           <input type="text" data-key="aiScanMinFreeGb" value="${escapeHtml(String(s.aiScanMinFreeGb))}">
           <span class="field-hint">${escapeHtml(t('aiScanMinFreeGbHint'))}</span>
-        </label>
+        </label>`, 'onMasterScanNote')}
       </div>`;
 }
 
@@ -6402,12 +6402,13 @@ function refreshAiStates(again) {
   var look = document.getElementById('ai-look');
   found.textContent = WORDS.aiLooking;
   look.disabled = true;
-  if (!aiScanPicker) {
-    aiScanPicker = modelPicker(document.getElementById('ai-scan-pick'), {
+  var scanSlot = document.getElementById('ai-scan-pick');
+  if (!aiScanPicker && scanSlot) {
+    aiScanPicker = modelPicker(scanSlot, {
       words: WORDS, which: 'scan', off: true, down: true,
       ask: function (action, arg) { return action === 'aiChoices' ? askAiChoices() : new Promise(function (done) { dispatchAction(action, arg, done); }); },
     });
-  } else if (again) aiScanPicker.reload();
+  } else if (again && aiScanPicker) aiScanPicker.reload();
   askAiChoices().then(function (r) {
     look.disabled = false;
     found.textContent = '';
