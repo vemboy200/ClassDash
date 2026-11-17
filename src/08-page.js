@@ -1824,7 +1824,7 @@ ${classLinksField(s.classLinks)}
           : `<span class="api-status">${escapeHtml(t('settingsApiNotRunning'))}</span>`}</p>
       <label class="setting-row">
         <span class="field-name">${escapeHtml(t('settingsApiLan'))}</span>
-        <input type="checkbox" class="toggle" data-bool-key="apiLan" data-app-only${s.apiLan ? ' checked' : ''}>
+        <input type="checkbox" class="toggle" data-bool-key="apiLan" data-app-only data-followers="${require('./23-api-security.js').listDevices().filter(d => d.follower).length}"${s.apiLan ? ' checked' : ''}>
         <span class="field-hint">${escapeHtml(t('settingsApiLanHint'))}</span>
       </label>
       <p class="hint" data-app-only-note hidden>${escapeHtml(t('settingsApiAppOnly'))}</p>
@@ -3716,6 +3716,8 @@ ${cardHtml[id]}
     flex-wrap: wrap;
   }
   .settings-actions:not(:has(#settings-result:not(:empty))) { display: none; }
+  /* Each change saves by itself (autoSave), so its Saved stays in sight. */
+  .settings-actions { position: sticky; bottom: 0; background: var(--bg); padding: 6px 0; }
   #settings-result { color: var(--dim); font-size: 12px; }
   /* Collapsible class list. */
   .class-picker {
@@ -4468,6 +4470,10 @@ const WORDS = ${JSON.stringify({
   monthWord: t('monthWord'),
   monthsWord: t('monthsWord'),
   confirmRollToken: t('confirmRollToken'),
+  confirmLanOff: t('confirmLanOff'),
+  confirmLanOffNow: t('confirmLanOffNow'),
+  confirmLanOffFollowers: t('confirmLanOffFollowers'),
+  confirmMcpGrades: t('confirmMcpGrades'),
   confirmRollTokenHint: t('confirmRollTokenHint'),
   copied: t('settingsCopied'),
   confirmDeleteReminder: t('confirmDeleteReminder'),
@@ -6128,6 +6134,7 @@ function setService(id, on) {
   else if (id === 'edpuzzle') box('edpuzzleEnabled');
   else if (id === 'q') { document.querySelector('[data-key="gradesProvider"]').value = on ? 'q' : 'none'; updateGradesRows(); }
   updateSourceRows();
+  autoSave();
 }
 // A service added here that signs in through ClassDash's browser asks for
 // that first: its page starts "setting up", with what comes after the
@@ -7699,7 +7706,7 @@ function settingsDirty() {
 }
 
 // Where save progress shows. The panel's own line while it's open; once
-// it's closed (closing is what saves) that line can't be seen, so the gear
+// it's closed (closing saves what a change didn't) that line can't be seen, so the gear
 // button grows to say it instead. If the page is scrolled so the gear is
 // out of view, it's scrolled back in: a message nobody can see might as
 // well not exist, and the panel that was just closed sat right below it.
@@ -7738,10 +7745,61 @@ function reopenSettingsWith(message) {
   announceSettings(message);
 }
 
+// Settings save as they change, like Home Assistant's: a switch or a pick
+// at once, a typed field when it's left or Enter is pressed (its change
+// event). The page isn't reloaded for it: what a save changes elsewhere
+// (Repairs, a service's status) comes over the stream, and the page reloads
+// itself once Settings is closed if it needs to. Leaving Settings still
+// saves anything a change event missed (a value set by a script).
+var autoSaveTimer = null;
+var autoSaveClear = null;
+function autoSave() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(function () { if (settingsDirty()) saveSettings(null, { stay: true }); }, 300);
+}
+document.addEventListener('change', function (e) {
+  var panel = document.getElementById('settings-panel');
+  var el = e.target;
+  if (!panel || !el || !el.matches || !panel.contains(el)) return;
+  if (!el.matches('[data-key], [data-bool-key]')) return;
+  // Greyed out on a follower: the master's to change.
+  if (el.closest('fieldset.on-master')) return;
+  if (!confirmRiskyChange(el)) return;
+  autoSave();
+});
+
+// The two changes worth a second look now that each one saves at once.
+// Answers whether to go ahead; a no puts the switch back.
+function confirmRiskyChange(el) {
+  var key = el.getAttribute('data-bool-key');
+  // Network access off cuts off everything reaching this server from
+  // elsewhere (a tunnel included), and it can only be turned back on here.
+  // Asked only when that's someone: connected now, or a computer following.
+  if (key === 'apiLan' && !el.checked) {
+    var c = lastClientCounts;
+    var names = [];
+    if (c && c.list) for (var i = 0; i < c.list.length; i++) {
+      var n = c.list[i].name || c.list[i].kind;
+      if (names.indexOf(n) === -1) names.push(n);
+    }
+    var followers = Number(el.getAttribute('data-followers')) || 0;
+    if (names.length || followers) {
+      var text = WORDS.confirmLanOff + (names.length ? '\\n\\n' + WORDS.confirmLanOffNow + ' ' + names.join(', ') : '') + (followers && !(c && c.followers) ? '\\n\\n' + WORDS.confirmLanOffFollowers : '');
+      if (!confirm(text)) { el.checked = true; return false; }
+    }
+  }
+  // Grades to AI apps outside ClassDash: on purpose only.
+  if (key === 'aiMcpGrades' && el.checked && !confirm(WORDS.confirmMcpGrades)) { el.checked = false; return false; }
+  return true;
+}
+
 // "then", if given, runs once a save has actually been accepted — for a
 // button that needs the settings on disk before it does its own thing (Sign
 // In needs the current sources, not the ones from before this panel was open).
-function saveSettings(then) {
+// opts.stay: a save while Settings is open (autoSave), which doesn't reload
+// the page and says how it went in the panel's own line.
+function saveSettings(then, opts) {
+  var stay = !!(opts && opts.stay);
   var sent = JSON.stringify(collectSettings());
   var encoded = toBase64Url(sent);
 
@@ -7761,10 +7819,12 @@ function saveSettings(then) {
   if (canAct()) {
     announceSettings(WORDS.saving);
     dispatchAction('config', encoded, function (res) {
+      clearTimeout(autoSaveClear);
       if (!res || !res.ok) {
         var why = res && (res.why ||
           (res.rejected && res.rejected.length && res.rejected.join('; ')));
-        reopenSettingsWith(WORDS.saveFailed + (why ? ': ' + why : ''));
+        if (stay) announceSettings(WORDS.saveFailed + (why ? ': ' + why : ''));
+        else reopenSettingsWith(WORDS.saveFailed + (why ? ': ' + why : ''));
         return;
       }
       // Accepted, but some fields refused (a fresh-check interval under
@@ -7773,12 +7833,17 @@ function saveSettings(then) {
       // throw away what was typed. The baseline stays put, so closing
       // again tries once more.
       if (res.rejected && res.rejected.length) {
-        reopenSettingsWith(WORDS.saveFailed + ': ' + res.rejected.join('; '));
+        if (stay) announceSettings(WORDS.saveFailed + ': ' + res.rejected.join('; '));
+        else reopenSettingsWith(WORDS.saveFailed + ': ' + res.rejected.join('; '));
         return;
       }
       settingsBaseline = sent;
       announceSettings(WORDS.saved);
       if (typeof then === 'function') then();
+      if (stay) {
+        autoSaveClear = setTimeout(function () { var r = document.getElementById('settings-result'); if (r && r.textContent === WORDS.saved) r.textContent = ''; }, 2000);
+        return;
+      }
       // The config action only ever redraws now (a browser is never
       // launched by a save), which finishes in well under a second.
       setTimeout(function () { location.reload(); }, 1500);
@@ -7792,7 +7857,7 @@ function saveSettings(then) {
   settingsBaseline = sent;
   announceSettings(WORDS.saved);
   dispatchAction('config', encoded);
-  setTimeout(function () { location.reload(); }, 3000);
+  if (!stay) setTimeout(function () { location.reload(); }, 3000);
 }
 
 // Remembers the filter panel across refreshes — the two view toggles and
