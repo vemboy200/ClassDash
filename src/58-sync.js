@@ -599,10 +599,18 @@ function sharedConfigChange(chunk) {
   let given;
   try { given = JSON.parse(Buffer.from(String(chunk), 'base64url').toString('utf8')); } catch { return null; }
   if (!given || typeof given !== 'object') return null;
-  const now = require('./19-settings.js').read();
+  const settings = require('./19-settings.js');
+  const now = settings.read();
   const changed = {};
   for (const key of SHARED_SETTINGS) {
-    if (key in given && JSON.stringify(given[key]) !== JSON.stringify(now[key])) changed[key] = given[key];
+    if (!(key in given)) continue;
+    // Compared the way it would be saved: the page sends every field as
+    // typed text ("0", not 0), and compared raw, every number looked
+    // changed, so a save here sent all of this computer's values to the
+    // master (its check intervals, 0, among them). One that won't save
+    // isn't sent either: it's refused here too.
+    const v = settings.validate(key, given[key]);
+    if (v.ok && JSON.stringify(v.value) !== JSON.stringify(now[key])) changed[key] = v.value;
   }
   return Object.keys(changed).length ? Buffer.from(JSON.stringify(changed)).toString('base64url') : null;
 }

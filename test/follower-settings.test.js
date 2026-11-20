@@ -81,4 +81,16 @@ const greyed = el => !!el && !!el.closest('fieldset.on-master') && el.closest('f
   const change = sync.sharedConfigChange(Buffer.from(JSON.stringify({ edpuzzleEnabled: false, canvasToken: 'secret', account: 2 })).toString('base64url'));
   const sent = change && JSON.parse(Buffer.from(change, 'base64url').toString('utf8'));
   ok(sent && sent.edpuzzleEnabled === false && sent.account === 2 && !('canvasToken' in sent), 'turning a service off goes to the master, the token doesn\'t: ' + JSON.stringify(sent));
+
+  // The page sends every field as text. Unchanged ones, compared the way
+  // they're saved, aren't sent: before, every number looked changed, and a
+  // save here put this computer's own values on the master (its check
+  // intervals at 0 switched the master's scheduled checks off).
+  fs.writeFileSync('settings.json', JSON.stringify({ ...SETTINGS, freshCheckAwakeMinutes: 0, freshCheckAsleepMinutes: 0, staleMonths: 3, account: 0 }));
+  const form = { freshCheckAwakeMinutes: '0', freshCheckAsleepMinutes: '0', staleMonths: '3', account: '0', edpuzzleEnabled: false, email: 'a@example.test' };
+  const only = sync.sharedConfigChange(Buffer.from(JSON.stringify(form)).toString('base64url'));
+  const onlySent = only && JSON.parse(Buffer.from(only, 'base64url').toString('utf8'));
+  ok(onlySent && JSON.stringify(onlySent) === '{"edpuzzleEnabled":false}', 'a save sends the master only what changed, not every number typed as text: ' + JSON.stringify(onlySent));
+  const typed = sync.sharedConfigChange(Buffer.from(JSON.stringify({ ...form, edpuzzleEnabled: true, freshCheckAwakeMinutes: '30' })).toString('base64url'));
+  ok(typed && JSON.parse(Buffer.from(typed, 'base64url').toString('utf8')).freshCheckAwakeMinutes === 30, '...and a real change goes as a number, the way it\'s saved');
 })().catch(e => { console.log('FAIL', e.stack); process.exitCode = 1; });
