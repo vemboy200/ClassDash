@@ -39,13 +39,30 @@ const SITE = 'https://canvas.demo.test';
 
 write('settings.json', {
   language: 'en', email: 'student@demo.test', canvas: SITE, canvasToken: 'demo', canvasApiEnabled: true, canvasSsoEnabled: false,
-  classroomEnabled: false, edpuzzleEnabled: false, aiMcpExternal: true, aiMcpGrades: true,
+  classroomEnabled: true, edpuzzleEnabled: true, aiMcpExternal: true, aiMcpGrades: true,
 });
 
 let n = 100;
 const assignment = (cls, title, dueDays, description, extra = {}) => ({
   platform: 'Canvas', class: cls, id: `canvas-${n}`, type: 'Assignment', title, link: `${SITE}/courses/1/assignments/${n++}`,
   due_iso: dueDays === null ? null : at(dueDays), due: null, posted: at(-5, 9, 0), description, ...extra,
+});
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const classroomDue = days => {
+  if (days === null) return null;
+  const d = new Date(at(days));
+  const h = d.getHours() % 12 || 12, ampm = d.getHours() < 12 ? 'AM' : 'PM';
+  return `Due ${MONTHS[d.getMonth()]} ${d.getDate()}, ${h}:${String(d.getMinutes()).padStart(2, '0')} ${ampm}`;
+};
+// Classroom shows a post's date as "Nov 18".
+const shortDate = days => { const d = new Date(at(days)); return `${MONTHS[d.getMonth()]} ${d.getDate()}`; };
+const classroom = (cls, title, dueDays, description, extra = {}) => ({
+  class: cls, id: String(900000000000 + n++), type: 'Assignment', title, link: `https://classroom.demo.test/c/${n}`,
+  due: classroomDue(dueDays), posted: at(-4, 8, 30), description, descriptionAt: at(-1), ...extra,
+});
+const edpuzzle = (cls, title, dueDays) => ({
+  platform: 'Edpuzzle', class: cls, id: `edpuzzle-demo${n++}`, type: 'Assignment', title,
+  link: `https://edpuzzle.demo.test/assignments/${n}/watch`, due_iso: at(dueDays), due: null, posted: at(-3, 7, 45),
 });
 write('last-collection.json', [
   assignment('Biology', 'Cell Organelles Worksheet', 1, 'Complete the worksheet on organelles (in the workspace as "Cell Organelles Worksheet").\nLabel every part of the diagram on page 2, then answer questions 1-6 in full sentences.\nTurn in a PDF.'),
@@ -57,12 +74,29 @@ write('last-collection.json', [
   assignment('English 10', 'Reading journal: Of Mice and Men ch. 3-4', 4, 'One page per chapter. For each: a quote that stood out, why, and one question you still have.'),
   assignment('English 10', 'Vocabulary set 8', null, 'Learn the 20 words on the class page. Quiz next week.'),
   assignment('Chemistry', 'Stoichiometry practice', 12, 'Worksheet problems 1-15. Use the molar masses on the back of the periodic table handout.'),
+  // Google Classroom: no platform field and a due date written the way
+  // Classroom shows it ("Due Nov 21, 11:59 PM"), like the real collector.
+  classroom('Spanish II', 'Vocabulario: la comida', 2, 'Study the food vocabulary list and complete the Quizlet set. Quiz on Friday.'),
+  classroom('Spanish II', 'Presentación oral: mi familia', 8, 'A 2-minute presentation about your family, in Spanish. Bring 3 photos or drawings.'),
+  classroom('Spanish II', 'Unit 5 slides', null, 'Slides from class, for review.', { type: 'Material' }),
+  classroom('Digital Art', 'Pixel portrait project', 5, 'Draw a self-portrait on a 32x32 pixel grid. Limit yourself to 8 colors. Export as PNG at 10x size.'),
+  classroom('Digital Art', 'Color theory reflection', -1, 'One paragraph: which color scheme did you use in your last project, and why?'),
+  // Edpuzzle videos.
+  edpuzzle('Biology', 'How cells divide: mitosis', 1),
+  edpuzzle('World History', 'The assassination that started World War I', 3),
 ]);
 
 write('messages.json', [
-  { id: 'demo-m1', class: 'Biology', author: 'Demo Teacher', date: at(-1, 15, 10), sortTime: now - day, title: 'Lab moved to Thursday', text: 'Heads up: the osmosis lab is moving to Thursday because of the assembly. Bring your lab notebook. The report due date moves back a day too.', link: `${SITE}/courses/1/announcements/1`, attachments: [] },
-  { id: 'demo-m2', class: 'Algebra II', author: 'Demo Teacher', date: at(-2, 8, 0), sortTime: now - 2 * day, title: 'Test review session', text: 'Review session for the Unit 4 test after school on Monday in room 214. Bring questions from 4.4 and 4.5, those were the toughest on the quiz.', link: `${SITE}/courses/2/announcements/1`, attachments: [] },
-  { id: 'demo-m3', class: 'English 10', author: 'Demo Teacher', date: at(-3, 12, 0), sortTime: now - 3 * day, title: 'Reading schedule', text: 'Finish chapter 4 by Friday. We will discuss the ending of chapter 3 in class, so no spoilers in the journals please.', link: `${SITE}/courses/3/announcements/1`, attachments: [] },
+  { platform: 'Classroom', type: 'announcement', id: 'post-demo-m4', class: 'Spanish II', author: 'Demo Teacher', date: shortDate(0), sortTime: now - 0.3 * day, title: '¡Hola! Quiz moved', text: '¡Hola! The vocabulary quiz is moving to Monday. The review slides are attached, and the practice set is linked below.', link: 'https://classroom.demo.test/c/spanish', attachments: [
+    { kind: 'slides', title: 'Unidad 5: la comida (review)', link: 'https://docs.demo.test/presentation/demo-slides' },
+    { kind: 'link', title: 'Practice set: la comida', link: 'https://practice.demo.test/la-comida' },
+  ] },
+  { platform: 'Classroom', type: 'announcement', id: 'post-demo-m5', class: 'Digital Art', author: 'Demo Teacher', date: shortDate(-2), sortTime: now - 1.5 * day, title: 'Gallery walk next week', text: 'Gallery walk next Wednesday! Finish your pixel portraits by Tuesday so I can print them. The rubric is attached.', link: 'https://classroom.demo.test/c/art', attachments: [
+    { kind: 'pdf', title: 'Pixel portrait rubric.pdf', link: 'https://drive.demo.test/file/d/demo-rubric/view' },
+  ] },
+  { platform: 'Classroom', type: 'announcement', id: 'post-demo-m1', class: 'Biology', author: 'Demo Teacher', date: shortDate(-1), sortTime: now - day, title: 'Lab moved to Thursday', text: 'Heads up: the osmosis lab is moving to Thursday because of the assembly. Bring your lab notebook. The report due date moves back a day too.', link: 'https://classroom.demo.test/c/biology', attachments: [] },
+  { platform: 'Classroom', type: 'announcement', id: 'post-demo-m2', class: 'Algebra II', author: 'Demo Teacher', date: shortDate(-2), sortTime: now - 2 * day, title: 'Test review session', text: 'Review session for the Unit 4 test after school on Monday in room 214. Bring questions from 4.4 and 4.5, those were the toughest on the quiz.', link: 'https://classroom.demo.test/c/algebra', attachments: [] },
+  { platform: 'Classroom', type: 'announcement', id: 'post-demo-m3', class: 'English 10', author: 'Demo Teacher', date: shortDate(-3), sortTime: now - 3 * day, title: 'Reading schedule', text: 'Finish chapter 4 by Friday. We will discuss the ending of chapter 3 in class, so no spoilers in the journals please.', link: 'https://classroom.demo.test/c/english', attachments: [] },
 ]);
 
 // Due dates spread over the past month (4, 12, 20, 28 days ago, in turn).
@@ -95,6 +129,34 @@ write('grade-history.json', { series: {
   'canvas:English 10': history('English 10', [[57, 90], [45, 92.3], [34, 93.1], [22, 95.8], [11, 94.1]], ['A', 94.6]),
   'canvas:Chemistry': history('Chemistry', [[59, 85], [50, 82.7], [43, 80.1], [35, 76.4], [27, 74.8], [18, 77.9], [9, 76.5]], ['C+', 78.3]),
 } });
+
+// A few things marked new since the last check, like a real collection would.
+write('new.json', { assignments: [], announcements: ['post-demo-m4'] });
+
+// Reminders typed in by hand, through the app's own code so they're stored
+// exactly like real ones.
+const reminders = require(path.join(dir, '24-virtual-assignments.js'));
+reminders.create({ title: 'Bring the signed field trip form', class: 'Biology', due: at(2, 8, 0) });
+reminders.create({ title: 'Ask about the extra credit lab', class: 'Chemistry' });
+
+// An Edpuzzle transcript page (the dashboard's Transcripts card isn't wired
+// up yet, so this is the page on its own): transcripts/mitosis.html.
+const vtt = ['WEBVTT', '',
+  ['00:00:00.000', '00:00:06.000', 'Every second, millions of cells in your body are dividing.'],
+  ['00:00:06.000', '00:00:13.500', "Today we're looking at mitosis: how one cell becomes two identical cells."],
+  ['00:00:13.500', '00:00:21.000', 'It starts with prophase. The DNA, which is normally loose, coils up into chromosomes you can see under a microscope.'],
+  ['00:00:21.000', '00:00:30.000', 'In metaphase, the chromosomes line up in the middle of the cell, along what we call the metaphase plate.'],
+  ['00:00:30.000', '00:00:38.500', 'Anaphase is when the copies are pulled apart, toward opposite ends of the cell.'],
+  ['00:00:38.500', '00:00:47.000', 'Finally, telophase: two new nuclei form, and the cell pinches in two. That last split is called cytokinesis.'],
+  ['00:00:47.000', '00:00:53.000', 'An easy way to remember the order: PMAT. Prophase, metaphase, anaphase, telophase.'],
+].map(x => Array.isArray(x) ? `${x[0]} --> ${x[1]}\n${x[2]}\n` : x).join('\n');
+fs.mkdirSync(path.join(dir, 'transcripts'), { recursive: true });
+require(path.join(dir, 'services', 'edpuzzle', '14-transcript-page.js')).writeTranscript({
+  title: 'How cells divide: mitosis', className: 'Biology', platform: 'Edpuzzle',
+  link: 'https://edpuzzle.demo.test/assignments/demo/watch', source: 'machine', duration: '0:53',
+  text: vtt.split('\n').filter(l => l && !l.includes('-->') && l !== 'WEBVTT').join(' '),
+  timed: vtt, questions: [22, 48],
+}, path.join(dir, 'transcripts', 'mitosis.html'));
 
 (async () => {
   const { PDFDocument, StandardFonts } = require(path.join(dir, 'pdf-lib.min.js'));
@@ -133,5 +195,5 @@ write('grade-history.json', { series: {
   if (run.status !== 0) console.error('(the page wasn\'t drawn: ' + (run.stderr || run.stdout).trim().split('\n').pop() + ')');
   const { launch } = require(path.join(dir, '48-mcp.js'));
   const l = launch();
-  console.log(`Demo project in ${dir}\nIts MCP server: ${[l.command, ...l.args].map(a => /\s/.test(a) ? JSON.stringify(a) : a).join(' ')}`);
+  console.log(`Demo project in ${dir}\nA transcript page: ${path.join(dir, 'transcripts', 'mitosis.html')}\nIts MCP server: ${[l.command, ...l.args].map(a => /\s/.test(a) ? JSON.stringify(a) : a).join(' ')}`);
 })();
