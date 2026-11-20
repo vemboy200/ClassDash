@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Fixed "Some of your settings take effect after the next check" never going away on a computer that follows another:** when a service was turned on or off, or the Canvas address changed, the follower was never told that the master's check had used it (only for skipped classes), so it kept waiting for a check that only the master runs. The follower now hears about all of them, and the notice clears after the master's next check.
 - **Settings are private to your account:** `settings.json`, which holds the Canvas token and any AI API keys, was saved readable by every account on the computer. ClassDash now saves it readable only by yours, and fixes an existing file when it starts.
 - **New page: [Your data](docs/data-handling.md).** What ClassDash stores and where, everywhere it connects, what AI providers get, how it reads each school site and that it's unofficial, its current limits, and how to remove everything.
 - **Signing in checks itself:** closing the sign-in window now starts the check that shows whether it worked, a quick one for Google, a full one for Edpuzzle (only a full check reads it), so a sign-in repair clears or stays by itself instead of waiting for you to press Quick check. While that check runs, the repair says **Checking…** instead of Error.

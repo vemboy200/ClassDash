@@ -212,7 +212,15 @@ function manifest() {
   const all = store.read();
   const settings = Object.fromEntries(SHARED_SETTINGS.map(key => [key, all[key]]));
   // Shared settings that decide what's collected, as the data here reflects them.
-  const collectedWith = { exclusions: store.appliedFetchSettings(all).exclusions };
+  // Every one of them, not just exclusions: a follower never checks, so this is
+  // the only way its "take effect after the next check" banner learns that the
+  // master's check used the services and Canvas address it was sent. Not the
+  // Canvas token, which isn't shared (only a fingerprint would go, and it would
+  // never match the follower's own).
+  const applied = store.appliedFetchSettings(all);
+  const collectedWith = Object.fromEntries(store.FETCH_AFFECTING
+    .filter(key => SHARED_SETTINGS.includes(key))
+    .map(key => [key, applied[key]]));
   const version = crypto.createHash('sha256').update(JSON.stringify({ files, settings, collectedWith })).digest('hex');
   return { version, files, settings, collectedWith };
 }

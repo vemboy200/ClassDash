@@ -877,7 +877,7 @@ function applyBatch(chunk, { skip = [] } = {}) {
 }
 
 module.exports = { read, write, lockDown, validate, writeExample, applyBatch, previewBatch,
-                   markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
+                   markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, FETCH_AFFECTING, canvasPlan,
                    DEFAULTS, TYPES, FILE, DASH_CARDS };
 
 if (require.main === module) {

@@ -9,7 +9,7 @@ const days = n => new Date(Date.now() + n * 86400000).toISOString();
 const item = (id, cls = 'Made-up Chemistry') => ({ id, title: 'Made-up ' + id, class: cls, cls, due: days(2), source: 'classroom' });
 
 const masterDir = T.makeProject({
-  'settings.json': { language: 'en', email: 'student@school.test', canvasToken: 'made-up-master-canvas-token', exclusions: ['Made-up Homeroom'], apiPort: 1111 },
+  'settings.json': { language: 'en', email: 'student@school.test', canvasToken: 'made-up-master-canvas-token', exclusions: ['Made-up Homeroom'], classroomEnabled: false, canvasSsoEnabled: false, apiPort: 1111 },
   'last-collection.json': [item('from-master-1'), item('from-master-2')],
   'messages.json': [{ id: 'm1', title: 'Made-up announcement', class: 'Made-up Chemistry' }],
   'скрытые.txt': 'from-master-2\n',
@@ -183,6 +183,7 @@ async function until(what, test, ms = 12000) {
   await until('redrawn', () => (read(followerDir, 'summary.html') || '').includes('from-master-1') || (read(followerDir, 'page-shell.html') || '') !== '', 5000);
   const pending = cp.spawnSync('node', ['-e', "console.log(JSON.stringify(require('./19-settings.js').pendingFetchKeys()))"], { cwd: followerDir, encoding: 'utf8' }).stdout.trim();
   ok(pending === '[]', 'a setting that came over does not ask this computer for a check', pending);
+  ok(followerSettings.classroomEnabled === false && followerSettings.canvasSsoEnabled === false, 'service switches come over too, and do not ask for a check either');
 
   // ---- what's served, and to whom ----
   const key = JSON.parse(read(followerDir, 'sync.json')).master.key;
