@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClassDash: every class, one page</title>
+<meta name="description" content="ClassDash checks Google Classroom, Canvas, Edpuzzle and Aequitas Q for you and puts every assignment and grade on one page, on your own computer. Free and open source.">
+<link rel="icon" href="img/icons/app-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<link rel="stylesheet" href="frames.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#"><img class="px" src="img/logo.png" alt="ClassDash" width="160" height="32"></a>
+    <nav class="links">
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#data">Your data</a>
+      <a href="https://github.com/vemboy200/ClassDash/tree/main/docs">Docs</a>
+      <a href="https://github.com/vemboy200/ClassDash">GitHub</a>
+    </nav>
+    <a class="btn primary" href="#get">Download</a>
+  </div>
+</header>
+
+<main>
+  <div class="hero wrap">
+    <span class="pill kicker">Free · open source · runs on your computer</span>
+    <h1>Every class.<br>Every assignment.<br><em>One page.</em></h1>
+    <p class="lede">ClassDash checks Google Classroom, Canvas, Edpuzzle and your school's grade system for you, and puts everything that's due on one page. Nothing for your school to set up or approve.</p>
+    <div class="cta">
+      <a class="btn primary big" href="#get">Download for Mac or Windows</a>
+      <a class="btn big" href="https://github.com/vemboy200/ClassDash">View on GitHub</a>
+    </div>
+    <div class="tile shot"><img src="img/dashboard.png" alt="The ClassDash dashboard: class filters, overdue and due-soon assignments, and grades for each class" width="1280" height="860"></div>
+    <div class="shot-caption">Made-up classes and assignments. Nobody's real schoolwork is in this picture.</div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="eyebrow">Works with</div>
+      <h2>The sites your school already uses</h2>
+      <p class="sub">Four sites, each with its own idea of what "your assignments" means. ClassDash reads all of them so you don't have to check each one every day.</p>
+      <div class="services">
+        <div class="tile service"><img src="img/brands/classroom.png" alt="">Google Classroom</div>
+        <div class="tile service"><img src="img/brands/canvas.png" alt="">Canvas</div>
+        <div class="tile service"><img src="img/brands/edpuzzle.png" alt="">Edpuzzle</div>
+        <div class="tile service"><img src="img/brands/q.png" alt="">Aequitas Q</div>
+      </div>    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="eyebrow">What's in the box</div>
+      <h2>More than a to-do list</h2>
+      <p class="sub">Your assignments are the start. ClassDash adds the tools around them.</p>
+      <div class="grid">
+        <div class="tile feature"><h3><span class="icon i-dashboard"></span>Dashboard</h3><p>Everything due, checked by itself during the school day, with the teacher's instructions and announcements. A notification only when something changes.</p></div>
+        <div class="tile feature"><h3><span class="icon i-grades"></span>Grades</h3><p>Your grade in every class, its history, alerts when it changes, and an estimate from the category weights.</p></div>
+        <div class="tile feature"><h3><span class="icon i-calendar"></span>Calendar and schedule</h3><p>No-school days and events from your school's calendar PDF or any calendar feed, plus A/B or odd/even class days, so you know what's tomorrow.</p></div>
+        <div class="tile feature"><h3><span class="icon i-workspace"></span>Workspace</h3><p>Write on worksheet PDFs and export them ready to hand in, with Google Docs or Desmos open beside them.</p></div>
+        <div class="tile feature"><h3><span class="icon i-ai"></span>AI helper, if you want one</h3><p>Bring your own, even one running on your own computer. It helps you get there yourself instead of doing the work. Off until you set it up.</p></div>
+        <div class="tile feature"><h3><span class="icon i-api"></span>Home Assistant and API</h3><p>Put your schoolwork on a Home Assistant dashboard, or anything else on your home network.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="data">
+    <div class="wrap">
+      <div class="eyebrow">Your data</div>
+      <h2>It stays on your computer</h2>
+      <p class="sub">ClassDash has no server or account of its own, and the person who made it never sees your data. It's open source, so anyone can check.</p>
+      <div class="two">
+        <ul class="points">
+          <li class="tile"><b>Your account, your computer</b><span>It signs in as you, in a browser on your computer, and sees exactly what you can already see.</span></li>
+          <li class="tile"><b>Read-only</b><span>It never turns in, answers, changes or deletes anything. Neither can the AI.</span></li>
+          <li class="tile"><b>No tracking</b><span>No analytics, no ads, no account to make. Your Google password goes into Google's own sign-in page, never into ClassDash.</span></li>
+        </ul>
+        <div class="tile warn">
+          <h3>It's unofficial</h3>
+          <p>ClassDash isn't made or approved by Google, Instructure, Aequitas, Edpuzzle or your school. Canvas has an official API it can use. For the others, it reads the same pages you see when you're signed in.</p>
+          <p>That means it can break when a site changes, and your school's rules about automated access still apply. We'd rather say so up front.</p>
+          <a class="btn" href="https://github.com/vemboy200/ClassDash/blob/v3/docs/data-handling.md">Read exactly how your data is handled</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="get" class="get">
+    <div class="wrap">
+      <div class="eyebrow">Get it</div>
+      <h2>Free, for Mac and Windows</h2>
+      <p class="sub" style="margin-left:auto;margin-right:auto">No subscription and no cost per check. Checking your assignments doesn't use AI at all.</p>
+      <div class="cta">
+        <a class="btn primary big" href="https://github.com/vemboy200/ClassDash/releases/latest">Download the latest release</a>
+        <a class="btn big" href="https://github.com/vemboy200/ClassDash/blob/main/docs/getting-started.md">Getting started</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <p><b>ClassDash</b> is a personal project by a student, written with Claude (AI) and tested on real school accounts. Shared as-is, with no warranty: don't make it your only way of tracking deadlines.</p>
+      <p>Not affiliated with Anthropic, Google, Instructure, Aequitas or Edpuzzle. Their names and logos belong to them.</p>
+    </div>
+    <div>
+      <p>Licensed under AGPL-3.0</p>
+      <p><a href="https://github.com/vemboy200/ClassDash">GitHub</a> · <a href="https://github.com/vemboy200/ClassDash/blob/main/CHANGELOG.md">Changelog</a></p>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Font test (fonts.html): ?font=Name&w=700 tries that headline font here.
+(function () {
+  const q = new URLSearchParams(location.search), name = q.get('font');
+  if (!name || !/^[A-Za-z0-9 ]+$/.test(name)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=' + name.replace(/ /g, '+') + '&display=swap';
+  document.head.appendChild(link);
+  const h1 = document.querySelector('.hero h1');
+  h1.style.fontFamily = `'${name}', monospace`;
+  h1.style.fontWeight = /^\d+$/.test(q.get('w') || '') ? q.get('w') : '400';
+  const tag = document.createElement('a');
+  tag.href = 'fonts.html';
+  tag.textContent = 'Font test: ' + name + ' · back to all fonts';
+  tag.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:20;padding:6px 10px;background:var(--new);color:var(--on-new);font-weight:700;font-size:13px;text-decoration:none';
+  document.body.appendChild(tag);
+})();
+</script>
+</body>
+</html>

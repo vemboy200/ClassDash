@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Headline font test</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Silkscreen:wght@400;700&family=Press+Start+2P&family=VT323&family=Jersey+10&family=Tiny5&family=Micro+5&family=Handjet:wght@400..800&family=DotGothic16&family=Sixtyfour&family=Bytesized&family=Workbench&family=Jersey+15&family=Doto:wght@400..900&display=swap">
+<link rel="stylesheet" href="frames.css">
+<link rel="stylesheet" href="style.css">
+<style>
+  .test { padding: 32px 0 64px; }
+  .ref { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; color: var(--dim); font-size: 14px; }
+  .ref img { width: 320px; height: 64px; }
+  .opts { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 28px; font-size: 14px; color: var(--dim); }
+  .opts input[type=text] { font: inherit; padding: 4px 8px; width: 360px; max-width: 100%; }
+  .row { border-width: 12px; padding: 6px 12px 12px; margin-bottom: 18px; }
+  .row .meta { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; color: var(--dim); font-size: 13px; margin-bottom: 4px; }
+  .row .meta b { color: var(--text); font-size: 15px; }
+  .row h1 { margin: 0; line-height: 1.1; font-size: var(--size, 56px); }
+  .row h1 em { font-style: normal; color: var(--new); white-space: nowrap; }
+  .row .body { margin-top: 10px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap test">
+  <div class="ref"><img class="px" src="img/logo.png" alt="ClassDash logo">The logo, at 2×, to compare the lettering against.</div>
+  <div class="opts">
+    <label>Headline <input type="text" id="text" value="Every class. Every assignment. *One page.*"></label>
+    <label>Size <input type="range" id="size" min="24" max="80" value="56"> <span id="sizev">56</span>px</label>
+    <label><input type="checkbox" id="body"> Also show a body line in the font</label>
+  </div>
+  <div id="list"></div>
+</div>
+<script>
+const FONTS = [
+  ['Pixelify Sans', 700, 'Current pick. Pixel shapes with lowercase, readable.'],
+  ['Silkscreen', 700, 'Blocky, close to all caps. Classic small-pixel look.'],
+  ['Press Start 2P', 400, 'The arcade/NES look. Very wide, best short.'],
+  ['VT323', 400, 'Old terminal. Thin and tall.'],
+  ['Jersey 10', 400, 'Chunky, condensed, sporty.'],
+  ['Jersey 15', 400, 'Like Jersey 10, a bit more detail.'],
+  ['Tiny5', 400, 'Tiny 5-pixel font, very crisp.'],
+  ['Micro 5', 400, 'Even smaller grid, condensed.'],
+  ['Handjet', 600, 'Dot-matrix printer feel, adjustable weight.'],
+  ['DotGothic16', 400, 'Japanese-game dialogue box style.'],
+  ['Sixtyfour', 400, 'Commodore-64-ish, wide.'],
+  ['Bytesized', 400, 'Tiny bitmap, very small grid.'],
+  ['Workbench', 400, 'Amiga-like, rounded pixels.'],
+  ['Doto', 800, 'Made of dots, like an LED sign.'],
+];
+const list = document.getElementById('list');
+const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function draw() {
+  const raw = document.getElementById('text').value;
+  const html = esc(raw).replace(/\*(.+?)\*/g, '<em>$1</em>');
+  const showBody = document.getElementById('body').checked;
+  list.innerHTML = FONTS.map(([name, w, note]) => `
+    <div class="tile row">
+      <div class="meta"><span><b>${name}</b> · ${note}</span><a href="index.html?font=${encodeURIComponent(name)}&w=${w}">Try on the page →</a></div>
+      <h1 style="font-family:'${name}',monospace;font-weight:${w}">${html}</h1>
+      ${showBody ? `<div class="body" style="font-family:'${name}',monospace">ClassDash checks Google Classroom, Canvas, Edpuzzle and your school's grade system for you.</div>` : ''}
+    </div>`).join('');
+}
+const size = document.getElementById('size');
+size.oninput = () => { document.getElementById('sizev').textContent = size.value; document.documentElement.style.setProperty('--size', size.value + 'px'); };
+document.getElementById('text').oninput = draw;
+document.getElementById('body').onchange = draw;
+draw();
+</script>
+</body>
+</html>
