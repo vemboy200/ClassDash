@@ -59,7 +59,8 @@ More in [Using AI with ClassDash](ai-use.md).
 
 ## Limits, honestly
 
-- **Anyone who can use your computer account can use your sign-ins.** The browser profile works like your normal browser: whoever can open your files could open your school accounts. Lock your computer.
+- **Your sign-ins are as safe as your normal browser's, no more.** Anyone who can use your computer account could open your school accounts, the same as with Chrome or Safari. Lock your computer.
+- **Mind where the ClassDash folder lives.** Unlike your normal browser's profile, ClassDash's sits inside the folder you picked on first run. If that folder is in a synced place (Documents or Desktop with iCloud Drive on, OneDrive, Dropbox, Google Drive), your sign-ins and schoolwork get copied to that service too. A folder that isn't synced keeps everything on this computer only.
 - **The Canvas token and AI API keys are plain text** in `settings.json`. Other accounts on the computer can't read it, but anything running as you can, the same as your browser's own files.
 - **Cloud AIs follow their own rules.** Once you send something to OpenAI, Anthropic or Google, their privacy policy applies, not ClassDash's.
 
