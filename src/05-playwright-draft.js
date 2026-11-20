@@ -211,7 +211,7 @@ require('./27-diagnostics-forward.js').install();
 //      (npm run setup-browser) — the safe default, used for nothing else;
 //   3. channel: 'chrome' — if neither of those exist.
 // Details, and why this matters at all, are in 20-browser.js.
-const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER } = require('./20-browser.js');
+const { isInstalled: ownBrowserInstalled, BINARY: OWN_BROWSER, forgetOpenTabs } = require('./20-browser.js');
 const { recordActivity } = require('./22-class-activity.js');
 const { record: recordCheckStatus } = require('./25-check-status.js');
 const live = require('./28-live-state.js');
@@ -399,6 +399,7 @@ async function login(which = '') {
       : 'Nothing to sign into: no service that\'s on signs in through the browser (Canvas on an access token doesn\'t).');
     return;
   }
+  forgetOpenTabs(PROFILE_DIR); // not last time's tabs again (20-browser.js)
   const ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
     ...BROWSER,               // a real browser, not a stripped-down chromium:
                               // otherwise Google cuts off the login as "not secure"
@@ -466,6 +467,7 @@ async function discover(which) {
   }
   let ctx = null;
   try {
+    forgetOpenTabs(PROFILE_DIR); // not last time's tabs again (20-browser.js)
     ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
       ...BROWSER, headless: true, viewport: { width: 1280, height: 900 },
       extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
@@ -564,6 +566,7 @@ async function launchForCollection(withEdpuzzle, options) {
   // server restart and then a request to sign in (63-browser-health.js).
   const health = require('./63-browser-health.js');
   try {
+    forgetOpenTabs(PROFILE_DIR); // not last time's tabs again (20-browser.js)
     const ctx = await chromium.launchPersistentContext(PROFILE_DIR, options);
     health.worked();
     return ctx;

@@ -127,7 +127,44 @@ function install() {
   console.log('Nothing to set in settings.json — it gets picked up automatically.');
 }
 
-module.exports = { isInstalled, hasSystemChrome, APP, BINARY };
+/**
+ * Forgets the tabs the profile had open last time, before it's started.
+ *
+ * A check cut off for taking too long has its browser killed, and the
+ * browser then counts the last run as a crash and brings back every tab it
+ * had open the next time it starts. Run after run, those piled up: the
+ * sign-in window once opened with dozens of old tabs beside the one it
+ * asked for, and a headless check would load them too, unseen.
+ *
+ * Only the saved tabs and windows go (Sessions/, and the older Current/
+ * Last Session and Tabs files). Cookies, so every sign-in, are elsewhere
+ * in the profile and stay. Nothing is touched while a browser has the
+ * profile open: it's in use, and it would
+ * write them again anyway.
+ */
+function forgetOpenTabs(profileDir) {
+  const fs = require('fs'), path = require('path');
+  // SingletonLock on a Mac (a link, there only while it runs); on Windows
+  // the open browser holds its files, so they can't be removed anyway.
+  // The link names the browser ("host-pid"); one killed mid-check leaves it
+  // behind, so it only counts while that browser is still running.
+  let lock = null;
+  try { lock = fs.readlinkSync(path.join(profileDir, 'SingletonLock')); } catch { /* not in use */ }
+  if (lock !== null) {
+    const pid = Number((/-(\d+)$/.exec(lock) || [])[1]);
+    let running = !pid; // can't tell: treat it as running
+    if (pid) { try { process.kill(pid, 0); running = true; } catch (e) { running = e.code === 'EPERM'; } }
+    if (running) return false;
+  }
+  const dir = path.join(profileDir, 'Default');
+  let forgot = false;
+  for (const name of ['Sessions', 'Current Session', 'Current Tabs', 'Last Session', 'Last Tabs']) {
+    try { fs.rmSync(path.join(dir, name), { recursive: true, force: false }); forgot = true; } catch { /* not there */ }
+  }
+  return forgot;
+}
+
+module.exports = { isInstalled, hasSystemChrome, forgetOpenTabs, APP, BINARY };
 
 if (require.main === module) {
   install();
