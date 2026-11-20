@@ -27,7 +27,7 @@ ok('/api/check-status says fallback, with the detail', HANDLERS['/api/check-stat
 const { writePage } = require(path.join(proj, '08-page.js'));
 writePage({ burning: [], later: [], undated: [], deferred: [], overdue: [], gone: [], items: [], freshIds: new Set(), broken: [], now: new Date() }, 'p.html');
 const html = fs.readFileSync('p.html', 'utf8');
-ok('the sidebar has one yellow (fallback) cloud saying so', /title="Check status: 1 used backup"><span class="status-cloud pixel-icon status-fallback"><\/span><span class="reload-label check-summary">1 used backup</.test(html) &&
+ok('the sidebar has one yellow (fallback) cloud saying so', /title="Check status: 1 used backup"><span class="status-cloud pixel-icon status-fallback"><\/span><span class="reload-label check-summary"><span class="check-summary-line">1 used backup</.test(html) &&
   (html.match(/class="status-cloud /g) || []).length === 1);
 ok('the panel row says Fallback and shows the detail', /status-fallback"><\/span>\s*<span class="check-status-name">Canvas<\/span>\s*<span class="check-status-word">Fallback<\/span>/.test(html) && /check-status-detail-text">Fallback: the API/.test(html));
 ok("the panel lists only what's been checked: Classroom and Canvas, not Edpuzzle or Q", (html.match(/class="check-status-name"/g) || []).length === 2 && !/check-status-name">(Edpuzzle|Aequitas Q)</.test(html));
@@ -46,6 +46,8 @@ ok('...and gets the same 12px sizing as the other dots', /status-ok, \.status-do
   ok('half working: still !', is(of('ok', 'problem', 'unknown', 'unknown'), 'fallback', '1 of 2 failed'));
   ok('under half working: ✕', is(of('problem', 'problem', 'ok', 'unknown'), 'problem', '2 of 3 failed'));
   ok('all failed: ✕', is(of('problem', 'unknown', 'unknown', 'unknown'), 'problem', '1 of 1 failed'));
+  const waitingToo = { classroom: { status: 'problem', waitingFor: 'google' }, canvas: { status: 'ok' }, q: { status: 'problem' } };
+  ok('one failed and one waiting for a sign-in: both said, a line each in the sidebar so neither is cut off', is(waitingToo, 'fallback', '1 of 3 failed, 1 needs sign-in') && JSON.stringify(sum(waitingToo).lines) === '["1 of 3 failed","1 needs sign-in"]', JSON.stringify(sum(waitingToo)));
   ok('a backup way counts as working, but says so', is(of('ok', 'fallback', 'problem', 'ok'), 'fallback', '1 of 4 failed') && is(of('ok', 'fallback', 'unknown', 'unknown'), 'fallback', '1 used backup'));
 }
 

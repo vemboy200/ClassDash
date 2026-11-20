@@ -2204,7 +2204,12 @@ function checkStatusSummary(status) {
   if (!on.length) return { status: 'unknown', text: t('checkSummaryNone') };
   // Waiting for a sign-in isn't broken: it's yellow, and says so.
   if (waiting && !failed) return { status: 'fallback', text: t('checkSummaryWaiting', waiting, on.length) };
-  if (failed) return { status: (on.length - failed) / on.length < 0.5 ? 'problem' : 'fallback', text: t('checkSummaryFailed', failed, on.length) };
+  // Both at once: each said, so the sign-in isn't hidden behind the
+  // failure, each on its own line in the sidebar (lines).
+  if (failed) {
+    const lines = [t('checkSummaryFailed', failed, on.length)].concat(waiting ? [t('checkSummaryWaiting', waiting, on.length)] : []);
+    return { status: (on.length - failed) / on.length < 0.5 ? 'problem' : 'fallback', text: lines.join(', '), lines };
+  }
   if (backup) return { status: 'fallback', text: t('checkSummaryBackup', backup, on.length) };
   return { status: 'ok', text: t('checkSummaryOk') };
 }
@@ -2213,7 +2218,7 @@ function checkStatusSummary(status) {
 function checkStatusIndicator() {
   const sum = checkStatusSummary(checkStatus());
   return `<button type="button" class="check-status" id="check-status-button" onclick="toggleCheckStatusDetail()"
-       title="${escapeHtml(`${t('checkStatusTitle')}: ${sum.text}`)}"><span class="status-cloud pixel-icon status-${sum.status}"></span><span class="reload-label check-summary">${escapeHtml(sum.text)}</span></button>`;
+       title="${escapeHtml(`${t('checkStatusTitle')}: ${sum.text}`)}"><span class="status-cloud pixel-icon status-${sum.status}"></span><span class="reload-label check-summary">${(sum.lines || [sum.text]).map(l => `<span class="check-summary-line">${escapeHtml(l)}</span>`).join('')}</span></button>`;
 }
 
 /**
@@ -2863,7 +2868,8 @@ ${cardHtml[id]}
   .app-nav .check-status { display: flex; align-items: center; }
   /* At its drawn size, like the icons above. */
   .app-nav .status-cloud { flex: 0 0 32px; width: 32px; height: 32px; -webkit-mask-size: 32px 32px; mask-size: 32px 32px; }
-  .check-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .check-summary { min-width: 0; overflow: hidden; text-align: left; }
+  .check-summary-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-updated { color: var(--dim); font-size: 12px; padding: 2px 10px 0; }
   /* Folded down to the icons: no names, each item centred. */
   body.nav-collapsed { --nav-w: 64px; }
