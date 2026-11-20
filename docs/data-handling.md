@@ -24,7 +24,7 @@ Everything lives in the ClassDash folder you picked on first run, plus the macOS
 |---|---|---|
 | Your school sign-ins (Google, Edpuzzle, Canvas through your school) | `browser-profile` in the ClassDash folder | A browser profile like any other, holding the sign-in cookies. ClassDash never sees or stores your Google password: you type it into Google's own page. |
 | Aequitas Q password | macOS: your login keychain (item "ClassDash Q grades"). Windows: `grades-secret.json`, readable only by your user account | Never written to settings, logs or the page. On a Mac it goes to the keychain through standard input, so it never shows up in a process list. |
-| Canvas access token, AI API keys | `settings.json` | Plain text. See "Limits" below. |
+| Canvas access token, AI API keys | `settings.json` | Plain text, readable only by your user account (on Windows, by your account's normal file permissions). |
 | Assignments, announcements, grades, grade history, classes | JSON files in the ClassDash folder | Only what ClassDash read from your accounts. |
 | Home API token and certificate | `api-token.txt`, `api-key.pem` | Readable only by your user account. |
 
@@ -60,7 +60,7 @@ More in [Using AI with ClassDash](ai-use.md).
 ## Limits, honestly
 
 - **Anyone who can use your computer account can use your sign-ins.** The browser profile works like your normal browser: whoever can open your files could open your school accounts. Lock your computer.
-- **`settings.json` isn't locked down yet.** It holds the Canvas token and any AI API keys in plain text, and other accounts on the same computer can currently read it. On a computer only you use, this matters less.
+- **The Canvas token and AI API keys are plain text** in `settings.json`. Other accounts on the computer can't read it, but anything running as you can, the same as your browser's own files.
 - **Cloud AIs follow their own rules.** Once you send something to OpenAI, Anthropic or Google, their privacy policy applies, not ClassDash's.
 
 ## Removing your data

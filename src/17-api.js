@@ -1827,6 +1827,9 @@ function start() {
     // redraw writes) matches the pieces this server sends. Otherwise it kept
     // the old look until the next check, and with checks off, for good.
     notifierActions.redrawCards();
+    // settings.json only readable by this account (19-settings.js lockDown),
+    // for a file an older version left readable by everyone.
+    require('./19-settings.js').lockDown();
     // .unref() — this timer alone shouldn't be what keeps the process
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();

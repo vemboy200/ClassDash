@@ -730,6 +730,21 @@ function pendingFetchKeys(settings = read()) {
     JSON.stringify(normalizeForCompare(key, applied[key])));
 }
 
+// settings.json holds the Canvas token and any AI API keys, so only this
+// user account may read it, like grades-secret.json and api-token.txt. The
+// mode on writeFileSync only counts when the file is new, hence the chmod:
+// it also locks down a file an older version (or the wizard's copy of the
+// example) left readable by everyone. The apps' own writes (16-summary.swift,
+// electron/main.js) rewrite the file in place, which keeps the mode.
+function saveFile(current) {
+  fs.writeFileSync(FILE, JSON.stringify(current, null, 2), { mode: 0o600 });
+  lockDown();
+}
+
+function lockDown() {
+  try { fs.chmodSync(FILE, 0o600); } catch { /* missing, Windows, or a file system without modes */ }
+}
+
 function write(key, raw) {
   const v = validate(key, raw);
   if (!v.ok) return v;
@@ -737,7 +752,7 @@ function write(key, raw) {
   const current = read();
   seedApplied(current);
   current[key] = v.value;
-  fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
+  saveFile(current);
   return { ok: true, value: v.value };
 }
 
@@ -857,11 +872,11 @@ function applyBatch(chunk, { skip = [] } = {}) {
   const accepted = plan.accepted.filter(k => !skip.includes(k));
   const changed = plan.changed.filter(k => !skip.includes(k));
   for (const key of accepted) current[key] = values[key];
-  if (accepted.length) fs.writeFileSync(FILE, JSON.stringify(current, null, 2));
+  if (accepted.length) saveFile(current);
   return { ok: accepted.length > 0, accepted, changed, rejected };
 }
 
-module.exports = { read, write, validate, writeExample, applyBatch, previewBatch,
+module.exports = { read, write, lockDown, validate, writeExample, applyBatch, previewBatch,
                    markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, canvasPlan,
                    DEFAULTS, TYPES, FILE, DASH_CARDS };
 
