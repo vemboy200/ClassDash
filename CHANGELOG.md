@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Fixed Q asking for a new password showing as "turned down the username or password":** a check that ran into Q's new-password page was shown as a wrong password in Settings' repairs. It now says Q wants a new password, with what Q said.
 - **The page gets its new look right after ClassDash starts:** after an update or a restart, the page kept the old version's look until the next check (forever with scheduled checks off), while its parts came from the new version, so things like the status cloud could come out jumbled. ClassDash now redraws the page once when it starts.
 - **Fixed a follower turning off the master's scheduled checks:** saving Settings on a computer that follows another sent every number field to the master as if it had changed (they arrive as text, so they never matched), which put the follower's own values there, its check intervals of 0 among them, and the master stopped checking by itself. Only what actually changed is sent now. If your checks stopped after pairing, set the intervals again in Settings → Checking on the computer that checks.
 - **Fixed the sign-in window opening with dozens of old tabs:** a check cut off for taking too long has its browser closed by force, and the browser then brought back every tab it had open the next time it started, piling up run after run (checks loaded them too, unseen). ClassDash now clears the browser's saved tabs before starting it. Sign-ins aren't affected.

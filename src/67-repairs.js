@@ -20,6 +20,8 @@
  *   by     the services it stops, in words, for its second line
  *   at     when it was found (ISO), or null
  *   open   the Settings section to fix it in (showSettingsSection)
+ *   said   what the service itself said, when it said something (Q's
+ *          message, Canvas's refusal), for the repair's popup
  */
 
 const services = require('./61-services.js');
@@ -45,10 +47,12 @@ function list({ settings = require('./19-settings.js').read(), status = require(
   if (settings.gradesProvider === 'q') {
     const q = require('./services/q/40-grades.js');
     const saved = grades || q.readGrades();
-    if (q.due(Date.now(), { s: settings, saved }).why === 'rejected') {
+    // Wanting a new password is also a rejection (40-grades.js sets both, so
+    // it isn't tried again), so it's asked first: it says what to do.
+    if (saved.rejected && saved.newPassword) {
+      out.push({ id: 'qNewPassword', kind: 'qNewPassword', severity: 'error', domain: 'q', name: nameOf('q'), by: [nameOf('q')], at: saved.triedAt || null, open: 'svc-q', said: saved.why || null });
+    } else if (q.due(Date.now(), { s: settings, saved }).why === 'rejected') {
       out.push({ id: 'qRejected', kind: 'qRejected', severity: 'error', domain: 'q', name: nameOf('q'), by: [nameOf('q')], at: saved.triedAt || null, open: 'svc-q' });
-    } else if (saved.newPassword) {
-      out.push({ id: 'qNewPassword', kind: 'qNewPassword', severity: 'error', domain: 'q', name: nameOf('q'), by: [nameOf('q')], at: saved.triedAt || null, open: 'svc-q' });
     }
   }
 

@@ -19,8 +19,8 @@ ok(r.length === 1 && r[0].kind === 'signedOut' && r[0].name === 'Google' && r[0]
   'a sign-in that ran out: one repair for Google, saying what it stops and since when, opening Sign-ins: ' + JSON.stringify(r));
 r = repairs(`{ status: { classroom: { status: 'problem', detail: 'Classroom responded 500' } } }`);
 ok(r.length === 0, 'a failure that isn\'t yours to fix (the site broke) isn\'t a repair: the status cloud has it');
-r = repairs(`{ settings: { gradesProvider: 'q' }, status: {}, grades: { newPassword: true, triedAt: '${AT}' } }`);
-ok(r.length === 1 && r[0].kind === 'qNewPassword' && r[0].open === 'svc-q', 'Q wanting a new password opens Q\'s settings: ' + JSON.stringify(r));
+r = repairs(`{ settings: { gradesProvider: 'q' }, status: {}, grades: { rejected: true, newPassword: true, why: 'Q said so', triedAt: '${AT}' } }`);
+ok(r.length === 1 && r[0].kind === 'qNewPassword' && r[0].open === 'svc-q' && r[0].said === 'Q said so', 'Q wanting a new password (saved as rejected too, the way a real check saves it) is that, not "turned down", with Q\'s words: ' + JSON.stringify(r));
 r = repairs(`{ status: { canvas: { status: 'fallback', at: '${AT}', detail: "Fallback: the API (access token) didn't work (Canvas refused the access token (expired or deleted?) — make a new one), so Google sign-in was used instead" } } }`);
 ok(r.length === 1 && r[0].kind === 'canvasToken' && r[0].severity === 'warning' && r[0].open === 'svc-canvas', 'a refused Canvas token the sign-in covered for: a warning: ' + JSON.stringify(r));
 r = repairs(`{ status: { canvas: { status: 'problem', detail: 'Canvas refused the access token (expired or deleted?)' } } }`);
