@@ -188,7 +188,28 @@ function classProject(names = ['Chemistry', 'History', 'Math', 'Spanish'], files
   });
 }
 
+/** Waits for the page the API server draws when it starts (17-api.js) to be
+ *  written, so a test's own made-up page put there afterwards stays. */
+async function afterStartRedraw(proj, { dropShell = true } = {}) {
+  const fs = require('fs'), path = require('path');
+  const file = path.join(proj, 'page-shell.html');
+  const start = Date.now();
+  let last = -1, steadySince = 0;
+  while (Date.now() - start < 20000) {
+    let m = -1; try { m = fs.statSync(file).mtimeMs; } catch {}
+    if (m !== last) { last = m; steadySince = Date.now(); }
+    else if (m > 0 && Date.now() - steadySince > 600) {
+      // The server serves this first when it's there: gone, so a test's own
+      // summary.html is what's served.
+      if (dropShell) fs.unlinkSync(file);
+      return;
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
 module.exports = {
+  afterStartRedraw,
   REPO, makeProject, classProject, tmpDir, writeFiles, run, redraw, jsdom,
   ok, eq, done, sleep, until, enc,
 };

@@ -17,6 +17,9 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   process.on('exit', cleanup);
   let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
   ok('server came up with a token', !!token);
+  // The made-up page again, after the server's own drawing of it on start.
+  await T.afterStartRedraw(proj);
+  fs.writeFileSync(path.join(proj, 'summary.html'), '<!doctype html><title>made-up page</title>');
 
   const request = (method, urlPath, { headers = {}, body } = {}) => new Promise(resolve => {
     const r = https.request({ host: '127.0.0.1', port, path: urlPath, method, rejectUnauthorized: false, headers }, res => {

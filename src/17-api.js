@@ -1821,6 +1821,12 @@ function start() {
     console.log(`Handles: ${Object.keys(HANDLERS).join(' ')} /api/stream`);
     console.log(`Writes (POST): ${Object.keys(WRITE_HANDLERS).join(' ')}`);
     watchForChanges();
+    // The page is drawn by the code on disk, and that may have changed since
+    // it was last drawn (an update, a restart after one): drawn again once
+    // now, in the background, so its look (the page's own CSS, which only a
+    // redraw writes) matches the pieces this server sends. Otherwise it kept
+    // the old look until the next check, and with checks off, for good.
+    notifierActions.redrawCards();
     // .unref() — this timer alone shouldn't be what keeps the process
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();
