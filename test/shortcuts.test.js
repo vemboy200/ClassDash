@@ -9,7 +9,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── fixture: 13 classes, an announcement per class, three item types ──
 const backups = {};
-for (const f of ['last-collection.json', 'messages.json', 'new.json', 'не-срочно.txt']) backups[f] = fs.existsSync(f) ? fs.readFileSync(f) : null;
+for (const f of ['last-collection.json', 'messages.json', 'new.json', 'не-срочно.txt', 'virtual-assignments.json']) backups[f] = fs.existsSync(f) ? fs.readFileSync(f) : null;
 const soon = n => new Date(Date.now() + n * 864e5).toISOString();
 const items = [];
 const names = Array.from({ length: 13 }, (_, i) => 'Class ' + String(i + 1).padStart(2, '0'));
@@ -21,7 +21,10 @@ items.push({ class: names[1], id: 'c1', type: 'Completed Assignment', title: 'Do
 items.push({ class: names[2], id: 'u1', type: 'Assignment', title: 'No date', due: null, due_iso: null, link: 'x' });         // muted -> "no due date"
 items.push({ class: names[3], id: 'd1', type: 'Assignment', title: 'Due today', due: null, due_iso: soon(0.5), link: 'x' });    // "today and tomorrow"
 items.push({ class: names[4], id: 'o1', type: 'Assignment', title: 'Late', due: null, due_iso: soon(-2), link: 'x' });          // "overdue"
+items.push({ class: names[5], id: 'f1', type: 'Assignment', title: 'Far off', due: null, due_iso: soon(41), link: 'x' });          // "later"
 fs.writeFileSync('last-collection.json', JSON.stringify(items));
+// A reminder due in six weeks: it matched no due range and was hidden with every box ticked.
+fs.writeFileSync('virtual-assignments.json', JSON.stringify([{ id: 'v-00000000000000f2', title: 'Far reminder', class: names[6], due: soon(41), createdAt: soon(-1), done: false, doneAt: null, hidden: false }]));
 fs.writeFileSync('new.json', JSON.stringify({ assignments: ['m1'], announcements: [] }));
 fs.writeFileSync('не-срочно.txt', 'u1\n');
 fs.writeFileSync('messages.json', JSON.stringify(names.map((c, i) => ({ id: 'p' + i, class: c, text: 'post ' + i, date: 'Sep ' + (i + 1), sortTime: Date.now() - i * 1000, link: 'x' }))));
@@ -75,8 +78,11 @@ const state = boxes => boxes.map(b => b.checked ? 1 : 0).join('');
   const none = d.querySelector('.filters input[data-group="days"][value="none"]');
   ok(none.nextElementSibling.textContent === 'N', 'the no-due-date row shows N');
   const dueBox = v => d.querySelector('.filters input[data-group="days"][value="' + v + '"]');
-  const DUE = [['1', 'KeyT', 'T', 'today and tomorrow'], ['7', 'KeyW', 'W', 'this week'], ['31', 'KeyH', 'H', 'this month'], ['past', 'KeyO', 'O', 'overdue'], ['none', 'KeyN', 'N', 'no due date']];
+  const DUE = [['1', 'KeyT', 'T', 'today and tomorrow'], ['7', 'KeyW', 'W', 'this week'], ['31', 'KeyH', 'H', 'this month'], ['later', 'KeyL', 'L', 'later'], ['past', 'KeyO', 'O', 'overdue'], ['none', 'KeyN', 'N', 'no due date']];
   for (const [v, , key, label] of DUE) ok(dueBox(v) && dueBox(v).nextElementSibling.textContent === key, 'the ' + label + ' row shows ' + key);
+  const shown = re => [...d.querySelectorAll('.row')].filter(x => re.test(x.textContent) && !x.classList.contains('filtered-out')).length;
+  ok(shown(/Far off/) === 1 && shown(/Far reminder/) === 1, 'an assignment and a reminder due in six weeks show with every box ticked');
+  ok(d.getElementById('reminders-count').textContent === '1', 'and the reminder count agrees with the card');
   ok(/Ctrl\+R/.test(d.getElementById('quickcheck-button').title) && /Ctrl\+Shift\+R/.test(d.getElementById('freshcheck-button').title) && /Ctrl\+S/.test(d.getElementById('check-status-button').title), 'header tooltips carry the shortcuts (Windows style)');
 
   // ── class filter: every slot, digit row and numpad ──

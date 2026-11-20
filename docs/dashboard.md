@@ -24,7 +24,7 @@ Cmd on a Mac, Ctrl on Windows. They also live in the **View** menu, and each fil
 | 1 to 9, 0, -, = | Turn the 1st to 12th class in the class filter on or off (the numpad works too, with `-` and `+` as 11 and 12) |
 | Shift + those keys | The same, for the 1st to 12th class in the announcements filter |
 | A, C, M | Assignment, Completed and Material in the type filter |
-| T, W, H, O, N | The due filter: today and tomorrow, this week, this month (H, since M is Material), overdue, no due date |
+| T, W, H, L, O, N | The due filter: today and tomorrow, this week, this month (H, since M is Material), later (more than a month away), overdue, no due date |
 
 They don't do anything while you're typing or while Settings is open, and they follow the physical key, so they work on a Russian keyboard layout too.
 

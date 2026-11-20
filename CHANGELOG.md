@@ -4,6 +4,7 @@ What's changed in each version of ClassDash. **Unreleased** is what's built and 
 
 ## Unreleased
 
+- **Fixed work due more than a month away being hidden:** the dashboard's due filter stopped at "this month", so a reminder or assignment due further out matched no box and didn't show even with every box ticked, while the count beside the section still included it. A new **later** box (shortcut L) covers it.
 - **Fixed "Some of your settings take effect after the next check" never going away on a computer that follows another:** when a service was turned on or off, or the Canvas address changed, the follower was never told that the master's check had used it (only for skipped classes), so it kept waiting for a check that only the master runs. The follower now hears about all of them, and the notice clears after the master's next check.
 - **Settings are private to your account:** `settings.json`, which holds the Canvas token and any AI API keys, was saved readable by every account on the computer. ClassDash now saves it readable only by yours, and fixes an existing file when it starts.
 - **New page: [Your data](docs/data-handling.md).** What ClassDash stores and where, everywhere it connects, what AI providers get, how it reads each school site and that it's unofficial, its current limits, and how to remove everything.

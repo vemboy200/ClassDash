@@ -377,7 +377,7 @@ ${aiResultBlock(p, p.scan)}` : ''}
       <div class="group-name">${escapeHtml(name)}</div>
 ${rows.join('\n')}
     </div>`;
-    const dueLabels = { 1: t('filterTodayTomorrow'), 7: t('filterWeek'), 31: t('filterMonth'), past: t('filterOverdue'), none: t('filterNoDueDate') };
+    const dueLabels = { 1: t('filterTodayTomorrow'), 7: t('filterWeek'), 31: t('filterMonth'), later: t('filterLater'), past: t('filterOverdue'), none: t('filterNoDueDate') };
     return [
       group(t('filterClass'), filters.classes.map(([v, n]) => checkRow('cls', v, v, n))),
       group(t('filterType'), filters.types.map(([v, n]) => checkRow('type', v, v, n))),

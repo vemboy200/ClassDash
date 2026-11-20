@@ -2083,6 +2083,9 @@ function filterChoicesData(data, newMaterials, now) {
     ['1', t('filterTodayTomorrow'), countByDue(d => d !== null && d >= 0 && d <= 1)],
     ['7', t('filterWeek'), countByDue(d => d !== null && d >= 0 && d <= 7)],
     ['31', t('filterMonth'), countByDue(d => d !== null && d >= 0 && d <= 31)],
+    // Past the month: without it, anything due further out matched no box and
+    // was hidden even with every box ticked, while its section still counted it.
+    ['later', t('filterLater'), countByDue(d => d !== null && d > 31)],
     ['past', t('filterOverdue'), countByDue(d => d !== null && d < 0)],
     ['none', t('filterNoDueDate'), countByDue(d => d === null)],
   ];
@@ -5271,6 +5274,8 @@ function matchesDueFilter(values, days) {
       if (days === 'none') return true;
     } else if (v === 'past') {
       if (days !== 'none' && Number(days) < 0) return true;
+    } else if (v === 'later') {
+      if (days !== 'none' && Number(days) > 31) return true;
     } else if (days !== 'none' && Number(days) >= 0 && Number(days) <= Number(v)) {
       return true;
     }
@@ -8106,8 +8111,8 @@ var SHORTCUT_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=
 var TYPE_SHORTCUTS = { KeyA: 'assignment', KeyC: 'completed', KeyM: 'material' };
 var TYPE_SHORTCUT_LABELS = { assignment: 'A', completed: 'C', material: 'M' };
 // M is Material, so this month is H (from montH).
-var DUE_SHORTCUTS = { KeyT: '1', KeyW: '7', KeyH: '31', KeyO: 'past', KeyN: 'none' };
-var DUE_SHORTCUT_LABELS = { '1': 'T', '7': 'W', '31': 'H', past: 'O', none: 'N' };
+var DUE_SHORTCUTS = { KeyT: '1', KeyW: '7', KeyH: '31', KeyL: 'later', KeyO: 'past', KeyN: 'none' };
+var DUE_SHORTCUT_LABELS = { '1': 'T', '7': 'W', '31': 'H', later: 'L', past: 'O', none: 'N' };
 
 function shortcutSlot(code) {
   var i = SHORTCUT_SLOTS.indexOf(code);
