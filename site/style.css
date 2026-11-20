@@ -55,8 +55,28 @@ nav.links a:hover { color: var(--text); }
 .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 .small { font-size: 13px; color: var(--dim); margin-top: 14px; }
 
-.shot { margin: 48px auto 0; max-width: 1040px; border-width: 8px; padding: 6px; }
-.shot img { display: block; width: 100%; height: auto; }
+/* Screenshot carousel. The middle picture sits straight; its neighbours are
+   smaller and tilted outwards, like cards fanned out on a table. */
+.flow { margin: 40px auto 36px; overflow-x: clip; }
+.flow-caption { font-weight: 700; font-size: 17px; margin: 0 0 16px; min-height: 1.5em; }
+.flow-stage { position: relative; height: clamp(240px, 34vw, 430px); touch-action: pan-y; user-select: none; }
+.flow-slide { position: absolute; top: 50%; left: 50%; margin: 0; width: min(48%, 640px); aspect-ratio: 16 / 10;
+  display: flex; align-items: center; justify-content: center; border-width: 10px; padding: 6px;
+  transition: transform .45s cubic-bezier(.2,.7,.2,1), opacity .45s, filter .45s; cursor: default; }
+.flow-slide img { max-width: 100%; max-height: 100%; display: block; object-fit: contain; pointer-events: none; }
+.flow-slide[data-pos="center"] { transform: translate(-50%, -50%); z-index: 3; }
+.flow-slide[data-pos="left"] { transform: translate(-50%, -50%) translate(-64%, 42%) rotate(-12deg) scale(.6); z-index: 2; opacity: .75; filter: brightness(.7); cursor: pointer; }
+.flow-slide[data-pos="right"] { transform: translate(-50%, -50%) translate(64%, 42%) rotate(12deg) scale(.6); z-index: 2; opacity: .75; filter: brightness(.7); cursor: pointer; }
+.flow-slide[data-pos="away"] { transform: translate(-50%, -50%) scale(.5); opacity: 0; z-index: 1; pointer-events: none; }
+.flow-controls { position: relative; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; }
+.flow-arrow { padding: 2px 12px; font-size: 18px; }
+.flow-track { position: relative; width: 180px; height: 16px; border-width: 6px; }
+.flow-thumb { position: absolute; top: -6px; height: 16px; border-width: 6px; transition: left .45s cubic-bezier(.2,.7,.2,1); }
+@media (max-width: 760px) {
+  .flow-slide { width: 92%; }
+  .flow-slide[data-pos="left"], .flow-slide[data-pos="right"] { opacity: 0; pointer-events: none; }
+}
+@media (prefers-reduced-motion: reduce) { .flow-slide, .flow-thumb { transition: none; } }
 .shot-caption { text-align: center; font-size: 13px; color: var(--dim); margin-top: 10px; }
 
 /* Sections */

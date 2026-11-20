@@ -31,13 +31,34 @@
   <div class="hero wrap">
     <span class="pill kicker">Free · open source · runs on your computer</span>
     <h1>Every class.<br>Every assignment.<br><em>One page.</em></h1>
+
+    <!-- The screenshots: the one in the middle, the ones beside it turned
+         away (cover flow). Made-up schoolwork from test/demo-project.js. -->
+    <div class="flow" id="flow" aria-roledescription="carousel" aria-label="ClassDash screenshots">
+      <p class="flow-caption" id="flow-caption" aria-live="polite"></p>
+      <div class="flow-stage" id="flow-stage">
+        <figure class="tile flow-slide" data-caption="Everything due, from every site, on one page."><img src="img/shots/dashboard.png" alt="The whole dashboard: class filters, reminders, overdue and due-soon work, grades and announcements"></figure>
+        <figure class="tile flow-slide" data-caption="The teacher's instructions, right under each assignment."><img src="img/shots/due.png" alt="Overdue and due-soon assignments from Canvas, Google Classroom and Edpuzzle, one with its instructions open"></figure>
+        <figure class="tile flow-slide" data-caption="Every grade, and how it got there."><img src="img/shots/grades-center.png" alt="The Grades center: a class's grade history graph and its graded assignments"></figure>
+        <figure class="tile flow-slide" data-caption="Announcements, attachments and all. New ones are marked."><img src="img/shots/announcements.png" alt="Teacher announcements with slides, link and PDF attachments, the newest marked new"></figure>
+        <figure class="tile flow-slide" data-caption="Reminders for what was only said out loud."><img src="img/shots/reminders.png" alt="Two reminders typed in by hand, one with a due date"></figure>
+        <figure class="tile flow-slide" data-caption="Your grades at a glance, with what changed."><img src="img/shots/grades.png" alt="Grades for five classes, each with how much it went up"></figure>
+        <figure class="tile flow-slide" data-caption="Turn on the sites your school uses."><img src="img/shots/services.png" alt="Service cards for Google Classroom, Canvas and Edpuzzle"></figure>
+        <figure class="tile flow-slide" data-caption="Bring your own AI, on your computer or in the cloud."><img src="img/shots/ai.png" alt="The list of AIs ClassDash can use, on this computer and in the cloud"></figure>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="btn flow-arrow" id="flow-prev" aria-label="Previous screenshot">&larr;</button>
+        <div class="track flow-track" aria-hidden="true"><div class="thumb flow-thumb" id="flow-thumb"></div></div>
+        <button type="button" class="btn flow-arrow" id="flow-next" aria-label="Next screenshot">&rarr;</button>
+      </div>
+      <p class="shot-caption">Made-up classes and assignments. Nobody's real schoolwork is in these pictures.</p>
+    </div>
+
     <p class="lede">ClassDash checks Google Classroom, Canvas, Edpuzzle and your school's grade system for you, and puts everything that's due on one page. Nothing for your school to set up or approve.</p>
     <div class="cta">
       <a class="btn primary big" href="#get">Download for Mac or Windows</a>
       <a class="btn big" href="https://github.com/vemboy200/ClassDash">View on GitHub</a>
     </div>
-    <div class="tile shot"><img src="img/dashboard.png" alt="The ClassDash dashboard: class filters, overdue and due-soon assignments, and grades for each class" width="1280" height="860"></div>
-    <div class="shot-caption">Made-up classes and assignments. Nobody's real schoolwork is in this picture.</div>
   </div>
 
   <section>
@@ -116,6 +137,46 @@
   </div>
 </footer>
 
+<script>
+// The screenshot cover flow: arrows, keys, swipes, clicking a side picture.
+(function () {
+  const slides = [...document.querySelectorAll('.flow-slide')];
+  const caption = document.getElementById('flow-caption');
+  const thumb = document.getElementById('flow-thumb');
+  const stage = document.getElementById('flow-stage');
+  let at = 0;
+  function show(i) {
+    at = (i + slides.length) % slides.length;
+    slides.forEach((el, k) => {
+      const d = ((k - at) % slides.length + slides.length) % slides.length;
+      const pos = d === 0 ? 'center' : d === 1 ? 'right' : d === slides.length - 1 ? 'left' : 'away';
+      el.dataset.pos = pos;
+      el.setAttribute('aria-hidden', pos === 'center' ? 'false' : 'true');
+    });
+    caption.textContent = slides[at].dataset.caption;
+    thumb.style.width = (100 / slides.length) + '%';
+    thumb.style.left = (100 * at / slides.length) + '%';
+  }
+  document.getElementById('flow-prev').onclick = () => show(at - 1);
+  document.getElementById('flow-next').onclick = () => show(at + 1);
+  slides.forEach(el => el.addEventListener('click', () => {
+    if (el.dataset.pos === 'left') show(at - 1);
+    if (el.dataset.pos === 'right') show(at + 1);
+  }));
+  document.getElementById('flow').addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') { show(at - 1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { show(at + 1); e.preventDefault(); }
+  });
+  let startX = null;
+  stage.addEventListener('pointerdown', e => { startX = e.clientX; });
+  stage.addEventListener('pointerup', e => {
+    if (startX === null) return;
+    const dx = e.clientX - startX; startX = null;
+    if (Math.abs(dx) > 40) show(at + (dx < 0 ? 1 : -1));
+  });
+  show(0);
+})();
+</script>
 <script>
 // Font test (fonts.html): ?font=Name&w=700 tries that headline font here.
 (function () {

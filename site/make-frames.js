@@ -29,11 +29,14 @@ a.tile:hover{border-image-source:${sprite('large', t.new, t.card)}}
 .btn:hover{border-image-source:${sprite('medium', t.new, t.card)}}
 .btn.primary{border-image-source:${sprite('medium', t.ink, t.new)}}
 .btn.primary:hover{border-image-source:${sprite('medium', t.ink, t.card)}}
-.pill{border-image-source:${sprite('pill', t.ink, t.line)}}`;
+.pill{border-image-source:${sprite('pill', t.ink, t.line)}}
+.track{border-image-source:${sprite('pill', t.ink, t.bg)}}
+.thumb{border-image-source:${sprite('pill', t.ink, t.new)}}`;
 const css = `/* Made by make-frames.js; don't edit by hand. */
 .tile{${geo('large')}}
 .btn{${geo('medium')}}
 .pill{${geo('pill')}}
+.track, .thumb{${geo('pill')}}
 ${themed(THEME.light)}
 @media (prefers-color-scheme: dark){${themed(THEME.dark)}
 }
