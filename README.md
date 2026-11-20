@@ -48,6 +48,7 @@ The builds aren't code-signed (that needs a paid certificate), so macOS and Wind
 - [Grades](docs/grades.md)
 - [Workspace](docs/workspace.md): PDFs, web pages and the AI pane
 - [AI](docs/ai.md): a page for each AI, setting one up, picking a model, announcements, other AI apps
+- [Your data](docs/data-handling.md): what's stored where, where ClassDash connects, and how it reads your school sites (it's unofficial)
 - [Using AI with ClassDash](docs/ai-use.md): what the AI will and won't do, and advice about AI and school
 - [API](docs/api.md)
 - [Troubleshooting](docs/troubleshooting.md)
