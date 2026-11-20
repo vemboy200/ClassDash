@@ -164,4 +164,17 @@ function alerts(status, notify, language = 'en') {
   return now;
 }
 
-module.exports = { list, pagesFor, signedOut, state, stepsFor, waitingFor, alerts, GOOGLE_START, ALERTS_FILE };
+/**
+ * The check that proves a sign-in worked (`id` as in list(), empty for all of
+ * them): 'full' when a service using it is only read in a full check (its
+ * browser class is "visible", like Edpuzzle), 'quick' when a quick check
+ * reads them, null when nothing that's on uses it. Run when the sign-in
+ * window closes, and what a repair shows "Checking…" for.
+ */
+function checkAfter(id, settings) {
+  const using = inUse(settings).filter(u => id ? stepsFor(u.manifest).some(s => s.id === id) : stepsFor(u.manifest).length);
+  if (!using.length) return null;
+  return using.some(u => u.manifest.browser_class === 'visible') ? 'full' : 'quick';
+}
+
+module.exports = { list, pagesFor, signedOut, state, stepsFor, waitingFor, alerts, checkAfter, GOOGLE_START, ALERTS_FILE };

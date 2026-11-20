@@ -443,8 +443,12 @@ async function login(which = '') {
 
   // Then look for services this sign-in works with (65-discovery.js), in a
   // process of its own: whoever started this one may be waiting for it to end.
+  // After that, the check that proves the sign-in worked (checkAfter in
+  // 64-sign-ins.js), so a repair about it clears, or stays, by itself instead
+  // of waiting for the next check: the two take turns with the profile.
+  const proof = require('./64-sign-ins.js').checkAfter(which, SETTINGS);
   try {
-    require('child_process').spawn(process.execPath, [__filename, '--discover', ...(which ? [which] : [])],
+    require('child_process').spawn(process.execPath, [__filename, '--discover', ...(which ? [which] : []), ...(proof ? ['--then-check', proof] : [])],
       { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true }).unref();
   } catch (e) { console.warn('not looking for services:', e.message); }
 }
@@ -455,10 +459,22 @@ async function login(which = '') {
  * the page so Settings → Services offers what was found. Takes the check's
  * lock: the profile can only be open in one browser at a time.
  */
+/** After the sign-in window (--then-check quick|full): the check that proves
+ *  the sign-in worked, in a process of its own like any check. */
+function thenCheck() {
+  const at = process.argv.indexOf('--then-check');
+  if (at < 0) return;
+  const full = process.argv[at + 1] === 'full';
+  console.log(`Checking the sign-in with a ${full ? 'full' : 'quick'} check.`);
+  require('child_process').spawn(process.execPath, [__filename, ...(full ? ['--full'] : [])],
+    { cwd: __dirname, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+}
+
 async function discover(which) {
   const discovery = require('./65-discovery.js');
   if (!discovery.candidates(which, SETTINGS).length) {
     console.log('No service to look for: every one this sign-in could work for is set up or ignored.');
+    thenCheck();
     return;
   }
   if (!acquireLock()) {
@@ -482,6 +498,7 @@ async function discover(which) {
     releaseLock();
   }
   redrawPage();
+  thenCheck();
 }
 
 // ── Lock against simultaneous runs ────────────────────────────
@@ -1681,7 +1698,7 @@ if (require.main !== module) return;
   // Tells an open page a collection is running, so it can show a progress
   // bar (see 28-live-state.js). Ended on 'exit' like the lock, for the same
   // reason: whatever way this dies, the page shouldn't keep showing a bar.
-  live.startRun(PROJECT_ROOT);
+  live.startRun(PROJECT_ROOT, { full: process.argv.includes('--full') });
   process.on('exit', live.endRun);
   // Same cleanup as the watchdog below, for the same reason: node exiting
   // normally closes Playwright's browser along with it, but a forced exit

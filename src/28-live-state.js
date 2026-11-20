@@ -87,13 +87,13 @@ function publishPageVersion(baseDir, version) {
 
 // ── The run a collection reports ──
 
-const run = { baseDir: null, running: false, done: 0, total: 0, timer: null };
+const run = { baseDir: null, running: false, full: false, done: 0, total: 0, timer: null };
 
 function writeRun() {
   if (!run.baseDir) return;
   try {
     const state = JSON.stringify({
-      running: run.running, done: run.done, total: run.total, at: Date.now(),
+      running: run.running, full: run.full, done: run.done, total: run.total, at: Date.now(),
     });
     writeAtomic(run.baseDir, 'check-run.json', state + '\n');
     writeAtomic(run.baseDir, 'check-run.js', 'window.classdashCheckRun = ' + state + ';\n');
@@ -102,9 +102,12 @@ function writeRun() {
 
 /** A collection has begun. total is unknown until the class list has been
  *  read, so it starts at 0 and the page shows "starting" until it isn't. */
-function startRun(baseDir) {
+function startRun(baseDir, { full = false } = {}) {
   run.baseDir = baseDir;
   run.running = true;
+  // A full check also reads what only it reads (Edpuzzle): the page says
+  // "Checking…" on a repair only for a check that will look at it.
+  run.full = !!full;
   run.done = 0;
   run.total = 0;
   writeRun();

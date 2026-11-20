@@ -510,6 +510,8 @@ function appUpdate() {
 function settingsNotices() {
   const repairs = require('./67-repairs.js').list({ language: currentLanguage() });
   const update = appUpdate();
+  const settings = readSettings();
+  const signIns = require('./64-sign-ins.js');
   const bridge = require('./61-services.js');
   const logo = domain => {
     const m = bridge.list().find(x => x.domain === domain);
@@ -521,7 +523,13 @@ function settingsNotices() {
   const repairRow = r => {
     const icon = r.kind === 'signedOut' && r.domain === 'google'
       ? '<span class="svc-logo pixel-icon icon-sign-in" aria-hidden="true"></span>' : logo(r.domain);
-    const sub = [`<span class="notice-${r.severity}">${escapeHtml(t(r.severity === 'error' ? 'repairError' : 'repairWarning'))}</span>`,
+    // The check that would show it fixed, when one would: while that runs,
+    // "Checking…" stands in for Error (applyRunState sets checking-quick and
+    // checking-full on the page). Q's are checked by saving the password.
+    const proof = r.kind === 'signedOut' ? signIns.checkAfter(r.domain, settings) : r.kind === 'canvasToken' ? 'quick' : null;
+    const word = `<span class="notice-${r.severity} repair-word">${escapeHtml(t(r.severity === 'error' ? 'repairError' : 'repairWarning'))}</span>` +
+      (proof ? `<span class="repair-checking">${escapeHtml(t('repairChecking'))}</span>` : '');
+    const sub = [`<span class="repair-state"${proof ? ` data-proof="${proof}"` : ''}>${word}</span>`,
       r.at ? escapeHtml(checkStatusWhen({ at: r.at })) : '',
       r.by.length ? escapeHtml(t('repairBy', r.by.join(', '))) : ''].filter(Boolean).join(' · ');
     return `        <button type="button" class="notice-row" data-repair="${escapeHtml(r.id)}" onclick="openRepair(this.getAttribute('data-repair'))">` +
@@ -3554,6 +3562,12 @@ ${cardHtml[id]}
   .notice-title { font-size: 14px; }
   .notice-error { color: var(--hot); }
   .notice-warning { color: var(--warn); }
+  /* While the check that would show a repair fixed runs (applyRunState). */
+  .repair-checking { display: none; color: var(--new); }
+  body.checking-quick .repair-state[data-proof="quick"] .repair-word,
+  body.checking-full .repair-state[data-proof] .repair-word { display: none; }
+  body.checking-quick .repair-state[data-proof="quick"] .repair-checking,
+  body.checking-full .repair-state[data-proof] .repair-checking { display: inline; }
   /* A repair's popup (repairBody), over everything, like Home Assistant's. */
   .repair-dialog { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
   .repair-dialog[hidden] { display: none; }
@@ -8397,6 +8411,12 @@ function applyRunState(run) {
   var unknown = !run && (Date.now() - pageLoadedAt) < LIVE_UNKNOWN_MS;
   var box = document.getElementById('check-progress');
   var freshButton = document.getElementById('freshcheck-button');
+  // A repair says "Checking…" while a check that looks at it runs: any
+  // check for most, a full one for what only a full check reads (Edpuzzle).
+  if (!unknown) {
+    document.body.classList.toggle('checking-quick', live);
+    document.body.classList.toggle('checking-full', live && !!run.full);
+  }
   var quickButton = document.getElementById('quickcheck-button');
   if (quickButton && !unknown) {
     if (live) quickSpinUntil = 0;
