@@ -65,7 +65,10 @@ write('messages.json', [
   { id: 'demo-m3', class: 'English 10', author: 'Demo Teacher', date: at(-3, 12, 0), sortTime: now - 3 * day, title: 'Reading schedule', text: 'Finish chapter 4 by Friday. We will discuss the ending of chapter 3 in class, so no spoilers in the journals please.', link: `${SITE}/courses/3/announcements/1`, attachments: [] },
 ]);
 
-const graded = (title, score, possible, extra = {}) => ({ id: `g${n++}`, title, due: at(-10), assigned: at(-20), possible, score, scoreText: null, percent: Math.round(score / possible * 1000) / 10, comment: null, missing: false, late: false, excused: false, link: `${SITE}/grades`, group: 1, omitted: false, ...extra });
+// Due dates spread over the past month (4, 12, 20, 28 days ago, in turn).
+let k = 0;
+const gradedDaysAgo = () => 4 + (k++ % 4) * 8;
+const graded = (title, score, possible, extra = {}) => { const d = gradedDaysAgo(); return { id: `g${n++}`, title, due: at(-d), assigned: at(-d - 7), possible, score, scoreText: null, percent: Math.round(score / possible * 1000) / 10, comment: null, missing: false, late: false, excused: false, link: `${SITE}/grades`, group: 1, omitted: false, ...extra }; };
 const gradeClass = (cls, grade, percent, assignments) => ({ class: cls, grade, percent, assignments, weighting: null });
 write('canvas-grades.json', {
   checkedAt: new Date(now - 3600000).toISOString(),
@@ -77,6 +80,21 @@ write('canvas-grades.json', {
     gradeClass('Chemistry', 'C+', 78.3, [graded('Moles worksheet', 12, 20, { comment: 'Show your units.' }), graded('Lab safety quiz', 10, 10)]),
   ],
 });
+
+// Grade history, so the Grades center draws its graphs: each class's grade
+// as it changed over the past couple of months, ending at the grade above.
+// Only changes are kept (see 45-grade-history.js), so the points are uneven.
+const letter = p => p >= 93 ? 'A' : p >= 90 ? 'A-' : p >= 87 ? 'B+' : p >= 83 ? 'B' : p >= 80 ? 'B-' : p >= 77 ? 'C+' : p >= 73 ? 'C' : p >= 70 ? 'C-' : 'D';
+const history = (cls, points, last) => ({ class: cls, source: 'canvas', points: [
+  ...points.map(([daysAgo, percent]) => ({ at: at(-daysAgo, 16, 0), percent, grade: letter(percent) })),
+  { at: new Date(now - 3600000).toISOString(), percent: last[1], grade: last[0] }] });
+write('grade-history.json', { series: {
+  'canvas:Biology': history('Biology', [[58, 92], [51, 90.5], [44, 91.2], [37, 87.6], [30, 86.1], [23, 88.9], [12, 87.2]], ['B+', 88.4]),
+  'canvas:Algebra II': history('Algebra II', [[58, 76], [49, 78.4], [41, 74.9], [33, 77.5], [26, 79.8], [17, 82.6], [8, 80.3]], ['B-', 81.2]),
+  'canvas:World History': history('World History', [[56, 95], [47, 93.8], [38, 89.5], [29, 90.7], [19, 92.4], [10, 90.2]], ['A-', 91.0]),
+  'canvas:English 10': history('English 10', [[57, 90], [45, 92.3], [34, 93.1], [22, 95.8], [11, 94.1]], ['A', 94.6]),
+  'canvas:Chemistry': history('Chemistry', [[59, 85], [50, 82.7], [43, 80.1], [35, 76.4], [27, 74.8], [18, 77.9], [9, 76.5]], ['C+', 78.3]),
+} });
 
 (async () => {
   const { PDFDocument, StandardFonts } = require(path.join(dir, 'pdf-lib.min.js'));
