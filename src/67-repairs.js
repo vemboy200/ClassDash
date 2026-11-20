@@ -58,7 +58,7 @@ function list({ settings = require('./19-settings.js').read(), status = require(
 
   const canvas = status.canvas;
   if (canvas && ['problem', 'fallback'].includes(canvas.status) && TOKEN_REFUSED.test(canvas.detail || '')) {
-    out.push({ id: 'canvasToken', kind: 'canvasToken', severity: canvas.status === 'problem' ? 'error' : 'warning', domain: 'canvas', name: nameOf('canvas'), by: [nameOf('canvas')], at: canvas.at || null, open: 'svc-canvas' });
+    out.push({ id: 'canvasToken', kind: 'canvasToken', severity: canvas.status === 'problem' ? 'error' : 'warning', domain: 'canvas', name: nameOf('canvas'), by: [nameOf('canvas')], at: canvas.at || null, open: 'svc-canvas', said: canvas.detail || null });
   }
   return out;
 }

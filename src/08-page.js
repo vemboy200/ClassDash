@@ -524,9 +524,10 @@ function settingsNotices() {
     const sub = [`<span class="notice-${r.severity}">${escapeHtml(t(r.severity === 'error' ? 'repairError' : 'repairWarning'))}</span>`,
       r.at ? escapeHtml(checkStatusWhen({ at: r.at })) : '',
       r.by.length ? escapeHtml(t('repairBy', r.by.join(', '))) : ''].filter(Boolean).join(' · ');
-    return `        <button type="button" class="notice-row" data-repair="${escapeHtml(r.id)}" onclick="showSettingsSection('${escapeHtml(r.open)}')">` +
+    return `        <button type="button" class="notice-row" data-repair="${escapeHtml(r.id)}" onclick="openRepair(this.getAttribute('data-repair'))">` +
       `<span class="notice-icon">${icon}</span><span class="settings-row-text"><span class="notice-title">${escapeHtml(title(r))}</span>` +
-      `<span class="settings-row-desc">${sub}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>`;
+      `<span class="settings-row-desc">${sub}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>` +
+      repairBody(r, icon, title(r), sub);
   };
   const repairsCard = !repairs.length ? '' : `      <div class="notice-card" id="repairs-card">
         <div class="notice-head">${escapeHtml(t('repairsCount', repairs.length))}</div>
@@ -539,6 +540,46 @@ ${repairs.map(repairRow).join('\n')}
         `<span class="settings-row-desc">v${escapeHtml(update.latestVersion)}${update.currentVersion ? ` · ${escapeHtml(t('updateRunning', update.currentVersion))}` : ''}</span></span><span class="settings-row-go" aria-hidden="true">›</span></button>
       </div>`;
   return repairsCard + updatesCard;
+}
+
+/**
+ * What a repair's popup says, like Home Assistant's: what happened, in full
+ * (with the service's own words when it gave some), and the button that
+ * fixes it. Kept in a <template> beside its row, so it changes with the
+ * notices piece, and copied into the one popup (repairDialogShell) on a click.
+ */
+function repairBody(r, icon, title, sub) {
+  const go = (label, call) => `<button type="button" class="mini-btn" onclick="closeRepair(); ${call}">${escapeHtml(label)}</button>`;
+  const said = r.said ? `<p class="repair-said">${escapeHtml(t('repairSaid', r.said))}</p>` : '';
+  let text = '', buttons = '';
+  if (r.kind === 'signedOut') {
+    text = t('repairSignedOutBody', r.name);
+    buttons = (masterName() ? '' : `<span data-native-only><button type="button" class="mini-btn" onclick="setupSignIn(this, '${escapeHtml(r.domain)}')">${escapeHtml(t('settingsSetupSignInButton'))}</button></span>`) +
+      go(t('repairOpen', t('settingsSectionSignIns')), "showSettingsSection('sign-ins')");
+  } else if (r.kind === 'qRejected' || r.kind === 'qNewPassword') {
+    const grades = require('./services/q/40-grades.js');
+    const portal = r.kind === 'qNewPassword' && grades.portalBase(readSettings().gradesAddress);
+    text = r.kind === 'qNewPassword' ? t('gradesNewPassword', r.said) : t('gradesRejected');
+    buttons = (portal ? `<a class="mini-btn" href="${escapeHtml(portal.base + '/')}" target="_blank" rel="noopener">${escapeHtml(t('gradesOpenQ'))}</a>` : '') +
+      go(t('repairOpen', r.name), 'openGradesSettings()');
+    return repairTemplate(r, icon, title, sub, `<p>${escapeHtml(text)}</p>`, buttons);
+  } else {
+    text = t('repairCanvasTokenBody');
+    buttons = go(t('repairOpen', r.name), `showSettingsSection('${escapeHtml(r.open)}')`);
+  }
+  return repairTemplate(r, icon, title, sub, `<p>${escapeHtml(text)}</p>${said}`, buttons);
+}
+function repairTemplate(r, icon, title, sub, body, buttons) {
+  return `<template data-repair-body="${escapeHtml(r.id)}"><div class="repair-head"><span class="notice-icon">${icon}</span>` +
+    `<span class="settings-row-text"><span class="repair-title" id="repair-title">${escapeHtml(title)}</span><span class="settings-row-desc">${sub}</span></span></div>` +
+    `<div class="repair-text">${body}</div><div class="repair-actions"><button type="button" class="mini-btn" onclick="closeRepair()">${escapeHtml(t('repairClose'))}</button>${buttons}</div></template>`;
+}
+/** The one popup a repair opens in (openRepair fills it). Outside <main>:
+ *  on the Settings page everything else in there is hidden, this with it. */
+function repairDialogShell() {
+  return `  <div class="repair-dialog" id="repair-dialog" hidden onclick="if (event.target === this) closeRepair()">
+    <div class="repair-box" id="repair-box" role="dialog" aria-modal="true" aria-labelledby="repair-title"></div>
+  </div>`;
 }
 
 /**
@@ -1317,14 +1358,17 @@ function gradesSection() {
           <span class="grade-class">${escapeHtml(c.class)}${mixed ? ` <span class="grade-source">${SOURCE_LABEL[c.source]}</span>` : ''}</span>
           <span class="grade-mark">${gradeMark(c)}${gradeTrend(history[c.class])}</span>
         </li>`).join('\n');
-  const lastOther = [view.canvasCheckedAt, view.classroomCheckedAt].filter(Boolean).sort().pop();
-  const note = !qOn ? (lastOther ? t('gradesAsOf', when(lastOther)) : '')
-    : !ready.ready ? t('gradesSetUp')
-    : view.newPassword ? t('gradesNewPassword', view.why)
-    : view.rejected ? t('gradesRejected')
-    : view.ok === false ? t('gradesFailed', when(view.triedAt), view.why || '')
-    : view.checkedAt ? t('gradesAsOf', when(view.checkedAt))
-    : t('gradesNotYet');
+  // How old the grades shown are: one time when they're from one place, each
+  // place's own when from several (Q can be days behind Canvas when it
+  // stopped working), and only the places with a grade shown.
+  const readAt = { q: view.checkedAt, canvas: view.canvasCheckedAt, classroom: view.classroomCheckedAt };
+  const from = [...new Set(shown.map(c => c.source))].filter(src => readAt[src]);
+  const asOf = from.length > 1 ? from.map(src => t('gradesAsOfFrom', SOURCE_LABEL[src], when(readAt[src]))).join(' · ')
+    : from.length ? t('gradesAsOf', when(readAt[from[0]])) : '';
+  const note = qOn && !ready.ready ? t('gradesSetUp')
+    // A read that didn't work is a repair (Settings) or in the status cloud,
+    // not text here.
+    : asOf || (!qOn || view.ok === false ? '' : t('gradesNotYet'));
   const hidden = !!s.gradesHidden;
   return `    <section class="grades-section${hidden ? ' grades-hidden' : ''}" id="grades-section">
       <h2 class="grades-title">${escapeHtml(t('gradesTitle'))}
@@ -1332,8 +1376,7 @@ function gradesSection() {
           <button type="button" class="mini-btn grades-center-open" onclick="toggleGradesCenter(true)">${escapeHtml(t('gcOpen'))}</button>
           <button type="button" class="mini-btn grades-toggle" aria-pressed="${hidden}" onclick="toggleGradesHidden(this)">${escapeHtml(t(hidden ? 'gradesShow' : 'gradesHide'))}</button>
         </span></h2>
-${note ? `      <p class="hint${qOn && (view.ok === false || view.rejected) ? ' grades-problem' : ''}">${escapeHtml(note)}</p>` : ''}
-${qOn && view.rejected ? `      <p class="grades-fix">${view.newPassword && grades.portalBase(s.gradesAddress) ? `<a class="mini-btn" href="${escapeHtml(grades.portalBase(s.gradesAddress).base + '/')}" target="_blank" rel="noopener">${escapeHtml(t('gradesOpenQ'))}</a> ` : ''}<button type="button" class="mini-btn" onclick="openGradesSettings()">${escapeHtml(t('gradesOpenSettings'))}</button></p>` : ''}
+${note ? `      <p class="hint">${escapeHtml(note)}</p>` : ''}
 ${rows ? `      <ul class="grades-list">\n${rows}\n      </ul>` : ''}
     </section>`;
 }
@@ -2463,7 +2506,7 @@ function rasterSprite(N, shapeAt, edge, fill) {
 /** The stepped-corner rules — shared geometry once, then the sprite each
  *  kind of element uses, generated for both themes. */
 function pixelCornerCss() {
-  const TILES = '.post, .item, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai, .svc-card';
+  const TILES = '.post, .item, .filters, .settings-panel, .check-status-panel, .warn, .tip, .gc-class, .gc-ai, .svc-card, .repair-box';
   const BUTTONS = '.reload, .check-status, .quiet, .filters button, .mini-btn, .dash-edit, .dash-hide, ' +
     '.show-hidden-btn, .reminder-toggle-btn, .reminder-add button';
   const each = (list, suffix) => list.split(', ').map(s => s + suffix).join(', ');
@@ -2604,7 +2647,8 @@ function pixelCornerCss() {
  * @param {object} data — {burning, later, undated, fresh, broken, now}
  * @param {string} outputPath — where to write the html
  */
-/** The banners at the very top of the page: setup not finished, signed out. */
+/** The banners at the very top of the page: setup not finished, no internet.
+ *  A sign-in that ran out is a repair (Settings, 67-repairs.js), not a banner. */
 function setupAndSignInBanners() {
   // Not dismissable, unlike updateBanner above — an unset email isn't an
   // FYI, it's the reason 05-playwright-draft.js can't correctly build
@@ -2624,25 +2668,7 @@ function setupAndSignInBanners() {
      </div>`
     : '';
 
-  // Not dismissable, same reasoning as setupBanner above: this only
-  // shows for a currently-true problem, not a one-time event, so it
-  // keeps nagging every reload until it's actually fixed. The two
-  // conditions checked here are the ones 05-playwright-draft.js/
-  // 10-canvas.js already tag with a specific, recognizable message when
-  // the failure really is "the browser session needs a person to sign
-  // back in" — not just any Classroom/Canvas problem (a timeout, a
-  // broken page) gets this banner, only ones confirmed to be that.
-  // A click opens the real, visible sign-in browser window directly —
-  // no more figuring out there's a terminal command, or that a headless
-  // scheduled check has no window a person could even sign into.
   const liveStatus = checkStatus();
-  const signInNeeded = require('./64-sign-ins.js').state('google', liveStatus) === 'out';
-  const signInBanner = signInNeeded
-    ? `  <div class="warn sign-in-banner">
-       <span>${escapeHtml(t('signInNeeded'))}</span>
-       <a href="#" id="sign-in-banner-link" onclick="triggerSignIn(this); return false;">${escapeHtml(t('signInNow'))}</a>
-     </div>`
-    : '';
 
   const noInternet = Object.values(liveStatus).some(s => s.status === 'problem' && isNetworkProblem(s.detail));
   let lastCopy = '';
@@ -2654,7 +2680,7 @@ function setupAndSignInBanners() {
   }
   const noInternetBanner = !noInternet ? '' : `  <div class="warn no-internet-banner"><span>${escapeHtml(lastCopy ? t('noInternet').split('{when}').join(lastCopy) : t('noInternetNoCopy'))}</span></div>`;
 
-  return noInternetBanner + setupBanner + signInBanner + syncOfferBanner();
+  return noInternetBanner + setupBanner + syncOfferBanner();
 }
 
 /** The banners under them: a setting waiting for a check, schedule heads-ups. */
@@ -2759,11 +2785,6 @@ function writePage(data, outputPath) {
   // trip through JSON is so they can't come out different.
   const view = JSON.parse(JSON.stringify(dashboardView({ ...data, freshIds: data.freshIds || new Set(), updatedAt: now })));
   const pieces = view.pieces;
-
-  const warning = broken.length
-    ? `  <div class="warn">${escapeHtml(t('couldNotRead'))} ${escapeHtml(broken.join(', '))}.
-       ${escapeHtml(t('fromMemoryNotice'))}</div>`
-    : '';
 
   // "You can relax" is a verdict, and a page written while sources are still
   // being read hasn't got one: nothing due YET isn't nothing due. It's also
@@ -3322,8 +3343,8 @@ ${cardHtml[id]}
   .acting-bar { position: fixed; top: 0; left: 0; height: 3px; width: 30%; z-index: 1001; background: var(--new); display: none; }
   body.acting .acting-bar { display: block; animation: acting-sweep 1.1s steps(12) infinite; }
   @keyframes acting-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-  .setup-banner, .sign-in-banner, .pending-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .setup-banner a, .sign-in-banner a, .pending-banner a { color: inherit; text-decoration: underline; }
+  .setup-banner, .pending-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .setup-banner a, .pending-banner a { color: inherit; text-decoration: underline; }
   /* A collection is running. Filled in whole 8px blocks with a 2px gap
      between them, snapped by the page script — a smooth bar would be the
      one thing on this page that isn't drawn in pixels. */
@@ -3533,6 +3554,16 @@ ${cardHtml[id]}
   .notice-title { font-size: 14px; }
   .notice-error { color: var(--hot); }
   .notice-warning { color: var(--warn); }
+  /* A repair's popup (repairBody), over everything, like Home Assistant's. */
+  .repair-dialog { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+  .repair-dialog[hidden] { display: none; }
+  .repair-box { background: var(--bg); color: var(--text); border: 2px solid var(--line); border-radius: 10px; width: 100%; max-width: 520px; max-height: calc(100vh - 32px); overflow: auto; padding: 16px; box-sizing: border-box; }
+  .repair-head { display: flex; align-items: center; gap: 12px; }
+  .repair-title { font-size: 16px; font-weight: 600; }
+  .repair-text p { margin: 12px 0 0; line-height: 1.45; }
+  .repair-said { color: var(--dim); }
+  .repair-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .repair-actions a.mini-btn { text-decoration: none; }
   /* The update's page (updatePage): what's new, then Install. */
   .update-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
   .update-head .app-logo { width: 32px; height: 32px; image-rendering: pixelated; }
@@ -3885,9 +3916,6 @@ ${cardHtml[id]}
   .gc-tip[hidden] { display: none; }
   .gc-history-note { margin: -2px 0 8px; }
   .grade-source { color: var(--dim); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
-  .grades-problem { color: var(--hot); }
-  .grades-fix { margin: 4px 0 8px; display: flex; gap: 8px; flex-wrap: wrap; }
-  .grades-fix a.mini-btn { text-decoration: none; }
   .grades-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .grades-buttons { display: flex; gap: 6px; }
   .grades-center { position: fixed; inset: var(--nav-h) 0 0 var(--nav-w); z-index: 60; background: var(--bg); color: var(--text); overflow: auto; padding: 16px; box-sizing: border-box; }
@@ -4191,6 +4219,7 @@ ${require('./51-model-picker.js').CSS}  @media (max-width: 760px) { .gc-body { g
 <body${readSettings().navCollapsed ? ' class="nav-collapsed"' : ''}>
 <div class="connection-bar" id="connection-bar" role="status" aria-live="polite" hidden><span class="connection-picture" aria-hidden="true"><span class="pixel-icon icon-display"></span><span class="pixel-icon connection-line"></span><span class="pixel-icon icon-server"></span></span><span class="connection-text" id="connection-text"></span><span class="pixel-spinner" aria-hidden="true"></span></div>
 <div class="acting-bar" id="acting-bar" aria-hidden="true"></div>
+${repairDialogShell()}
 <div id="photo-viewer" hidden onclick="if (event.target === this) closePhoto()">
   <img alt="">
   <div class="photo-bar"><a id="photo-viewer-link" href="#" target="_blank" rel="noopener">${escapeHtml(t('photoOpenInDrive'))}</a><button type="button" onclick="closePhoto()">${escapeHtml(t('photoClose'))}</button></div>
@@ -4209,7 +4238,6 @@ ${livePiece('bannersTop', pieces.bannersTop)}
     <button type="button" class="mini-btn" onclick="cancelLink()">${escapeHtml(t('linkCancel'))}</button>
   </div>
 ${livePiece('bannersBelow', pieces.bannersBelow)}
-${warning}
 ${gradesCenter}
   <div class="workspace-panel" id="workspace-panel" hidden><iframe id="workspace-frame" title="${escapeHtml(t('wsTitle'))}"></iframe></div>
   <div class="columns">
@@ -4387,7 +4415,6 @@ const WORDS = ${JSON.stringify({
   progressOf: t('settingsOf'),
   progressStarting: t('progressStarting'),
   progressFinishing: t('progressFinishing'),
-  signInNow: t('signInNow'),
   linkPick: t('linkPick'),
   linkPickSameClass: t('linkPickSameClass'),
   linkNoTargets: t('linkNoTargets'),
@@ -5530,7 +5557,7 @@ window.addEventListener('popstate', applyRoute);
 // it's done; the live updates further down reload the page once it has
 // finished, and the notice is gone from that reload if the pass read the
 // new values. Reverts on failure so it's obvious the click didn't go
-// anywhere, same as triggerSignIn.
+// anywhere.
 function startPendingCheck(link) {
   var original = link.textContent;
   link.textContent = WORDS.pendingChecking;
@@ -5649,26 +5676,6 @@ function installUpdate(btn) {
     if (!note) return;
     note.textContent = res && res.ok ? WORDS.updateInstallStarted : (res && res.why) || '';
     note.hidden = !note.textContent;
-  });
-}
-
-// The banner itself isn't dismissable (see its own comment above, in
-// signInBanner) — it comes back on the next reload regardless, once a
-// real check confirms the problem is still there. This only gives
-// feedback on the click itself: a real sign-in browser window takes a
-// beat to open (a fresh Brave/Chrome launch isn't instant), and without
-// this the link would just sit there looking unresponsive in the
-// meantime. Reverts on failure so it's obvious the click didn't work,
-// rather than silently doing nothing.
-function triggerSignIn(link) {
-  var original = link.textContent;
-  link.textContent = WORDS.signInOpening;
-  // The banner is only shown for the Google sign-in (Classroom or Canvas
-  // landing on a sign-in page), so only Google's window opens.
-  dispatchAction('signIn', 'google', function (res) {
-    if (res && res.ok) return;
-    link.textContent = (res && res.why) || WORDS.signInFailed;
-    setTimeout(function () { link.textContent = original; }, 4000);
   });
 }
 
@@ -6123,6 +6130,28 @@ document.addEventListener('keydown', function (e) {
   var panel = document.getElementById('settings-panel');
   if (e.key === 'Escape' && panel && !panel.hidden && document.getElementById('settings-menu').hidden) settingsBack();
 });
+
+// A repair's popup (repairBody): its <template>, copied in, so what it
+// says is whatever the notices piece last drew.
+function openRepair(id) {
+  var all = document.querySelectorAll('template[data-repair-body]'), tpl = null;
+  for (var i = 0; i < all.length; i++) if (all[i].getAttribute('data-repair-body') === id) tpl = all[i];
+  var dialog = document.getElementById('repair-dialog'), box = document.getElementById('repair-box');
+  if (!tpl || !dialog || !box) return;
+  box.innerHTML = '';
+  box.appendChild(document.importNode(tpl.content, true));
+  dialog.hidden = false;
+  var first = box.querySelector('.repair-actions button:last-child, .repair-actions a');
+  if (first) first.focus();
+}
+function closeRepair() {
+  var dialog = document.getElementById('repair-dialog');
+  if (dialog) dialog.hidden = true;
+}
+document.addEventListener('keydown', function (e) {
+  var dialog = document.getElementById('repair-dialog');
+  if (e.key === 'Escape' && dialog && !dialog.hidden) { e.stopImmediatePropagation(); closeRepair(); }
+}, true);
 
 // + Add service: the services that aren't on yet. Picking one turns it on
 // (Canvas with both its ways, as a new install has them) and opens its

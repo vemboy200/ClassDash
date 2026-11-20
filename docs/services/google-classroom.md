@@ -48,7 +48,7 @@ ClassDash reads the Classroom pages in a browser signed in to your school Google
 
 ## Troubleshooting
 
-- **Signed out:** Classroom's dot turns yellow and says it's waiting for sign-in, and on a Mac, ClassDash tells you once with a notification ("Google signed you out"), not on every check. Sign in again with **Settings → Sign-ins → Google → Sign In…**. Settings → Sign-ins also shows **Signed out** next to Google.
+- **Signed out:** Classroom's dot turns yellow and says it's waiting for sign-in, and on a Mac, ClassDash tells you once with a notification ("Google signed you out"), not on every check. Settings starts with a repair, **Sign-in failed for Google**; click it for what happened and a **Sign In…** button, or sign in again with **Settings → Sign-ins → Google → Sign In…**. Settings → Sign-ins also shows **Signed out** next to Google.
 - **Links say "Class not found":** fill in your **School email**, and check the **Google account number** in Settings → Sign-ins if the browser has more than one Google account.
 - **The status cloud shows Classroom failed:** click the cloud at the bottom of the sidebar to see what went wrong.
 

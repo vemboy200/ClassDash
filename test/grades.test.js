@@ -214,6 +214,8 @@ const FRAGMENT = `<div id="SP_Assignments"><input id="schedreccount" type="hidde
   fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify(withCanvas));
   d = open();
   const tags = [...d.querySelectorAll('#grades-section .grade-source')].map(x => x.textContent);
+  const asOf = d.querySelector('#grades-section .hint').textContent;
+  ok('from both, each place says how old its grades are (Q can be days behind)', /^Q as of .+ · Canvas as of /.test(asOf), asOf);
   ok('the page tags each with where it\'s from when there are both', tags.length === 7 && tags.filter(x => x === 'Canvas').length === 3 && tags[1] === 'Canvas', JSON.stringify(tags));
   fs.writeFileSync(path.join(proj, 'settings.json'), JSON.stringify({ ...withCanvas, gradesProvider: 'none' }));
   d = open();

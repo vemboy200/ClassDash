@@ -35,8 +35,27 @@ fs.writeFileSync(path.join(proj, 'update-status.json'), JSON.stringify({ current
 T.redraw(proj);
 let html = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
 const menu = html.slice(html.indexOf('id="settings-menu"'), html.indexOf('data-open="services"'));
-ok(/1 repair/.test(menu) && /data-repair="signedOut:google"[^>]*showSettingsSection\('sign-ins'\)/.test(menu) && /Sign-in failed for Google/.test(menu) && /stops Google Classroom/.test(menu),
-  'Settings starts with "1 repair": Sign-in failed for Google, stops Google Classroom, opening Sign-ins');
+ok(/1 repair/.test(menu) && /data-repair="signedOut:google"[^>]*openRepair/.test(menu) && /Sign-in failed for Google/.test(menu) && /stops Google Classroom/.test(menu),
+  'Settings starts with "1 repair": Sign-in failed for Google, stops Google Classroom, opening its popup');
+{
+  const { JSDOM, VirtualConsole } = T.jsdom();
+  const w = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://classdash.localhost/summary.html', virtualConsole: new VirtualConsole(),
+    beforeParse(win) { win.setTimeout = () => 0; win.setInterval = () => 0; win.Element.prototype.scrollIntoView = () => {}; } }).window;
+  const d = w.document, dialog = d.getElementById('repair-dialog');
+  ok(dialog && dialog.hidden, 'the repair popup starts closed');
+  w.showPage('settings');
+  d.querySelector('[data-repair="signedOut:google"]').click();
+  const box = d.getElementById('repair-box');
+  ok(w.getComputedStyle(dialog).display !== 'none' && !dialog.closest('main'), 'it shows on the Settings page, where everything else in <main> is hidden: ' + w.getComputedStyle(dialog).display);
+  ok(!dialog.hidden && /Sign-in failed for Google/.test(box.textContent) && /isn't signed in to Google any more/.test(box.textContent), 'a click opens it, saying what happened: ' + box.textContent.slice(0, 160));
+  ok(/setupSignIn\(this, 'google'\)/.test(box.innerHTML) && /showSettingsSection\('sign-ins'\)/.test(box.innerHTML), '...with Sign In… and Go to Sign-ins');
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  ok(dialog.hidden, 'Escape closes it');
+  d.querySelector('[data-repair="signedOut:google"]').click();
+  [...box.querySelectorAll('button')].find(b => /Go to Sign-ins/.test(b.textContent)).click();
+  ok(dialog.hidden && !d.querySelector('[data-section="sign-ins"]').hidden, 'Go to Sign-ins closes it and opens Sign-ins');
+  w.close();
+}
 ok(/1 update/.test(menu) && /v3\.1\.0/.test(menu) && /you have v3\.0\.0/.test(menu) && /data-update="3\.1\.0"[^>]*showSettingsSection\('update'\)/.test(menu),
   'then "1 update": ClassDash v3.1.0, opening its own page');
 const page = html.slice(html.indexOf('data-section="update"'), html.indexOf('data-section="advanced"'));

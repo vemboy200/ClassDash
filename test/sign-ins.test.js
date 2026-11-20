@@ -98,5 +98,5 @@ const ask = (settings, code) => {
   ok(/data-piece="svc-classroom">[\s\S]{0,40}<span class="svc-status status-fallback">Waiting for sign-in · /.test(html), 'Classroom\'s card: yellow, waiting for sign-in');
   ok(/class="status-cloud pixel-icon status-fallback"[\s\S]{0,200}1 needs sign-in/.test(html), 'the status cloud: yellow, "1 needs sign-in", not failed');
   ok(/Google signed you out: Settings → Sign-ins → Google/.test(html), 'the status panel says where to sign in');
-  ok(/class="warn sign-in-banner"/.test(html), 'and the dashboard\'s sign-in banner still shows');
+  ok(!/sign-in-banner/.test(html) && /data-repair="signedOut:google"/.test(html), 'no banner on the dashboard: it\'s a repair in Settings');
 }

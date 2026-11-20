@@ -42,7 +42,7 @@ ClassDash signs in to your school's Q StudentConnection portal in a headless bro
 ## Troubleshooting
 
 - **Q turned the password down:** ClassDash stops trying until you change it, so the account doesn't get locked. Fix the password on its page in Settings → Services.
-- **Q asks for a new password** (an expired one): ClassDash signs out, stops the same way, and shows you what Q said with an **Open Q** button. Set the new password on Q's site in your browser (ClassDash never changes it for you), then save it on Q's page in Settings → Services, and ClassDash checks again right away.
+- **Q asks for a new password** (an expired one): ClassDash signs out, stops the same way, and Settings starts with a repair, **Aequitas Q wants a new password**: click it for what Q said and an **Open Q** button. Set the new password on Q's site in your browser (ClassDash never changes it for you), then save it on Q's page in Settings → Services, and ClassDash checks again right away.
 - **Q was slow** ("timed out while signing in"): ClassDash already waits longer and tries once more. If it keeps happening, Q itself is slow; the next check tries again.
 
 ## Turning it off
