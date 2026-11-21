@@ -1891,12 +1891,12 @@ ${classLinksField(s.classLinks)}
           <span class="field-name">${escapeHtml(t('settingsApiToken'))}</span>
           <span class="field-with-value">
             <span class="field-with-toggle" style="flex:1 1 auto;min-width:0;">
-              <input type="password" readonly id="api-token-field"
-                     value="${escapeHtml(apiToken || t('settingsApiNotGenerated'))}">
-              <button type="button" class="reveal-btn" onclick="toggleReveal(this)"
-                      title="${escapeHtml(t('settingsReveal'))}">👁</button>
+              <!-- Never the key itself: the page is a file on disk too.
+                   Copy asks the app for it (copyAccessKey). -->
+              <input type="${apiToken ? 'password' : 'text'}" readonly id="api-token-field"
+                     value="${escapeHtml(apiToken ? secrets.SAVED_MARK : t('settingsApiNotGenerated'))}">
             </span>
-            <button type="button" class="mini-btn" onclick="copyFieldValue(this, 'api-token-field')">${escapeHtml(t('settingsCopy'))}</button>
+            <button type="button" class="mini-btn" data-app-only onclick="copyApiKey(this)"${apiToken ? '' : ' disabled'}>${escapeHtml(t('settingsCopy'))}</button>
             <button type="button" class="mini-btn" data-app-only onclick="rollApiToken()">${escapeHtml(t('settingsRoll'))}</button>
           </span>
           <span class="field-hint">${escapeHtml(t('settingsApiTokenHint'))}</span>
@@ -7632,6 +7632,17 @@ function copyFieldValue(button, fieldId) {
 // it, like a Home Assistant integration, breaks until updated with the
 // new one. Confirmed the same way "hide" on an overdue item is, so it
 // isn't hit by accident.
+// The access key never reaches the page: the app copies it to the clipboard
+// itself (copyAccessKey in 21-notifier-actions.js).
+function copyApiKey(button) {
+  dispatchAction('copyAccessKey', '', function (res) {
+    if (!res || !res.ok) return;
+    var original = button.textContent;
+    button.textContent = WORDS.copied;
+    setTimeout(function () { button.textContent = original; }, 1500);
+  });
+}
+
 function rollApiToken() {
   if (!confirm(WORDS.confirmRollToken + '\\n\\n' + WORDS.confirmRollTokenHint)) return;
   dispatchAction('rollApiToken', '', function (res) {

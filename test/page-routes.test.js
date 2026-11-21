@@ -82,7 +82,7 @@ const pushes = w => { let n = 0; const real = w.history.pushState.bind(w.history
   const port = 21700 + Math.floor(Math.random() * 300);
   const srv = cp.spawn('node', ['17-api.js', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   process.on('exit', () => { try { srv.kill('SIGKILL'); } catch {} });
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   const request = (method, urlPath, headers = {}, body) => new Promise(resolve => {
     const r = https.request({ host: '127.0.0.1', port, path: urlPath, method, rejectUnauthorized: false, headers }, res => {
       let text = ''; res.on('data', c => { text += c; }); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text }));

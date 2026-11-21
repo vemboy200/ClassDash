@@ -212,8 +212,14 @@ async function afterStartRedraw(proj, { dropShell = true } = {}) {
   }
 }
 
+/** The Home API's access key in a test project: kept in the secrets store
+ *  (16-secrets.js), a plain secrets.json in tests. '' until the server made it. */
+function apiKey(dir = '.') {
+  try { return String(JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).apiToken || ''); } catch { return ''; }
+}
+
 module.exports = {
-  afterStartRedraw,
+  afterStartRedraw, apiKey,
   REPO, makeProject, classProject, tmpDir, writeFiles, run, redraw, jsdom,
   ok, eq, done, sleep, until, enc,
 };

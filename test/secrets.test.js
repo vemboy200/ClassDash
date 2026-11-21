@@ -147,6 +147,37 @@ ok(S.read().aiOpenaiKey === 'sk-by-hand' && !('aiOpenaiKey' in raw()) && stored(
   ok(!S.read().canvasToken, 'L emptying the box removes it');
 }
 
+// M. The Home API's access key: in the store, an api-token.txt from before
+// moved in, and a roll seen by another process on its next read.
+{
+  const sec = require(path.join(PROJ, '23-api-security.js'));
+  fs.writeFileSync(path.join(PROJ, 'api-token.txt'), 'old-access-key-from-a-file\n');
+  ok(sec.currentToken() === 'old-access-key-from-a-file', 'M an api-token.txt from before still works until it is moved');
+  sec.ensureToken();
+  ok(!fs.existsSync(path.join(PROJ, 'api-token.txt')) && stored().apiToken === 'old-access-key-from-a-file', 'M ensureToken() moves it into the store');
+  ok(sec.currentToken() === 'old-access-key-from-a-file' && raw().savedSecrets.apiToken, 'M and it reads from there, with its fingerprint in settings.json');
+  ok(!('apiToken' in S.read()), 'M it is not a setting');
+  S.write('language', 'ru');
+  ok(sec.currentToken() === 'old-access-key-from-a-file', 'M a settings save keeps it');
+  // Another process rolls it: this one sees the new key on its next read.
+  plain.save({ ...plain.load(), apiToken: 'rolled-elsewhere' });
+  fs.writeFileSync(path.join(PROJ, 'settings.json'), JSON.stringify({ ...raw(), savedSecrets: { ...raw().savedSecrets, apiToken: secrets.fingerprint('rolled-elsewhere') } }));
+  ok(sec.currentToken() === 'rolled-elsewhere', 'M a roll in another process counts on the next read');
+  const rolled = sec.rollToken();
+  ok(/^[0-9a-f]{64}$/.test(rolled) && sec.currentToken() === rolled && stored().apiToken === rolled, 'M rollToken() saves a new one');
+}
+
+// N. settings.json replaced without savedSecrets (a backup, a hand edit):
+// the keys are still there.
+{
+  S.write('aiGeminiKey', 'AIzaStillHere');
+  const sec = require(path.join(PROJ, '23-api-security.js'));
+  const key = sec.currentToken();
+  fs.writeFileSync(path.join(PROJ, 'settings.json'), JSON.stringify({ language: 'en' }));
+  secrets._setStore(null);  // a fresh process: nothing kept in memory
+  ok(S.read().aiGeminiKey === 'AIzaStillHere' && sec.currentToken() === key, 'N keys survive a settings.json without their record');
+}
+
 // J. The real thing, where this machine has it.
 if (process.platform === 'win32') {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cd-dpapi-')), 'secrets.dat');

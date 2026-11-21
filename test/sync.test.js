@@ -118,7 +118,7 @@ async function until(what, test, ms = 12000) {
   if (process.platform !== 'win32') ok((fs.statSync(path.join(followerDir, 'sync.json')).mode & 0o777) === 0o600, 'the file with the key in it is private');
 
   // A browser with the key can't do this to a computer.
-  const followerToken = read(followerDir, 'api-token.txt').trim();
+  const followerToken = T.apiKey(followerDir);
   const posted = await new Promise(resolve => {
     const q = https.request({ host: '127.0.0.1', port: followerPort, path: '/api/action', method: 'POST', rejectUnauthorized: false, headers: { Authorization: 'Bearer ' + followerToken, 'Content-Type': 'application/json' } }, res => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
     q.end(JSON.stringify({ action: 'syncFollow', arg: '' }));
@@ -177,7 +177,7 @@ async function until(what, test, ms = 12000) {
   ok(followerSettings.language === 'ru' && followerSettings.apiPort === 2222, 'what belongs to the computer does not');
   ok(JSON.parse(read(followerDir, 'secrets.json') || '{}').canvasToken === 'made-up-laptop-canvas-token' && !followerSettings.canvasToken, 'and neither does a token');
   ok(read(followerDir, 'grades-secret.json') === null, 'the Q password stays home');
-  ok(!['api-token.txt', 'device-keys.json'].some(n => (read(followerDir, n) || '').includes('made-up')), 'nor any key');
+  ok(!['api-token.txt', 'device-keys.json'].some(n => (read(followerDir, n) || '').includes('made-up')) && !(read(followerDir, 'secrets.json') || '').includes('made-up-master'), 'nor any key');
   ok(inProject(followerDir, 'syncStatus').setAside === true && readList(path.join(followerDir, 'before-sync'), 'last-collection.json')[0].id === 'from-laptop', "this computer's own data was kept aside");
 
   await until('redrawn', () => (read(followerDir, 'summary.html') || '').includes('from-master-1') || (read(followerDir, 'page-shell.html') || '') !== '', 5000);

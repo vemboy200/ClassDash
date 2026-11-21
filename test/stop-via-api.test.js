@@ -34,7 +34,7 @@ try { fs.unlinkSync(LOCK); } catch {}
   const srv = cp.spawn('node', ['17-api.js', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   const cleanup = () => { try { srv.kill('SIGKILL'); } catch {} };
   process.on('exit', cleanup);
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   ok('server came up with a token', !!token);
 
   const request = (method, opts = {}) => new Promise(resolve => {

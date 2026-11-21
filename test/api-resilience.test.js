@@ -16,7 +16,7 @@ const pid = () => { try { return readPidFile() || 0; } catch { return 0; } };
 const ensure = () => JSON.parse(cp.spawnSync('node', ['-e', "console.log(JSON.stringify(require('./21-notifier-actions.js').ensureApiServer()))"], { cwd: PROJ, encoding: 'utf8' }).stdout.trim().split('\n').pop());
 const waitFor = async (f, ms = 8000) => { for (let t = 0; t < ms; t += 100) { if (f()) return true; await sleep(100); } return false; };
 const get = (p) => new Promise((resolve) => {
-  const token = fs.readFileSync(path.join(PROJ, 'api-token.txt'), 'utf8').trim();
+  const token = T.apiKey(PROJ);
   https.get({ host: '127.0.0.1', port: PORT, path: p, rejectUnauthorized: false, headers: { Authorization: 'Bearer ' + token } },
     res => { res.resume(); resolve(res.statusCode); }).on('error', () => resolve(0));
 });
@@ -30,7 +30,7 @@ const kill = () => { const p = pid(); if (p) try { process.kill(p, 'SIGKILL'); }
   ok('a running server is left alone', ensure() === false);
   const log = fs.readFileSync(LOG, 'utf8');
   ok('its output goes to api-log.txt, with timestamps', /^\d{4}-\d\d-\d\dT[^ ]+ Home API listening/m.test(log), log.slice(0, 300));
-  ok('...but never the access key', !log.includes(fs.readFileSync('api-token.txt', 'utf8').trim()) && /in api-token\.txt/.test(log));
+  ok('...but never the access key', !log.includes(T.apiKey()) && /Home API → Copy/.test(log));
   ok('the check that restarted it says so in notifier-log.txt', /was not running — started it/.test(fs.readFileSync('notifier-log.txt', 'utf8')));
 
   // stopped by something nothing caught: the next check brings it back

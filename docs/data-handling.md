@@ -24,9 +24,9 @@ Everything lives in the ClassDash folder you picked on first run, plus the macOS
 |---|---|---|
 | Your school sign-ins (Google, Edpuzzle, Canvas through your school) | `browser-profile` in the ClassDash folder | A browser profile holding the sign-in cookies, encrypted the way a normal browser does: with a key in your keychain on a Mac. ClassDash never sees or stores your Google password: you type it into Google's own page. |
 | Aequitas Q password | macOS: your login keychain (item "ClassDash Q grades"). Windows: `grades-secret.dat`, encrypted with Windows' own per-user encryption | Never written to settings, logs or the page. It goes to the keychain or Windows' encryption through standard input, so it never shows up in a process list. |
-| Canvas access token, AI API keys | macOS: your login keychain (item "ClassDash secrets"). Windows: `secrets.dat`, encrypted with Windows' own per-user encryption | Not in `settings.json`, which only notes which ones are saved. A copy of the ClassDash folder doesn't include them in a readable form. |
+| Canvas access token, AI API keys, the Home API access key | macOS: your login keychain (item "ClassDash secrets"). Windows: `secrets.dat`, encrypted with Windows' own per-user encryption | Not in `settings.json`, which only notes which ones are saved. A copy of the ClassDash folder doesn't include them in a readable form. |
 | Assignments, announcements, grades, grade history, classes | JSON files in the ClassDash folder | Only what ClassDash read from your accounts. |
-| Home API token and certificate | `api-token.txt`, `api-key.pem` | Readable only by your user account. |
+| Home API certificate | `api-cert.pem`, `api-key.pem` | The private key is readable only by your user account. |
 
 ## Where ClassDash connects
 

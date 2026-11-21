@@ -12,7 +12,7 @@ const action = (name, arg = '') => JSON.parse(cp.spawnSync('node', ['21-notifier
   const port = 19600 + Math.floor(Math.random() * 300);
   const srv = cp.spawn('node', ['17-api.js', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   process.on('exit', () => { try { srv.kill('SIGKILL'); } catch {} });
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   // A page that has the access key in it, the way Settings → API does, put
   // there after the server's own drawing of the page when it starts.
   await T.afterStartRedraw(proj);

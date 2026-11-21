@@ -41,7 +41,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const port = 19600 + Math.floor(Math.random() * 300);
   const srv = cp.spawn('node', ['17-api.js', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   process.on('exit', () => { try { srv.kill('SIGKILL'); } catch {} });
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   const auth = { Authorization: `Bearer ${token}` };
   const request = (urlPath, headers = {}) => new Promise((resolve) => {
     https.get({ host: '127.0.0.1', port, path: urlPath, rejectUnauthorized: false, headers }, (res) => {

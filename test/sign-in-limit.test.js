@@ -46,7 +46,7 @@ ok(limit.waitSeconds(here, 1000) === 0, 'this computer is not counted');
   let up = false;
   for (let i = 0; i < 80 && !up; i++) { up = !(await request('OPTIONS', '/')).error; if (!up) await sleep(100); }
   ok(up, 'server is listening');
-  const token = fs.readFileSync('api-token.txt', 'utf8').trim();
+  const token = T.apiKey();
 
   const form = { 'Content-Type': 'application/x-www-form-urlencoded' };
   const stranger = ip => ({ ...form, 'CF-Connecting-IP': ip });

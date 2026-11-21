@@ -1,6 +1,7 @@
 /**
- * Where the settings that are credentials live: the Canvas access token and
- * the AI providers' API keys. Not in settings.json, which is plain text that
+ * Where the credentials live: the settings that are keys (the Canvas access
+ * token, the AI providers' API keys, the key for forwarding diagnostics) and
+ * the Home API's own access key (23-api-security.js). Not in settings.json, which is plain text that
  * anything copying the ClassDash folder copies too (a synced folder, a
  * backup, a school computer's admin tools, someone with a USB stick).
  *
@@ -35,7 +36,10 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { PROJECT_ROOT } = require('./00-project-root.js');
 
-const KEYS = ['canvasToken', 'aiOpenaiKey', 'aiAnthropicKey', 'aiGeminiKey'];
+// The settings that are keys: read() in 19-settings.js fills them in.
+const KEYS = ['canvasToken', 'aiOpenaiKey', 'aiAnthropicKey', 'aiGeminiKey', 'diagnosticsForwardToken'];
+// Kept here too, but not settings: the Home API's access key.
+const NAMES = [...KEYS, 'apiToken'];
 const SERVICE = 'ClassDash secrets';
 const ACCOUNT = 'settings';
 const PLAIN_FILE = path.join(PROJECT_ROOT, 'secrets.json');
@@ -161,8 +165,10 @@ const stampOf = saved => JSON.stringify(saved || {});
 
 /** The secrets the stamp says are saved. Throws if the store can't be read. */
 function load(saved) {
+  // No savedSecrets doesn't mean nothing is saved: settings.json may have
+  // been replaced (restored from a backup, written by hand). So the store is
+  // asked anyway, once per process for that stamp.
   const stamp = stampOf(saved);
-  if (!Object.keys(saved || {}).length) return {};
   if (cache && cache.stamp === stamp) return cache.values;
   const values = store().load();
   cache = { stamp, values };
@@ -178,18 +184,18 @@ function load(saved) {
 function save(saved, changes) {
   const current = { ...load(saved) };
   for (const [key, value] of Object.entries(changes)) {
-    if (!KEYS.includes(key)) continue;
+    if (!NAMES.includes(key)) continue;
     const v = String(value || '').trim();
     if (v) current[key] = v; else delete current[key];
   }
   store().save(current);
   const next = {};
-  for (const key of KEYS) if (current[key]) next[key] = fingerprint(current[key]);
+  for (const key of NAMES) if (current[key]) next[key] = fingerprint(current[key]);
   cache = { stamp: stampOf(next), values: current };
   return next;
 }
 
 module.exports = {
-  KEYS, SERVICE, SAVED_MARK, load, save, fingerprint, store, keychainStore, protectedFile, protectedFileStore, plainFileStore, dpapi,
+  KEYS, NAMES, SERVICE, SAVED_MARK, load, save, fingerprint, store, keychainStore, protectedFile, protectedFileStore, plainFileStore, dpapi,
   _setStore(s) { storeOverride = s; cache = null; },
 };

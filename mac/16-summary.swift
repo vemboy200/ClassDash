@@ -1862,14 +1862,13 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     }
 
     // For signing in to ClassDash in a browser (or setting up another
-    // client) without opening Settings → API. The key is read from the file
-    // the server keeps it in, never shown.
+    // client) without opening Settings → API. The key is in the keychain
+    // (16-secrets.js), so the project's own action copies it, never shown
+    // and never passed through here.
     @objc func copyAccessKeyFromMenuBar() {
-        guard let data = FileManager.default.contents(atPath: projectDir + "/api-token.txt"),
-              let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !key.isEmpty else { NSSound.beep(); return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(key, forType: .string)
+        runAction("copyAccessKey", "") { output in
+            if !output.contains("\"ok\":true") { DispatchQueue.main.async { NSSound.beep() } }
+        }
     }
 
     // Quitting quits the server too (see setupMenuBar()). Synchronous, so

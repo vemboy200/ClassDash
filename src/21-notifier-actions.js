@@ -1113,11 +1113,24 @@ function act(action, arg) {
       if (removed) logAction('  device removed');
       return { ok: removed, action };
     }
+    // Settings → Home API's Copy button and the apps' "Copy Access Key": the
+    // key goes straight to this computer's clipboard, never back through the
+    // page or into a log (23-api-security.js keeps it out of both).
+    case 'copyAccessKey': {
+      const key = require('./23-api-security.js').currentToken();
+      if (!key) return { ok: false, action, why: 'no access key yet' };
+      const cmd = process.platform === 'darwin' ? '/usr/bin/pbcopy' : process.platform === 'win32' ? 'clip' : null;
+      if (!cmd) return { ok: false, action, why: 'no clipboard here' };
+      try { require('child_process').execFileSync(cmd, [], { input: key, stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true }); }
+      catch (e) { return { ok: false, action, why: 'couldn\'t copy: ' + e.message }; }
+      logAction('  access key copied');
+      return { ok: true, action };
+    }
     case 'rollApiToken':
       // No restart needed: 17-api.js's isAuthorized() reads the token
-      // file fresh on every single request rather than caching it at
-      // startup, specifically so a roll takes effect on the very next
-      // request instead of requiring the server to be bounced.
+      // fresh on every single request (23-api-security.js currentToken),
+      // so a roll takes effect on the very next request instead of
+      // requiring the server to be bounced.
       require('./23-api-security.js').rollToken();
       redraw();
       return { ok: true, action };

@@ -75,19 +75,41 @@ function certFingerprint() {
     .replace(/(.{2})(?=.)/g, '$1:').toUpperCase();
 }
 
-/** Generates the bearer token on first run only. */
+// ── The access key ──
+//
+// Kept in the secrets store (16-secrets.js: the keychain on a Mac, DPAPI on
+// Windows) like the Canvas token, not in a file of its own, and never drawn
+// into the page (which is a file on disk too): Settings → Home API's Copy
+// and the apps' "Copy Access Key" ask for it (copyAccessKey in
+// 21-notifier-actions.js). api-token.txt from before is moved in by
+// ensureToken(), at server start.
+const settingsFile = () => require('./19-settings.js');
+
+/** Makes the token on first run, or moves an api-token.txt from before in. */
 function ensureToken() {
-  if (!fs.existsSync(TOKEN_FILE)) rollToken();
-  // One made before key files were private (0644) is made private now.
-  else try { fs.chmodSync(TOKEN_FILE, 0o600); } catch { /* Windows, or a file system without modes */ }
+  let saved;
+  try { saved = settingsFile().secretValue('apiToken'); } catch { return; /* store unreadable: the file, if any, keeps working */ }
+  if (fs.existsSync(TOKEN_FILE)) {
+    const old = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+    try {
+      if (old && old !== saved) settingsFile().saveSecret('apiToken', old);
+      fs.unlinkSync(TOKEN_FILE);
+    } catch { /* left where it was, still working */ }
+    return;
+  }
+  if (!saved) rollToken();
 }
 
-/** The current token, or null if none has ever been generated. Read
- *  fresh from disk every time, not cached — 17-api.js checks this on
- *  every single request, and a roll needs to take effect on the very
- *  next one, not after a restart. */
+/** The current token, or null if none has ever been made. Read on every
+ *  request (17-api.js), and a roll in another process must count on the very
+ *  next one: settingsFile().secretValue() rereads the store whenever
+ *  settings.json says the key changed, and otherwise costs a file read. */
 function currentToken() {
-  return fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : null;
+  try {
+    const saved = settingsFile().secretValue('apiToken');
+    if (saved) return saved;
+  } catch { /* store unreadable: an older file is all there is */ }
+  return fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() || null : null;
 }
 
 /** Replaces the token with a new random one — "in case something
@@ -98,7 +120,8 @@ function currentToken() {
  *  the old value, not just add a new one alongside it. */
 function rollToken() {
   const token = crypto.randomBytes(32).toString('hex');
-  writePrivate(TOKEN_FILE, token);
+  settingsFile().saveSecret('apiToken', token);
+  try { fs.unlinkSync(TOKEN_FILE); } catch { /* none */ }
   return token;
 }
 

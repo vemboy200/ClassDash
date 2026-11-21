@@ -15,10 +15,16 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   const srv = cp.spawn('node', ['17-api.js', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   const cleanup = () => { try { srv.kill('SIGKILL'); } catch {} };
   process.on('exit', cleanup);
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   ok('server came up with a token', !!token);
   // The made-up page again, after the server's own drawing of it on start.
   await T.afterStartRedraw(proj);
+  // The server's own drawing of the real page: Settings → Home API shows dots
+  // for the access key, never the key (the page is a file on disk).
+  {
+    const drawn = fs.readFileSync(path.join(proj, 'summary.html'), 'utf8');
+    ok('the page on disk never holds the access key', !drawn.includes(token) && /id="api-token-field"\s+value="\u2022{16}"/.test(drawn));
+  }
   fs.writeFileSync(path.join(proj, 'summary.html'), '<!doctype html><title>made-up page</title>');
 
   const request = (method, urlPath, { headers = {}, body } = {}) => new Promise(resolve => {
@@ -105,7 +111,7 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
     const r = await act(action, '/etc/hosts');
     ok(`app-only: ${action}`, r.status === 403 && JSON.parse(r.body).why === 'appOnly', r.body);
   }
-  ok('...so the token is unchanged', fs.readFileSync('api-token.txt', 'utf8').trim() === token);
+  ok('...so the token is unchanged', T.apiKey() === token);
   const chunk = s => Buffer.from(JSON.stringify(s)).toString('base64url');
   const lanOn = await act('config', chunk({ apiLan: true }));
   ok('a settings save that would turn LAN access on: app-only', lanOn.status === 403, lanOn.body);
@@ -126,7 +132,7 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   ok('the server made an app key, different from the access key', /^[0-9a-f]{64}$/.test(appKey) && appKey !== token);
   if (process.platform !== 'win32') {
     ok('...readable by this user account only', (fs.statSync('app-key.txt').mode & 0o777) === 0o600);
-    ok('...and so is the access key', (fs.statSync('api-token.txt').mode & 0o777) === 0o600);
+    ok('...and so is the access key, kept with the other keys', (fs.statSync('secrets.json').mode & 0o777) === 0o600 && !fs.existsSync('api-token.txt'));
   }
   const security = require(path.join(proj, '23-api-security.js'));
   const asReq = headers => ({ headers });

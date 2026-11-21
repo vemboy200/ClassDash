@@ -46,7 +46,7 @@ ok('...and false when it is over', HANDLERS['/api/status'](require(path.join(pro
   const srv = cp.spawn('node', ['17-api.js', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   const cleanup = () => { try { srv.kill('SIGKILL'); } catch {} };
   process.on('exit', cleanup);
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   const events = [];
   let req;
   for (let i = 0; i < 40 && !req; i++) {

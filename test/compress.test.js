@@ -20,7 +20,7 @@ const lan = Object.values(os.networkInterfaces()).flat().find(a => a.family === 
   const port = 20100 + Math.floor(Math.random() * 300);
   const srv = cp.spawn('node', ['17-api.js', '--network', '--port', String(port)], { cwd: proj, stdio: 'ignore' });
   process.on('exit', () => { try { srv.kill('SIGKILL'); } catch {} });
-  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); try { token = fs.readFileSync('api-token.txt', 'utf8').trim(); } catch {} }
+  let token = ''; for (let i = 0; i < 60 && !token; i++) { await sleep(150); token = T.apiKey(); }
   const get = (host, urlPath, headers) => new Promise(resolve => {
     https.get({ host, port, path: urlPath, rejectUnauthorized: false, headers }, res => {
       const parts = []; res.on('data', c => parts.push(c)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(parts) }));

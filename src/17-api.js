@@ -811,7 +811,7 @@ function index() {
       'changes something and needs POST with a JSON body and ' +
       '"Content-Type: application/json" — see CONTRIBUTING.md. Every ' +
       'request, either way, needs "Authorization: Bearer <token>" — ' +
-      'see api-token.txt.',
+      'the access key is in the app, Settings → Home API → Copy.',
   };
 }
 
@@ -1444,6 +1444,8 @@ function handleLogin(req, res) {
 //   - ensureApi, restartApi and stopApi start and stop THIS process, and a settings
 //     save that turns LAN access on or off does too (see '/api/settings' above for why that can't run from in here).
 //   - rollApiToken would sign out the very page that asked, mid-request.
+//   - copyAccessKey puts the key on THIS computer's clipboard: no use to a
+//     browser elsewhere, and a paired device mustn't get near the key.
 //   - pairCode, pairCancel and revokeDevice give out and take away access:
 //     a browser or device with a key could otherwise make itself a key
 //     that outlives its own, or cut off the others.
@@ -1452,7 +1454,7 @@ function handleLogin(req, res) {
 //   - importCalendarPdf and workspaceImport take a path to a file on this
 //     computer, which the app's own file picker chose. From a browser they'd
 //     read whatever path they were given.
-const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'pairCode', 'pairCancel', 'revokeDevice', 'importCalendarPdf', 'workspaceImport', 'syncPair', 'syncFollow', 'syncBeMaster', 'syncCancel', 'syncAccept', 'syncDecline', 'syncStop', 'syncSetRemote']);
+const APP_ONLY_ACTIONS = new Set(['ensureApi', 'restartApi', 'stopApi', 'rollApiToken', 'copyAccessKey', 'pairCode', 'pairCancel', 'revokeDevice', 'importCalendarPdf', 'workspaceImport', 'syncPair', 'syncFollow', 'syncBeMaster', 'syncCancel', 'syncAccept', 'syncDecline', 'syncStop', 'syncSetRemote']);
 
 /** Whether a settings save (the page's base64url-JSON chunk) would change
  *  where the server listens. */
@@ -1805,7 +1807,7 @@ function start() {
     // output goes to api-log.txt, and the access key has no business in a log.
     console.log(process.stdout.isTTY
       ? `Bearer token (needed on every request): ${currentToken()}`
-      : 'Bearer token: in api-token.txt (Settings → Home API shows it)');
+      : 'Bearer token: Settings → Home API → Copy');
     console.log(`Certificate fingerprint (pin this, don't trust it blind): ${certFingerprint()}`);
     if (onNetwork) {
       const addresses = Object.values(os.networkInterfaces()).flat()

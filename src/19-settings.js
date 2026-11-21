@@ -793,6 +793,24 @@ function saveFile(current, changedSecrets = []) {
   lockDown();
 }
 
+// A key kept in the secrets store that isn't a setting (the Home API's
+// access key, 23-api-security.js). Its fingerprint goes in settings.json's
+// savedSecrets like the settings', which is how another process notices it
+// changed. secretValue() throws when the store can't be read.
+function rawFile() {
+  try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { return {}; }
+}
+function secretValue(name) {
+  return secrets.load(rawFile().savedSecrets)[name] || '';
+}
+function saveSecret(name, value) {
+  const raw = rawFile();
+  raw.savedSecrets = secrets.save(raw.savedSecrets || {}, { [name]: value });
+  if (!Object.keys(raw.savedSecrets).length) delete raw.savedSecrets;
+  fs.writeFileSync(FILE, JSON.stringify(raw, null, 2), { mode: 0o600 });
+  lockDown();
+}
+
 function lockDown() {
   try { fs.chmodSync(FILE, 0o600); } catch { /* missing, Windows, or a file system without modes */ }
 }
@@ -932,7 +950,7 @@ function applyBatch(chunk, { skip = [] } = {}) {
   return { ok: accepted.length > 0, accepted, changed, rejected };
 }
 
-module.exports = { read, write, lockDown, moveSecrets, validate, writeExample, applyBatch, previewBatch,
+module.exports = { read, write, lockDown, moveSecrets, secretValue, saveSecret, validate, writeExample, applyBatch, previewBatch,
                    markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, FETCH_AFFECTING, canvasPlan,
                    DEFAULTS, TYPES, FILE, DASH_CARDS };
 
