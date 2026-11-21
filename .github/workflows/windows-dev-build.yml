@@ -66,6 +66,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The Tests workflow has no Windows runner, so the one test that needs
+      # real Windows runs here: the Canvas token, AI keys and Q password
+      # sealed with DPAPI (16-secrets.js) and opened again.
+      - name: Test the saved keys on real Windows
+        working-directory: .
+        run: node test/secrets.test.js
+
       # A dev version string, not a real release number — same "honest
       # about not being a real release build" reasoning build.sh's own
       # git-describe fallback uses. Short SHA identifies exactly which

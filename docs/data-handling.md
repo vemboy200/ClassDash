@@ -22,9 +22,9 @@ Everything lives in the ClassDash folder you picked on first run, plus the macOS
 
 | What | Where | Notes |
 |---|---|---|
-| Your school sign-ins (Google, Edpuzzle, Canvas through your school) | `browser-profile` in the ClassDash folder | A browser profile like any other, holding the sign-in cookies. ClassDash never sees or stores your Google password: you type it into Google's own page. |
-| Aequitas Q password | macOS: your login keychain (item "ClassDash Q grades"). Windows: `grades-secret.json`, readable only by your user account | Never written to settings, logs or the page. On a Mac it goes to the keychain through standard input, so it never shows up in a process list. |
-| Canvas access token, AI API keys | `settings.json` | Plain text, readable only by your user account (on Windows, by your account's normal file permissions). |
+| Your school sign-ins (Google, Edpuzzle, Canvas through your school) | `browser-profile` in the ClassDash folder | A browser profile holding the sign-in cookies (on a Mac, not encrypted with your keychain: see Limits below). ClassDash never sees or stores your Google password: you type it into Google's own page. |
+| Aequitas Q password | macOS: your login keychain (item "ClassDash Q grades"). Windows: `grades-secret.dat`, encrypted with Windows' own per-user encryption | Never written to settings, logs or the page. It goes to the keychain or Windows' encryption through standard input, so it never shows up in a process list. |
+| Canvas access token, AI API keys | macOS: your login keychain (item "ClassDash secrets"). Windows: `secrets.dat`, encrypted with Windows' own per-user encryption | Not in `settings.json`, which only notes which ones are saved. A copy of the ClassDash folder doesn't include them in a readable form. |
 | Assignments, announcements, grades, grade history, classes | JSON files in the ClassDash folder | Only what ClassDash read from your accounts. |
 | Home API token and certificate | `api-token.txt`, `api-key.pem` | Readable only by your user account. |
 
@@ -59,14 +59,14 @@ More in [Using AI with ClassDash](ai-use.md).
 
 ## Limits, honestly
 
-- **Your sign-ins are as safe as your normal browser's, no more.** Anyone who can use your computer account could open your school accounts, the same as with Chrome or Safari. Lock your computer.
+- **Your sign-ins are less protected than in your normal browser, on a Mac.** ClassDash starts its browser through Playwright, which by default tells it not to use your keychain for its saved sign-ins. Your normal Chrome or Brave keeps its sign-in cookies encrypted with a key in the keychain; ClassDash's browser doesn't, so someone with a copy of the `browser-profile` folder may be able to use your school sign-ins. On Windows the browser encrypts them with Windows' own per-user encryption either way, as far as we know, but that hasn't been confirmed. And on either, anyone who can use your computer account could open your school accounts, the same as with any browser. Lock your computer, and keep the ClassDash folder somewhere only you can reach (see the next point).
 - **Mind where the ClassDash folder lives.** Unlike your normal browser's profile, ClassDash's sits inside the folder you picked on first run. If that folder is in a synced place (Documents or Desktop with iCloud Drive on, OneDrive, Dropbox, Google Drive), your sign-ins and schoolwork get copied to that service too. A folder that isn't synced keeps everything on this computer only.
-- **The Canvas token and AI API keys are plain text** in `settings.json`. Other accounts on the computer can't read it, but anything running as you can, the same as your browser's own files.
+- **Saved keys are locked to your account, not to ClassDash.** The keychain and Windows' encryption keep the Canvas token, AI keys and Q password unreadable to other accounts and to anyone with a copy of the folder. A program already running as you can still ask for them, the same way ClassDash does. Older versions kept the token and AI keys as plain text in `settings.json`; the first time a newer version starts, it moves them out.
 - **Cloud AIs follow their own rules.** Once you send something to OpenAI, Anthropic or Google, their privacy policy applies, not ClassDash's.
 
 ## Removing your data
 
 1. Quit ClassDash.
 2. Delete the ClassDash folder you picked on first run. That removes the sign-ins, the downloaded schoolwork and the settings.
-3. On a Mac, open Keychain Access and delete "ClassDash Q grades", if you used Aequitas Q.
+3. On a Mac, open Keychain Access and delete "ClassDash secrets" and "ClassDash Q grades", if they're there. On Windows, the saved keys are files in the ClassDash folder, so step 2 already removed them.
 4. To cut off ClassDash's access completely, also sign out of other sessions in your Google account, and delete the access token in Canvas under Account → Settings, if you made one.

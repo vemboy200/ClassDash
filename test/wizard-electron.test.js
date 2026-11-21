@@ -69,6 +69,17 @@ function scenario({ answers, settings, duringDialog }) {
   ok(s.calls.includes('action:reload'), 'B first check started once address + token are there');
   ok(JSON.stringify(s.dialogs) === JSON.stringify(['What Does Your School Use?', 'How Do You Sign In to Canvas?', 'Add Your Canvas Details']), 'B dialogs in order: ' + JSON.stringify(s.dialogs));
 
+  // B2. The same, as a real save leaves it: the token itself is in the
+  // secrets store, and settings.json only says one is saved.
+  s = scenario({ answers: [1, 0, 0], settings: { canvas: '' } });
+  const showB2 = s.ctx.dialog.showMessageBox;
+  s.ctx.dialog.showMessageBox = async (w, o) => {
+    if (o.message === 'Add Your Canvas Details') fs.writeFileSync(path.join(s.dir, 'settings.json'), JSON.stringify({ ...s.read(), canvas: 'https://x.instructure.com', savedSecrets: { canvasToken: '0123456789abcdef' } }));
+    return showB2(w, o);
+  };
+  await s.ctx.__go();
+  ok(!s.dialogs.includes('No Access Token') && s.calls.includes('action:reload'), 'B2 a token saved in the secrets store counts: ' + JSON.stringify(s.dialogs));
+
   // C. Only Canvas + token path, but an address with no token -> offered a browser
   s = scenario({ answers: [1, 0, 0, 0], settings: { canvas: '' } });
   const showC = s.ctx.dialog.showMessageBox;

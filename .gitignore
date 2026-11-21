@@ -65,6 +65,9 @@ service-*.lock
 browser-launch.json
 browser-launch-log.txt
 grades-secret.json
+grades-secret.dat
+secrets.json
+secrets.dat
 grades-chat.json
 grade-history.json
 announcement-photos/

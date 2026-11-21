@@ -39,7 +39,9 @@ const SERVERS = `
     `require('./services/canvas/10-canvas.js').testSettings(${JSON.stringify(address)}, ${JSON.stringify(token)}).then(r => process.stdout.write(JSON.stringify(r)))`],
     { cwd: proj, encoding: 'utf8' }));
   const save = values => lastJson(cp.spawnSync(process.execPath, ['21-notifier-actions.js', 'config', T.enc(values)], { cwd: proj, encoding: 'utf8' }));
-  const saved = () => JSON.parse(fs.readFileSync(path.join(proj, 'settings.json'), 'utf8'));
+  // The token is saved apart from settings.json (16-secrets.js; a plain file in tests).
+  const secretsOf = () => { try { return JSON.parse(fs.readFileSync(path.join(proj, 'secrets.json'), 'utf8')); } catch { return {}; } };
+  const saved = () => ({ ...JSON.parse(fs.readFileSync(path.join(proj, 'settings.json'), 'utf8')), ...secretsOf() });
 
   try {
     // ── Canvas's own test ──

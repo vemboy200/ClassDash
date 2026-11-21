@@ -30,6 +30,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PROJECT_ROOT } = require('./00-project-root.js');
+const secrets = require('./16-secrets.js');
 
 const FILE = path.join(PROJECT_ROOT, 'settings.json');
 // EXAMPLE stays on __dirname deliberately: it's a template-sibling file
@@ -388,8 +389,9 @@ const TYPES = {
 function read() {
   const result = { ...DEFAULTS };
   if (!fs.existsSync(FILE)) return result;
+  let own;
   try {
-    const own = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+    own = JSON.parse(fs.readFileSync(FILE, 'utf8'));
     for (const key of Object.keys(DEFAULTS)) {
       if (own[key] !== undefined && own[key] !== null) result[key] = own[key];
     }
@@ -400,8 +402,32 @@ function read() {
     // on with defaults. Staying silent here isn't an option — the person
     // will be left guessing why their edit didn't take effect.
     console.warn(`couldn't parse settings.json (${e.message}) — falling back to defaults`);
+    return result;
   }
+  addSecrets(own, result);
   return result;
+}
+
+// The credentials aren't in settings.json but in 16-secrets.js's store. A
+// key still in the file (written by a version before that, or typed in by
+// hand) wins over the store, and is moved into the store and out of the
+// file right away.
+const hasText = v => typeof v === 'string' && !!v.trim();
+let warnedSecrets = false;
+function addSecrets(own, result) {
+  try {
+    const stored = secrets.load(own.savedSecrets);
+    for (const key of secrets.KEYS) if (!hasText(own[key]) && hasText(stored[key])) result[key] = stored[key];
+  } catch (e) {
+    if (!warnedSecrets) console.warn(`couldn't read the saved keys (${e.message})`);
+    warnedSecrets = true;
+  }
+  if (secrets.KEYS.some(key => hasText(own[key]))) {
+    try { saveFile(result); } catch (e) {
+      if (!warnedSecrets) console.warn(`couldn't move the keys out of settings.json (${e.message})`);
+      warnedSecrets = true;
+    }
+  }
 }
 
 /**
@@ -730,14 +756,32 @@ function pendingFetchKeys(settings = read()) {
     JSON.stringify(normalizeForCompare(key, applied[key])));
 }
 
-// settings.json holds the Canvas token and any AI API keys, so only this
-// user account may read it, like grades-secret.json and api-token.txt. The
+// settings.json holds school addresses and usernames, so only this user
+// account may read it, like api-token.txt. (The Canvas token and AI keys
+// aren't in it: see 16-secrets.js.) The
 // mode on writeFileSync only counts when the file is new, hence the chmod:
 // it also locks down a file an older version (or the wizard's copy of the
 // example) left readable by everyone. The apps' own writes (16-summary.swift,
 // electron/main.js) rewrite the file in place, which keeps the mode.
-function saveFile(current) {
-  fs.writeFileSync(FILE, JSON.stringify(current, null, 2), { mode: 0o600 });
+//
+// The credentials (secrets.KEYS) never go in the file: `changedSecrets` are
+// the ones this save sets, and they go to the store. One still in the file
+// from before is moved there too. If the store can't take them, this throws
+// and nothing is written, so a key is never lost or left behind in the file.
+function saveFile(current, changedSecrets = []) {
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { /* new or broken: nothing to keep */ }
+  let saved = raw.savedSecrets && typeof raw.savedSecrets === 'object' ? raw.savedSecrets : {};
+  const changes = {};
+  for (const key of secrets.KEYS) {
+    const changed = changedSecrets.includes(key) && secrets.fingerprint(current[key]) !== (saved[key] || '');
+    if (changed || hasText(raw[key])) changes[key] = current[key];
+  }
+  if (Object.keys(changes).length) saved = secrets.save(saved, changes);
+  const out = { ...current };
+  for (const key of secrets.KEYS) delete out[key];
+  if (Object.keys(saved).length) out.savedSecrets = saved;
+  fs.writeFileSync(FILE, JSON.stringify(out, null, 2), { mode: 0o600 });
   lockDown();
 }
 
@@ -752,7 +796,7 @@ function write(key, raw) {
   const current = read();
   seedApplied(current);
   current[key] = v.value;
-  saveFile(current);
+  try { saveFile(current, [key]); } catch (e) { return { ok: false, why: 'couldn\'t save it: ' + e.message }; }
   return { ok: true, value: v.value };
 }
 
@@ -872,7 +916,9 @@ function applyBatch(chunk, { skip = [] } = {}) {
   const accepted = plan.accepted.filter(k => !skip.includes(k));
   const changed = plan.changed.filter(k => !skip.includes(k));
   for (const key of accepted) current[key] = values[key];
-  if (accepted.length) saveFile(current);
+  if (accepted.length) {
+    try { saveFile(current, accepted); } catch (e) { return { ok: false, why: 'couldn\'t save: ' + e.message, accepted: [], changed: [], rejected }; }
+  }
   return { ok: accepted.length > 0, accepted, changed, rejected };
 }
 

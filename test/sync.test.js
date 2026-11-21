@@ -175,7 +175,7 @@ async function until(what, test, ms = 12000) {
   const followerSettings = JSON.parse(read(followerDir, 'settings.json'));
   ok(JSON.stringify(followerSettings.exclusions) === '["Made-up Homeroom"]', 'a shared setting comes over');
   ok(followerSettings.language === 'ru' && followerSettings.apiPort === 2222, 'what belongs to the computer does not');
-  ok(followerSettings.canvasToken === 'made-up-laptop-canvas-token', 'and neither does a token');
+  ok(JSON.parse(read(followerDir, 'secrets.json') || '{}').canvasToken === 'made-up-laptop-canvas-token' && !followerSettings.canvasToken, 'and neither does a token');
   ok(read(followerDir, 'grades-secret.json') === null, 'the Q password stays home');
   ok(!['api-token.txt', 'device-keys.json'].some(n => (read(followerDir, n) || '').includes('made-up')), 'nor any key');
   ok(inProject(followerDir, 'syncStatus').setAside === true && readList(path.join(followerDir, 'before-sync'), 'last-collection.json')[0].id === 'from-laptop', "this computer's own data was kept aside");

@@ -1382,9 +1382,12 @@ async function checkCanvasDetails() {
   const settings = readSettingsFile();
   const address = String(settings.canvas || '').trim();
   const token = String(settings.canvasToken || '').trim();
+  // The token itself is saved encrypted (16-secrets.js); settings.json only
+  // says that one is saved.
+  const saved = String((settings.savedSecrets || {}).canvasToken || '');
   if (!address) return; // nothing entered — Canvas stays off until they add it
 
-  if (!token) {
+  if (!token && !saved) {
     const { response } = await dialog.showMessageBox(win, {
       type: 'question',
       message: 'No Access Token',

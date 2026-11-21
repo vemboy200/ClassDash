@@ -2535,9 +2535,12 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         let settings = readSettingsFile(in: projectDir)
         let address = (settings["canvas"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let token = (settings["canvasToken"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // The token itself is in the keychain (16-secrets.js); settings.json
+        // only says that one is saved.
+        let saved = (settings["savedSecrets"] as? [String: Any])?["canvasToken"] as? String ?? ""
         if address.isEmpty { return } // nothing entered — Canvas stays off until they add it
 
-        if token.isEmpty {
+        if token.isEmpty && saved.isEmpty {
             let noToken = NSAlert()
             noToken.messageText = "No Access Token"
             noToken.informativeText = "You entered a Canvas address but no access token, so " +

@@ -28,6 +28,9 @@ for (const file of files) {
   const t0 = Date.now();
   const result = cp.spawnSync(process.execPath, [path.join(__dirname, file)], {
     encoding: 'utf8', timeout: 180000, cwd: __dirname,
+    // Never the real keychain: the saved keys go to a plain file in each
+    // test's throwaway project (16-secrets.js).
+    env: { ...process.env, CLASSDASH_SECRETS_STORE: 'file' },
   });
   const seconds = ((Date.now() - t0) / 1000).toFixed(1);
   const good = result.status === 0;

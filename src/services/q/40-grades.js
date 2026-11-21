@@ -31,9 +31,11 @@
  * On a Mac it lives in the login keychain (service "ClassDash Q grades"),
  * written and read through /usr/bin/security, never in settings.json and
  * never on the page. It's handed to `security -i` on stdin, so it doesn't
- * show up in the list of running processes either. Elsewhere (Windows)
- * there's no keychain to reach from here yet, so it goes in a file of its
- * own, grades-secret.json, readable only by this user.
+ * show up in the list of running processes either. On Windows it goes in
+ * grades-secret.dat, encrypted with Windows' own per-user encryption (DPAPI,
+ * see 16-secrets.js), so a copy of the folder can't be read elsewhere. Where
+ * there's neither (Linux), a file of its own, grades-secret.json, readable
+ * only by this user.
  *
  * ── Not hammering the school ──
  *
@@ -52,6 +54,7 @@ const { PROJECT_ROOT } = require('../../00-project-root.js');
 const FILE = path.join(PROJECT_ROOT, 'grades.json');
 const CANVAS_FILE = path.join(PROJECT_ROOT, 'canvas-grades.json');
 const SECRET_FILE = path.join(PROJECT_ROOT, 'grades-secret.json');
+const SEALED_FILE = path.join(PROJECT_ROOT, 'grades-secret.dat');
 const SERVICE = 'ClassDash Q grades';
 const ACCOUNT = 'q-password';
 const CHECK_EVERY_MS = 60 * 60 * 1000;
@@ -109,10 +112,46 @@ function fileStore(file = SECRET_FILE) {
   };
 }
 
+// Windows: sealed with DPAPI. A plain grades-secret.json from an older
+// version is moved into it the first time the password is read.
+function sealedStore(file = SEALED_FILE, legacy = SECRET_FILE, run = execFileSync) {
+  const sealed = require('../../16-secrets.js').protectedFile(file, run);
+  const old = fileStore(legacy);
+  // PowerShell takes most of a second to start and the page asks whether
+  // there's a password on every draw, so the answer is kept until the file
+  // changes.
+  let cached = null;
+  return {
+    kind: 'protected file',
+    get() {
+      let stamp = null;
+      try { stamp = fs.statSync(file).mtimeMs; } catch { /* not saved yet */ }
+      if (stamp !== null && cached && cached.stamp === stamp) return cached.password;
+      try {
+        const v = sealed.read();
+        if (v !== undefined) {
+          cached = { stamp, password: String(v.password || '') };
+          return cached.password;
+        }
+      } catch { return ''; }
+      const password = old.get();
+      if (password) { try { sealed.write({ password }); old.clear(); } catch { /* stays where it was */ } }
+      return password;
+    },
+    set(password) { sealed.write({ password }); old.clear(); },
+    clear() { sealed.remove(); old.clear(); },
+  };
+}
+
 let storeOverride = null;
 // CLASSDASH_GRADES_STORE=file: the tests, which must never touch the real keychain.
-const passwordStore = () => storeOverride ||
-  (process.platform === 'darwin' && process.env.CLASSDASH_GRADES_STORE !== 'file' ? keychainStore() : fileStore());
+function passwordStore() {
+  if (storeOverride) return storeOverride;
+  if (process.env.CLASSDASH_GRADES_STORE === 'file') return fileStore();
+  if (process.platform === 'darwin') return keychainStore();
+  if (process.platform === 'win32') return sealedStore();
+  return fileStore();
+}
 
 /** Saves (or, empty, removes) the Q password. Control characters are refused:
  *  nobody's password has a line break in it, and `security -i` reads lines. */
@@ -729,7 +768,7 @@ let startCheckNow = () => require('../../62-service-run.js').startInBackground('
 
 module.exports = {
   portalBase, parseAssignments, canvasGrade, canvasAssignment, canvasWeighting, estimateGrade, typedEstimate, qName, canvasHiddenTest, saveCanvasGrades, readCanvasGrades, savePassword, hasPassword, readiness, due, check, readAndSave, read, gradesView, readGrades,
-  keychainStore, fileStore, quoted, Rejected, NewPasswordNeeded, Slow, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
+  keychainStore, fileStore, sealedStore, quoted, Rejected, NewPasswordNeeded, Slow, newPasswordMessage, CHECK_EVERY_MS, FILE, SERVICE,
   _setStore: s => { storeOverride = s; },
   startCheckNow: () => startCheckNow(),
   _setStartCheck: f => { startCheckNow = f; },

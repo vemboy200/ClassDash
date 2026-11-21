@@ -27,6 +27,10 @@ const cp = require('child_process');
 
 const REPO = path.resolve(__dirname, '..');
 
+// A test file run on its own (not through run.js) mustn't reach the real
+// keychain either: saved keys go to a plain file in the throwaway project.
+process.env.CLASSDASH_SECRETS_STORE = process.env.CLASSDASH_SECRETS_STORE || 'file';
+
 // What the apps bundle as a project template (see build.sh and
 // electron/package.json): src/'s top-level scripts and settings.example.json,
 // and its services/ and icons/ folders. Nothing else in src/ is a project file.
