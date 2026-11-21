@@ -178,6 +178,47 @@ ok(S.read().aiOpenaiKey === 'sk-by-hand' && !('aiOpenaiKey' in raw()) && stored(
   ok(S.read().aiGeminiKey === 'AIzaStillHere' && sec.currentToken() === key, 'N keys survive a settings.json without their record');
 }
 
+// O. The certificate's private key and the app key: moved out of their old
+// files into the store, and the app key handed to the apps by a script.
+{
+  const sec = require(path.join(PROJ, '23-api-security.js'));
+  sec.ensureCert();
+  const tls = () => { try { return JSON.parse(fs.readFileSync(path.join(PROJ, 'api-tls-key.json'), 'utf8')).pem; } catch { return null; } };
+  ok(fs.existsSync(path.join(PROJ, 'api-cert.pem')) && !fs.existsSync(path.join(PROJ, 'api-key.pem')) && /PRIVATE KEY/.test(tls() || ''), 'O a new certificate keeps its private key in the store, not api-key.pem');
+  ok(sec.tlsKey() === tls(), 'O and the server starts with it from there');
+  const pem = tls();
+  fs.writeFileSync(path.join(PROJ, 'api-key.pem'), pem);
+  fs.unlinkSync(path.join(PROJ, 'api-tls-key.json'));
+  sec.ensureCert();
+  ok(!fs.existsSync(path.join(PROJ, 'api-key.pem')) && tls() === pem, 'O an api-key.pem from before is moved in, the same key');
+  ok(!raw().savedSecrets || !('pem' in raw().savedSecrets), 'O it is its own item, not part of the settings keys');
+
+  fs.writeFileSync(path.join(PROJ, 'app-key.txt'), 'a'.repeat(64) + '\n');
+  ok(sec.currentAppKey() === 'a'.repeat(64), 'O an app-key.txt from before still works until it is moved');
+  const r = require('child_process').spawnSync(process.execPath, [path.join(PROJ, '23-api-security.js'), '--app-key'], { cwd: PROJ, encoding: 'utf8', env: { ...process.env, CLASSDASH_SECRETS_STORE: 'file' } });
+  ok(r.stdout.trim() === 'a'.repeat(64) && fs.existsSync(path.join(PROJ, 'app-key.txt')), 'O --app-key prints it for the app, and leaves the file for a server still running older code', r.stderr);
+  sec.ensureAppKey();
+  ok(!fs.existsSync(path.join(PROJ, 'app-key.txt')) && stored().appKey === 'a'.repeat(64) && sec.currentAppKey() === 'a'.repeat(64), 'O the server start moves it in, the same key');
+  ok(!('appKey' in S.read()), 'O it is not a setting');
+  fs.writeFileSync(path.join(PROJ, 'secrets.json'), JSON.stringify({ ...stored(), appKey: undefined }));
+  fs.writeFileSync(path.join(PROJ, 'settings.json'), JSON.stringify({ ...raw(), savedSecrets: {} }));
+  const r2 = require('child_process').spawnSync(process.execPath, [path.join(PROJ, '23-api-security.js'), '--app-key'], { cwd: PROJ, encoding: 'utf8', env: { ...process.env, CLASSDASH_SECRETS_STORE: 'file' } });
+  ok(/^[0-9a-f]{64}$/.test(r2.stdout.trim()) && r2.stdout.trim() !== 'a'.repeat(64), 'O with none, --app-key makes one');
+  ok(!/currentAppKey|--app-key/.test(fs.readFileSync(path.join(PROJ, '21-notifier-actions.js'), 'utf8')), 'O no action (which the page can start) hands out the app key');
+}
+
+// P. A keychain item is written through one `security -i` line, which is
+// cut at 4096 bytes: too much is refused with a reason, not cut.
+{
+  let ran = false;
+  const kc = secrets.keychainStore({ run: () => { ran = true; return Buffer.from(''); } });
+  let why = null;
+  try { kc.save({ big: 'x'.repeat(3500) }); } catch (e) { why = e.message; }
+  ok(/too much/.test(why || '') && !ran, 'P an oversized item is refused before `security` sees it', why);
+  kc.save({ canvasToken: 'x'.repeat(200), aiOpenaiKey: 'x'.repeat(200), aiAnthropicKey: 'x'.repeat(200), aiGeminiKey: 'x'.repeat(200), diagnosticsForwardToken: 'x'.repeat(64), apiToken: 'x'.repeat(64), appKey: 'x'.repeat(64) });
+  ok(ran, 'P while every key at a generous length fits');
+}
+
 // J. The real thing, where this machine has it.
 if (process.platform === 'win32') {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cd-dpapi-')), 'secrets.dat');

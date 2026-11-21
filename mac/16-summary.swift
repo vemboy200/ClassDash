@@ -1611,7 +1611,7 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
     // The page is loaded from the server (17-api.js) at
     // https://127.0.0.1:<port>/, the same page a browser gets, instead of
     // from summary.html on disk. The app signs itself in with its own key
-    // (app-key.txt, see ensureAppKey in 23-api-security.js), set as an
+    // (see ensureAppKey in 23-api-security.js and appKey() below), set as an
     // HttpOnly cookie in this window's own cookie store, so the page's
     // scripts never see it and nothing has to be typed. The server's
     // certificate is trusted only if it's the project's own (see the
@@ -1682,7 +1682,20 @@ class Delegate:NSObject, NSApplicationDelegate, NSMenuDelegate, WKNavigationDele
         return url.scheme == "https" && url.host == "127.0.0.1" && url.port == apiPort()
     }
 
+    // The app key is in the keychain (16-secrets.js), so the project's own
+    // script hands it over (23-api-security.js --app-key, which also makes it
+    // and moves an older app-key.txt in). Asked once, then kept here. A
+    // project too old to have that answers with nothing, and the file it
+    // still has is read instead.
+    private var cachedAppKey: String?
     private func appKey() -> String? {
+        if let key = cachedAppKey { return key }
+        let printed = runNodeScriptCapture("23-api-security.js", args: ["--app-key"], in: projectDir)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if printed.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil {
+            cachedAppKey = printed
+            return printed
+        }
         guard let data = FileManager.default.contents(atPath: projectDir + "/app-key.txt"),
               let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !key.isEmpty else { return nil }

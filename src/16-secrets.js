@@ -38,8 +38,9 @@ const { PROJECT_ROOT } = require('./00-project-root.js');
 
 // The settings that are keys: read() in 19-settings.js fills them in.
 const KEYS = ['canvasToken', 'aiOpenaiKey', 'aiAnthropicKey', 'aiGeminiKey', 'diagnosticsForwardToken'];
-// Kept here too, but not settings: the Home API's access key.
-const NAMES = [...KEYS, 'apiToken'];
+// Kept here too, but not settings: the Home API's access key, and the key
+// the ClassDash app signs its own window in with (23-api-security.js).
+const NAMES = [...KEYS, 'apiToken', 'appKey'];
 const SERVICE = 'ClassDash secrets';
 const ACCOUNT = 'settings';
 const PLAIN_FILE = path.join(PROJECT_ROOT, 'secrets.json');
@@ -61,13 +62,13 @@ const fingerprint = v => {
 // Inside "…" for `security -i`: a backslash and a quote get a backslash.
 const quoted = s => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 
-function keychainStore({ run = execFileSync, service = SERVICE } = {}) {
+function keychainStore({ run = execFileSync, service = SERVICE, account = ACCOUNT } = {}) {
   return {
     kind: 'keychain',
     load() {
       let out;
       try {
-        out = run('/usr/bin/security', ['find-generic-password', '-s', service, '-a', ACCOUNT, '-w'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        out = run('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account, '-w'], { stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (e) {
         // 44: no such item, which is simply nothing saved yet. Anything else
         // (a locked keychain) is an error: reading it as "nothing saved"
@@ -81,11 +82,16 @@ function keychainStore({ run = execFileSync, service = SERVICE } = {}) {
     },
     save(all) {
       if (!Object.keys(all).length) {
-        try { run('/usr/bin/security', ['delete-generic-password', '-s', service, '-a', ACCOUNT], { stdio: 'ignore' }); } catch { /* wasn't there */ }
+        try { run('/usr/bin/security', ['delete-generic-password', '-s', service, '-a', account], { stdio: 'ignore' }); } catch { /* wasn't there */ }
         return;
       }
       const value = Buffer.from(JSON.stringify(all)).toString('base64');
-      run('/usr/bin/security', ['-i'], { input: `add-generic-password -U -s ${quoted(service)} -a ${quoted(ACCOUNT)} -w ${quoted(value)}\n`, stdio: ['pipe', 'ignore', 'pipe'] });
+      const line = `add-generic-password -U -s ${quoted(service)} -a ${quoted(account)} -w ${quoted(value)}\n`;
+      // `security -i` cuts input lines at 4096 bytes and runs the rest as a
+      // command of its own (measured: a 4097-byte line is the most that
+      // works, newline included). Refused here with a reason instead.
+      if (Buffer.byteLength(line) > 4000) throw new Error('too much to keep in one keychain item');
+      run('/usr/bin/security', ['-i'], { input: line, stdio: ['pipe', 'ignore', 'pipe'] });
     },
   };
 }
@@ -147,10 +153,17 @@ function plainFileStore(file = PLAIN_FILE) {
 let storeOverride = null;
 function store() {
   if (storeOverride) return storeOverride;
-  if (process.env.CLASSDASH_SECRETS_STORE === 'file') return plainFileStore();
-  if (process.platform === 'darwin') return keychainStore();
-  if (process.platform === 'win32') return protectedFileStore();
-  return plainFileStore();
+  return itemStore('settings', 'secrets');
+}
+
+/** A store of its own for something too big to share the main item (the
+ *  Home API certificate's private key, 23-api-security.js): another keychain
+ *  account under the same service, or its own file. */
+function itemStore(account, fileBase) {
+  if (process.env.CLASSDASH_SECRETS_STORE === 'file') return plainFileStore(path.join(PROJECT_ROOT, fileBase + '.json'));
+  if (process.platform === 'darwin') return keychainStore({ account });
+  if (process.platform === 'win32') return protectedFileStore(path.join(PROJECT_ROOT, fileBase + '.dat'));
+  return plainFileStore(path.join(PROJECT_ROOT, fileBase + '.json'));
 }
 
 // ── Reading and saving, with a cache ──
@@ -196,6 +209,6 @@ function save(saved, changes) {
 }
 
 module.exports = {
-  KEYS, NAMES, SERVICE, SAVED_MARK, load, save, fingerprint, store, keychainStore, protectedFile, protectedFileStore, plainFileStore, dpapi,
+  KEYS, NAMES, SERVICE, SAVED_MARK, load, save, fingerprint, store, itemStore, keychainStore, protectedFile, protectedFileStore, plainFileStore, dpapi,
   _setStore(s) { storeOverride = s; cache = null; },
 };

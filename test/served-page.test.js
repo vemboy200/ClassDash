@@ -128,11 +128,11 @@ fs.writeFileSync(path.join(proj, 'live', 'page-version.js'), 'window.classdashPa
   ok('a settings save that leaves the Home API alone: runs', sameApi.status === 200 && JSON.parse(sameApi.body).ok === true, sameApi.body);
 
   // ---- the app's own key ----
-  const appKey = fs.readFileSync('app-key.txt', 'utf8').trim();
+  const appKey = T.appKey();
   ok('the server made an app key, different from the access key', /^[0-9a-f]{64}$/.test(appKey) && appKey !== token);
   if (process.platform !== 'win32') {
-    ok('...readable by this user account only', (fs.statSync('app-key.txt').mode & 0o777) === 0o600);
-    ok('...and so is the access key, kept with the other keys', (fs.statSync('secrets.json').mode & 0o777) === 0o600 && !fs.existsSync('api-token.txt'));
+    ok('...kept with the access key, readable by this user account only', (fs.statSync('secrets.json').mode & 0o777) === 0o600 && !fs.existsSync('api-token.txt') && !fs.existsSync('app-key.txt'));
+    ok('...and the certificate\'s private key in an item of its own', /PRIVATE KEY/.test(fs.readFileSync('api-tls-key.json', 'utf8')) && !fs.existsSync('api-key.pem'));
   }
   const security = require(path.join(proj, '23-api-security.js'));
   const asReq = headers => ({ headers });

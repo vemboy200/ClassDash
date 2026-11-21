@@ -68,6 +68,8 @@ grades-secret.json
 grades-secret.dat
 secrets.json
 secrets.dat
+api-tls-key.json
+api-tls-key.dat
 grades-chat.json
 grade-history.json
 announcement-photos/

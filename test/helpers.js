@@ -218,8 +218,13 @@ function apiKey(dir = '.') {
   try { return String(JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).apiToken || ''); } catch { return ''; }
 }
 
+/** The app's own key in a test project, kept with the access key. */
+function appKey(dir = '.') {
+  try { return String(JSON.parse(fs.readFileSync(path.join(dir, 'secrets.json'), 'utf8')).appKey || ''); } catch { return ''; }
+}
+
 module.exports = {
-  afterStartRedraw, apiKey,
+  afterStartRedraw, apiKey, appKey,
   REPO, makeProject, classProject, tmpDir, writeFiles, run, redraw, jsdom,
   ok, eq, done, sleep, until, enc,
 };

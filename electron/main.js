@@ -872,8 +872,8 @@ function openWorkspace() {
 //
 // The page is loaded from the server (17-api.js) at https://127.0.0.1:<port>/,
 // the same page a browser gets, instead of from summary.html on disk. The
-// app signs itself in with its own key (app-key.txt, see ensureAppKey in
-// 23-api-security.js), set as an HttpOnly cookie in this window's session, so
+// app signs itself in with its own key (see ensureAppKey in
+// 23-api-security.js and appKey() below), set as an HttpOnly cookie in this window's session, so
 // the page's scripts never see it. The server's certificate is trusted only
 // if it's the project's own (trustOwnCertificate). The bridge stays for what
 // only the app can do. Same as show() in 16-summary.swift.
@@ -926,8 +926,22 @@ function trustOwnCertificate(session) {
   });
 }
 
+// The app key is encrypted (16-secrets.js), so the project's own script
+// hands it over (23-api-security.js --app-key, which also makes it and moves
+// an older app-key.txt in). Asked once, then kept here. A project too old to
+// have that answers with nothing, and the file it still has is read instead.
+let cachedAppKey = null;
+function appKey() {
+  if (cachedAppKey) return cachedAppKey;
+  const r = spawnSync(process.execPath, [scriptPath('23-api-security.js', projectDir), '--app-key'],
+    { cwd: projectDir, env: nodeEnv(), encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  const printed = String(r.stdout || '').trim();
+  if (/^[0-9a-f]{64}$/.test(printed)) return (cachedAppKey = printed);
+  return readPrivate('app-key.txt');
+}
+
 function loadSummary() {
-  const key = readPrivate('app-key.txt');
+  const key = appKey();
   if (!key || !readPrivate('api-cert.pem')) { loadFromDisk(); return; }
   servedAttempts = 0;
   clearTimeout(servedRetry);

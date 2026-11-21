@@ -19,7 +19,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < 80 && !up; i++) { up = !(await get('/login')).error; if (!up) await sleep(100); }
   ok(up, 'server is listening');
   const token = T.apiKey();
-  const appKey = fs.readFileSync('app-key.txt', 'utf8').trim();
+  const appKey = T.appKey();
   const key = { Authorization: 'Bearer ' + token };
   const clients = async () => JSON.parse((await get('/api/clients', key)).body);
   const counts = async () => { const { followers, browsers, programs } = await clients(); return { followers, browsers, programs }; };

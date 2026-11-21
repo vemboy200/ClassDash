@@ -115,7 +115,6 @@ const STATE_FILE = path.join(PROJECT_ROOT, 'last-collection.json');
 const STREAM_FILE = path.join(PROJECT_ROOT, 'messages.json');
 const FRESH_FILE = path.join(PROJECT_ROOT, 'new.json');
 const CERT_FILE = path.join(PROJECT_ROOT, 'api-cert.pem');
-const KEY_FILE = path.join(PROJECT_ROOT, 'api-key.pem');
 const DIAGNOSTICS_LOG_FILE = path.join(PROJECT_ROOT, 'diagnostics-received.txt');
 
 const DEFAULT_PORT = require('./19-settings.js').read().apiPort;
@@ -1531,7 +1530,7 @@ function start() {
 
   const server = https.createServer({
     cert: fs.readFileSync(CERT_FILE),
-    key: fs.readFileSync(KEY_FILE),
+    key: require('./23-api-security.js').tlsKey(),
   }, (req, res) => {
     // Strip "?whatever": an address with a query string should still work.
     //

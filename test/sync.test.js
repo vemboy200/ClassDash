@@ -139,7 +139,7 @@ async function until(what, test, ms = 12000) {
   // first check, certificates are switched off for the action only.
   const trusting = (name, arg) => JSON.parse(cp.spawnSync('node', ['21-notifier-actions.js', name, arg], { cwd: followerDir, encoding: 'utf8', env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_NO_WARNINGS: '1' } }).stdout.trim().split('\n').pop());
   const kept = () => JSON.parse(read(followerDir, 'sync.json')).master.remoteUrl;
-  const pretending = (port, status) => cp.spawn('node', ['-e', `require('https').createServer({ key: require('fs').readFileSync('api-key.pem'), cert: require('fs').readFileSync('api-cert.pem') }, (q, a) => { a.writeHead(${status}, { 'Content-Type': 'text/html' }); a.end('<html>not this</html>'); }).listen(${port}, '127.0.0.1');`], { cwd: masterDir, stdio: 'ignore' });
+  const pretending = (port, status) => cp.spawn('node', ['-e', `require('https').createServer({ key: JSON.parse(require('fs').readFileSync('api-tls-key.json', 'utf8')).pem, cert: require('fs').readFileSync('api-cert.pem') }, (q, a) => { a.writeHead(${status}, { 'Content-Type': 'text/html' }); a.end('<html>not this</html>'); }).listen(${port}, '127.0.0.1');`], { cwd: masterDir, stdio: 'ignore' });
   const badGateway = pretending(base + 10, 502), someSite = pretending(base + 11, 200);
   process.on('exit', () => { badGateway.kill('SIGKILL'); someSite.kill('SIGKILL'); });
   await sleep(500);

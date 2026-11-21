@@ -55,14 +55,44 @@ const APP_KEY_FILE = path.join(PROJECT_ROOT, 'app-key.txt');
  *  would ripple into making this whole file's caller chain
  *  (startApiServer() → main()'s 'config' case → both call sites that
  *  invoke main()) async too, for no benefit here. */
+//
+// The certificate's private key is kept in a store item of its own
+// (16-secrets.js: keychain account "api-tls-key", or api-tls-key.dat on
+// Windows), not api-key.pem: with it, something else on the network could
+// pass as this computer to Home Assistant and paired devices. Its own item
+// because it's too big to share the main one (a keychain item goes in
+// through one 4 KB line). An api-key.pem from before is moved in here; if
+// the store can't be used, the file stays, so the server still starts.
+const tlsStore = () => require('./16-secrets.js').itemStore('api-tls-key', 'api-tls-key');
+
+function storedTlsKey() {
+  try { return tlsStore().load().pem || null; } catch { return undefined; /* unreadable */ }
+}
+
 function ensureCert() {
-  if (fs.existsSync(CERT_FILE) && fs.existsSync(KEY_FILE)) return;
+  const stored = storedTlsKey();
+  const hasCert = fs.existsSync(CERT_FILE);
+  if (hasCert && fs.existsSync(KEY_FILE)) {
+    if (stored === undefined) return;
+    try {
+      const pem = fs.readFileSync(KEY_FILE, 'utf8');
+      if (stored !== pem) tlsStore().save({ pem });
+      fs.unlinkSync(KEY_FILE);
+    } catch { /* stays in the file, still working */ }
+    return;
+  }
+  if (hasCert && stored) return;
   const pems = selfsigned.generate(
     [{ name: 'commonName', value: 'classdash-local' }],
     { algorithm: 'sha256', days: 3650, keySize: 2048 }
   );
-  fs.writeFileSync(KEY_FILE, pems.private);
+  try { tlsStore().save({ pem: pems.private }); } catch { writePrivate(KEY_FILE, pems.private); }
   fs.writeFileSync(CERT_FILE, pems.cert);
+}
+
+/** The certificate's private key, for the server to start with. */
+function tlsKey() {
+  return storedTlsKey() || (fs.existsSync(KEY_FILE) ? fs.readFileSync(KEY_FILE, 'utf8') : null);
 }
 
 /** The fingerprint a client pins — same value openssl itself would
@@ -148,12 +178,32 @@ function writePrivate(file, text) {
 // It's never shown anywhere. Like the access key, anything running as this
 // user account could read the file: it keeps browsers and other devices
 // from passing as the app, not other programs on the same account.
+//
+// Kept in the secrets store as appKey, like the access key. The apps get it
+// by running `node 23-api-security.js --app-key` (below), not through an
+// action: actions can be started by the page, whose scripts must never see
+// it. An app-key.txt from before is moved in, at server start
+// (startApiServer in 21-notifier-actions.js, and 17-api.js itself).
 function ensureAppKey() {
-  if (!fs.existsSync(APP_KEY_FILE)) writePrivate(APP_KEY_FILE, crypto.randomBytes(32).toString('hex'));
+  let saved;
+  try { saved = settingsFile().secretValue('appKey'); } catch { return; /* store unreadable: the file, if any, keeps working */ }
+  if (fs.existsSync(APP_KEY_FILE)) {
+    const old = fs.readFileSync(APP_KEY_FILE, 'utf8').trim();
+    try {
+      if (old && old !== saved) settingsFile().saveSecret('appKey', old);
+      fs.unlinkSync(APP_KEY_FILE);
+    } catch { /* left where it was, still working */ }
+    return;
+  }
+  if (!saved) settingsFile().saveSecret('appKey', crypto.randomBytes(32).toString('hex'));
 }
 
 function currentAppKey() {
-  return fs.existsSync(APP_KEY_FILE) ? fs.readFileSync(APP_KEY_FILE, 'utf8').trim() : null;
+  try {
+    const saved = settingsFile().secretValue('appKey');
+    if (saved) return saved;
+  } catch { /* store unreadable: an older file is all there is */ }
+  return fs.existsSync(APP_KEY_FILE) ? fs.readFileSync(APP_KEY_FILE, 'utf8').trim() || null : null;
 }
 
 /** The cookie a browser showing the page sends instead of the header: a
@@ -422,10 +472,22 @@ function clearPid() {
 }
 
 module.exports = {
-  CERT_FILE, KEY_FILE, TOKEN_FILE, PID_FILE,
+  CERT_FILE, KEY_FILE, TOKEN_FILE, PID_FILE, tlsKey,
   ensureCert, certFingerprint, ensureToken, currentToken, rollToken,
   APP_KEY_FILE, ensureAppKey, currentAppKey, APP_COOKIE_NAME, clientKind,
   COOKIE_NAME, isToken, isAuthorized, isServerRunning, readPid, writePid, clearPid, givenToken,
   DEVICES_FILE, PAIRING_FILE, PAIR_MINUTES, PAIR_TRIES, listDevices, makePairingCode, cancelPairingCode,
   pairingStatus, redeemPairingCode, revokeDevice, deviceFor, looksLikePairingCode, cleanName,
 };
+
+// `node 23-api-security.js --app-key`: the app key on stdout, for the
+// ClassDash app to sign its own window in with (16-summary.swift,
+// electron/main.js). Only the app runs it. It reads, and makes one only when
+// there's none anywhere: moving an app-key.txt from before is left to the
+// server's start, so a server still running older code (which reads the
+// file) keeps recognizing the app until it's restarted.
+if (require.main === module && process.argv[2] === '--app-key') {
+  if (!currentAppKey()) ensureAppKey();
+  const key = currentAppKey();
+  if (key) process.stdout.write(key + '\n'); else process.exitCode = 1;
+}
