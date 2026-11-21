@@ -1830,6 +1830,9 @@ function start() {
     // settings.json only readable by this account (19-settings.js lockDown),
     // for a file an older version left readable by everyone.
     require('./19-settings.js').lockDown();
+    // The Canvas token and AI keys out of settings.json, for a file an older
+    // version wrote them into (16-secrets.js).
+    require('./19-settings.js').moveSecrets();
     // .unref() — this timer alone shouldn't be what keeps the process
     // alive; the HTTPS server already does that on its own.
     setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS).unref();

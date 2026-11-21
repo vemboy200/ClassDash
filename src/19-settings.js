@@ -410,8 +410,10 @@ function read() {
 
 // The credentials aren't in settings.json but in 16-secrets.js's store. A
 // key still in the file (written by a version before that, or typed in by
-// hand) wins over the store, and is moved into the store and out of the
-// file right away.
+// hand) wins over the store. Reading never moves it: that's moveSecrets(),
+// once at server start, and any save. A read with side effects once moved a
+// real token out of a developer's own project when a test only loaded the
+// code from there.
 const hasText = v => typeof v === 'string' && !!v.trim();
 let warnedSecrets = false;
 function addSecrets(own, result) {
@@ -422,12 +424,15 @@ function addSecrets(own, result) {
     if (!warnedSecrets) console.warn(`couldn't read the saved keys (${e.message})`);
     warnedSecrets = true;
   }
-  if (secrets.KEYS.some(key => hasText(own[key]))) {
-    try { saveFile(result); } catch (e) {
-      if (!warnedSecrets) console.warn(`couldn't move the keys out of settings.json (${e.message})`);
-      warnedSecrets = true;
-    }
-  }
+}
+
+/** Moves keys an older version left in settings.json into the store (server
+ *  start, 17-api.js). Quiet: a failure leaves them where they are, working. */
+function moveSecrets() {
+  let own;
+  try { own = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { return; }
+  if (!secrets.KEYS.some(key => hasText(own[key]))) return;
+  try { saveFile(read()); } catch (e) { console.warn(`couldn't move the keys out of settings.json (${e.message})`); }
 }
 
 /**
@@ -922,7 +927,7 @@ function applyBatch(chunk, { skip = [] } = {}) {
   return { ok: accepted.length > 0, accepted, changed, rejected };
 }
 
-module.exports = { read, write, lockDown, validate, writeExample, applyBatch, previewBatch,
+module.exports = { read, write, lockDown, moveSecrets, validate, writeExample, applyBatch, previewBatch,
                    markApplied, markOneApplied, appliedFetchSettings, pendingFetchKeys, FETCH_AFFECTING, canvasPlan,
                    DEFAULTS, TYPES, FILE, DASH_CARDS };
 

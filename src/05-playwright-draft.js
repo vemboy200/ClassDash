@@ -217,11 +217,22 @@ const { record: recordCheckStatus } = require('./25-check-status.js');
 const live = require('./28-live-state.js');
 const schoolCalendar = require('./33-school-calendar.js');
 const { placeholderDue } = schoolCalendar;
-const BROWSER = SETTINGS.browserPath
-  ? { executablePath: path.resolve(PROJECT_ROOT, SETTINGS.browserPath) }
-  : ownBrowserInstalled()
-  ? { executablePath: OWN_BROWSER }
-  : { channel: 'chrome' };
+const BROWSER = {
+  ...(SETTINGS.browserPath
+    ? { executablePath: path.resolve(PROJECT_ROOT, SETTINGS.browserPath) }
+    : ownBrowserInstalled()
+    ? { executablePath: OWN_BROWSER }
+    : { channel: 'chrome' }),
+  // The sign-ins encrypted with the real keychain, like a normal browser's.
+  // Playwright starts browsers with --use-mock-keychain, which on a Mac
+  // encrypts the profile's cookies with a stand-in key that isn't the
+  // person's own, so a copy of browser-profile was the school sign-ins.
+  // Without it the browser uses its "… Safe Storage" keychain item, with no
+  // prompt (tested: the item trusts the browser that made it). The flag
+  // only exists on a Mac; --password-store=basic, Linux's, stays: a server
+  // with no keyring would hang on it.
+  ignoreDefaultArgs: ['--use-mock-keychain'],
+};
 
 // Announcement memory is separate from assignment memory: they have a
 // different nature — no due dates, never "due soon", but freshness matters.

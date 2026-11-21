@@ -13,8 +13,11 @@ const secrets = require(path.join(PROJ, '16-secrets.js'));
 const raw = () => JSON.parse(fs.readFileSync(path.join(PROJ, 'settings.json'), 'utf8'));
 const stored = () => { try { return JSON.parse(fs.readFileSync(path.join(PROJ, 'secrets.json'), 'utf8')); } catch { return null; } };
 
-// A. A key an older version left in settings.json moves out on the first read.
+// A. A key an older version left in settings.json: read as it is, and moved
+// out by moveSecrets() (server start), never by reading.
 ok(S.read().aiOpenaiKey === 'sk-from-an-older-version', 'A the key still reads the same');
+ok(raw().aiOpenaiKey === 'sk-from-an-older-version' && !fs.existsSync(path.join(PROJ, 'secrets.json')), 'A reading alone changes nothing');
+S.moveSecrets();
 ok(!('aiOpenaiKey' in raw()) && !('canvasToken' in raw()), 'A and is gone from settings.json, empty ones too', JSON.stringify(raw()));
 ok(stored().aiOpenaiKey === 'sk-from-an-older-version', 'A it is in the store now');
 ok(raw().savedSecrets.aiOpenaiKey === secrets.fingerprint('sk-from-an-older-version'), 'A settings.json only has its fingerprint');
@@ -64,8 +67,10 @@ ok(r.ok && raw().language === 'ru' && raw().savedSecrets.aiAnthropicKey, 'F a sa
 // A key typed into settings.json by hand while the store is broken stays
 // there and keeps working, instead of being dropped.
 fs.writeFileSync(path.join(PROJ, 'settings.json'), JSON.stringify({ ...raw(), aiOpenaiKey: 'sk-by-hand' }));
+S.moveSecrets();
 ok(S.read().aiOpenaiKey === 'sk-by-hand' && raw().aiOpenaiKey === 'sk-by-hand', 'F a key in the file stays put while the store is broken');
 secrets._setStore(null);
+S.moveSecrets();
 ok(S.read().aiOpenaiKey === 'sk-by-hand' && !('aiOpenaiKey' in raw()) && stored().aiOpenaiKey === 'sk-by-hand', 'F ...and moves once the store works again');
 
 // G. The keychain store, with a stand-in for /usr/bin/security.
@@ -117,6 +122,15 @@ ok(S.read().aiOpenaiKey === 'sk-by-hand' && !('aiOpenaiKey' in raw()) && stored(
   ok(!fs.readFileSync(sealed, 'utf8').includes('q-old'), 'I which doesn\'t hold it as text');
   st.set('q-new'); ok(st.get() === 'q-new', 'I a new one reads back');
   st.clear(); ok(st.get() === '' && !fs.existsSync(sealed), 'I clearing removes it');
+}
+
+// K. The browser's sign-ins: not under Playwright's stand-in keychain.
+{
+  const collector = fs.readFileSync(path.join(PROJ, '05-playwright-draft.js'), 'utf8');
+  ok(/ignoreDefaultArgs: \['--use-mock-keychain'\]/.test(collector), 'K the browser is started without --use-mock-keychain');
+  const launches = collector.match(/launchPersistentContext\(PROFILE_DIR, (\{\s*\.\.\.BROWSER|options\))/g) || [];
+  ok(launches.length === (collector.match(/launchPersistentContext\(/g) || []).length, 'K every launch with the profile starts from BROWSER');
+  ok(/const launchOptions = \{\s*\.\.\.BROWSER/.test(collector), 'K the check\'s own options too');
 }
 
 // J. The real thing, where this machine has it.
