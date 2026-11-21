@@ -133,6 +133,20 @@ ok(S.read().aiOpenaiKey === 'sk-by-hand' && !('aiOpenaiKey' in raw()) && stored(
   ok(/const launchOptions = \{\s*\.\.\.BROWSER/.test(collector), 'K the check\'s own options too');
 }
 
+// L. The settings panel shows a stand-in for a saved key, never the key
+// (the page is a file on disk); sending the stand-in back keeps the key.
+{
+  S.write('canvasToken', 'tok~keep-me');
+  const mark = secrets.SAVED_MARK;
+  let r2 = S.applyBatch(T.enc({ canvasToken: mark, language: 'en' }));
+  ok(r2.ok && S.read().canvasToken === 'tok~keep-me' && !r2.changed.includes('canvasToken'), 'L the stand-in sent back changes nothing', JSON.stringify(r2));
+  ok(S.previewBatch(T.enc({ canvasToken: mark })).next.canvasToken === 'tok~keep-me', 'L and testing before saving uses the real key');
+  r2 = S.applyBatch(T.enc({ canvasToken: mark + 'abc' }));
+  ok(r2.rejected.length === 1 && S.read().canvasToken === 'tok~keep-me', 'L typing after the dots is refused, not saved', JSON.stringify(r2));
+  S.applyBatch(T.enc({ canvasToken: '' }));
+  ok(!S.read().canvasToken, 'L emptying the box removes it');
+}
+
 // J. The real thing, where this machine has it.
 if (process.platform === 'win32') {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cd-dpapi-')), 'secrets.dat');

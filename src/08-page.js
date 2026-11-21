@@ -16,6 +16,7 @@ const { t, locale, currentLanguage, pluralizeRu, DICTIONARIES } = require('./18-
 const crypto = require('crypto');
 const makeDashRender = require('./55-dash-render.js');
 const { read: readSettings, appliedFetchSettings, pendingFetchKeys } = require('./19-settings.js');
+const secrets = require('./16-secrets.js');
 const path = require('path');
 const { PROJECT_ROOT } = require('./00-project-root.js');
 // The API's token/fingerprint aren't settings — nothing here writes
@@ -1654,9 +1655,15 @@ function settingsPanel() {
   const apiToken = currentToken();
   const apiFingerprint = certFingerprint();
   const field = (key, label, value, hint, sensitive) => {
+    // A saved key is never written into the page, which is also a file on
+    // disk: its box holds a stand-in (16-secrets.js SAVED_MARK).
+    // Clicking into it selects the stand-in, so what's typed or pasted
+    // replaces it instead of being added on.
+    const saved = secrets.KEYS.includes(key) && !!String(value || '').trim();
+    if (saved) value = secrets.SAVED_MARK;
     const input = sensitive
       ? `<span class="field-with-toggle">
-          <input type="password" data-key="${key}" value="${escapeHtml(value)}">
+          <input type="password" data-key="${key}" value="${escapeHtml(value)}"${saved ? ' data-saved-key="1" onfocus="this.select()"' : ''}>
           <button type="button" class="reveal-btn" onclick="toggleReveal(this)" title="${escapeHtml(t('settingsReveal'))}">👁</button>
         </span>`
       : `<input type="text" data-key="${key}" value="${escapeHtml(value)}">`;

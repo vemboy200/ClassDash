@@ -238,6 +238,8 @@ const load = (settings) => {
   ok(r.status === 0, 'G redraw ok ' + (r.stderr || ''));
   const html = fs.readFileSync('summary.html', 'utf8');
   ok(/<input type="password" data-key="canvasToken"/.test(html), 'G token box is masked like a password');
+  ok(!html.includes('PAGETOKEN~9') && !fs.readFileSync('page-shell.html', 'utf8').includes('PAGETOKEN~9'), 'G the token itself is nowhere in the saved pages');
+  ok(/data-key="canvasToken" value="\u2022{16}" data-saved-key="1"/.test(html), 'G its box holds the stand-in instead');
   ok(/Canvas access token/.test(html) || /Токен доступа Canvas/.test(html), 'G labelled');
   ok(!/id="pending-banner"/.test(html), 'G no pending banner when applied');
 

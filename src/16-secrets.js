@@ -41,6 +41,12 @@ const ACCOUNT = 'settings';
 const PLAIN_FILE = path.join(PROJECT_ROOT, 'secrets.json');
 const PROTECTED_FILE = path.join(PROJECT_ROOT, 'secrets.dat');
 
+// What the settings panel shows in a saved key's box instead of the key: the
+// page is also a file on disk (summary.html), so the key itself never goes
+// in it. A save that sends this back means "unchanged" (planBatch in
+// 19-settings.js); an emptied box removes the key.
+const SAVED_MARK = '\u2022'.repeat(16);
+
 const fingerprint = v => {
   const t = String(v || '').trim();
   return t ? crypto.createHash('sha256').update(t).digest('hex').slice(0, 16) : '';
@@ -184,6 +190,6 @@ function save(saved, changes) {
 }
 
 module.exports = {
-  KEYS, SERVICE, load, save, fingerprint, store, keychainStore, protectedFile, protectedFileStore, plainFileStore, dpapi,
+  KEYS, SERVICE, SAVED_MARK, load, save, fingerprint, store, keychainStore, protectedFile, protectedFileStore, plainFileStore, dpapi,
   _setStore(s) { storeOverride = s; cache = null; },
 };

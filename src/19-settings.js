@@ -628,6 +628,9 @@ function validate(key, raw) {
     // whole sentence of instructions, say), and sending that as a header
     // would just fail in a confusing way later.
     const t = String(raw).trim();
+    // The settings panel's stand-in for a saved key (16-secrets.js), with
+    // something typed after it: never a real key.
+    if (t.includes('\u2022')) return { ok: false, why: 'type or paste the whole new key in place of the dots' };
     if (/\s/.test(t)) return { ok: false, why: 'a token has no spaces or line breaks — paste just the token' };
     return { ok: true, value: t };
   }
@@ -879,6 +882,8 @@ function planBatch(chunk) {
   const values = {};
 
   for (const [key, value] of Object.entries(parsed)) {
+    // A saved key's box sent back as it was drawn: the key stays as it is.
+    if (secrets.KEYS.includes(key) && value === secrets.SAVED_MARK) continue;
     const v = validate(key, value);
     if (!v.ok) { rejected.push(`${key}: ${v.why}`); continue; }
     accepted.push(key);
